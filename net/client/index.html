@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Quake Golf net skeleton</title>
+<link rel="icon" href="data:,">
+<pre id="log">starting…</pre>
+<script type="module">
+  // The Chrome client (on this page) plus `bots` more spread over workers,
+  // all against the relay at ?url=, pinned by ?hash=.
+  import { runBot, b64ToBytes } from '../bot.mjs';
+  import { parseImpair } from '../impair.js';
+  import { wasmPrefix } from '../wire.mjs';
+
+  const p = new URLSearchParams(location.search);
+  const url = p.get('url');
+  const hash = p.get('hash');
+  const bots = Number(p.get('bots') || 0);
+  const workers = Math.max(1, Number(p.get('workers') || 4));
+  const durationMs = Number(p.get('duration') || 10) * 1000;
+  const impair = parseImpair(p.get('impair'));
+  const log = document.getElementById('log');
+
+  async function main() {
+    const prefix = await wasmPrefix(await (await fetch('/build/game.wasm')).arrayBuffer());
+    const jobs = [];
+    const per = Math.ceil(bots / workers);
+    for (let w = 0, seed = 100; w * per < bots; w++, seed += per) {
+      const count = Math.min(per, bots - w * per);
+      const worker = new Worker(new URL('./bots.mjs', import.meta.url), { type: 'module' });
+      jobs.push(new Promise((ok, fail) => {
+        worker.onmessage = (e) => (e.data.error ? fail(new Error(e.data.error)) : ok(e.data.results));
+        worker.onerror = (e) => fail(new Error(e.message));
+      }));
+      worker.postMessage({ url, hash, count, seed, durationMs, impair, prefix });
+    }
+    let readyAt = null;
+    const client = runBot({
+      url, certHash: b64ToBytes(hash), wasmPrefix: prefix, seed: 1, durationMs, impair,
+      onReady: (welcome, max) => { readyAt = performance.now(); log.textContent = `slot ${welcome.slot}, maxDatagramSize ${max}`; },
+    });
+    window.qgImpair = (o) => console.log('impair is set per run in M0', o);
+    const [me, ...rest] = await Promise.all([client, ...jobs]);
+    return { client: me, bots: rest.flat(), readyAt };
+  }
+
+  main().then((r) => { window.__m0 = r; }, (e) => { window.__m0 = { error: String(e?.stack || e) }; });
+</script>

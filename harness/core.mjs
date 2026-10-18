@@ -27,20 +27,22 @@ export function parseLog(bytes) {
   };
 }
 
-// Trace (.qgh): 64 B header, then u64 per tick, u64 per interval, 128 u64 slice digests per interval.
+// Trace (.qgh): 128 B header (tag at 32..127), then u64 per tick, u64 per interval,
+// 128 u64 slice digests per interval.
+const TH = 128;
 export function encodeTrace({ tag, ticks, tickHashes, intervalHashes, sliceDigests, terrainHash, logHash }) {
   const nInt = intervalHashes.length;
-  const buf = new Uint8Array(64 + 8 * (ticks + nInt + nInt * L.NSLICE));
+  const buf = new Uint8Array(TH + 8 * (ticks + nInt + nInt * L.NSLICE));
   const dv = new DataView(buf.buffer);
   buf.set([0x51, 0x47, 0x48, 0x31], 0); // QGH1
   dv.setUint32(4, ticks, true);
   dv.setUint32(8, nInt, true);
   dv.setBigUint64(16, terrainHash, true);
   dv.setBigUint64(24, logHash, true);
-  buf.set(new TextEncoder().encode(tag.slice(0, 32)), 32);
-  new BigUint64Array(buf.buffer, 64, ticks).set(tickHashes.subarray(0, ticks));
-  new BigUint64Array(buf.buffer, 64 + 8 * ticks, nInt).set(intervalHashes);
-  new BigUint64Array(buf.buffer, 64 + 8 * (ticks + nInt), nInt * L.NSLICE).set(sliceDigests);
+  buf.set(new TextEncoder().encode(tag).subarray(0, TH - 32), 32);
+  new BigUint64Array(buf.buffer, TH, ticks).set(tickHashes.subarray(0, ticks));
+  new BigUint64Array(buf.buffer, TH + 8 * ticks, nInt).set(intervalHashes);
+  new BigUint64Array(buf.buffer, TH + 8 * (ticks + nInt), nInt * L.NSLICE).set(sliceDigests);
   return buf;
 }
 
@@ -49,14 +51,14 @@ export function decodeTrace(bytes) {
   const dv = new DataView(buf);
   const ticks = dv.getUint32(4, true);
   const nInt = dv.getUint32(8, true);
-  const tag = new TextDecoder().decode(new Uint8Array(buf, 32, 32)).replace(/\0+$/, '');
+  const tag = new TextDecoder().decode(new Uint8Array(buf, 32, TH - 32)).replace(/\0+$/, '');
   return {
     tag, ticks, nInt,
     terrainHash: dv.getBigUint64(16, true),
     logHash: dv.getBigUint64(24, true),
-    tickHashes: new BigUint64Array(buf, 64, ticks),
-    intervalHashes: new BigUint64Array(buf, 64 + 8 * ticks, nInt),
-    sliceDigests: new BigUint64Array(buf, 64 + 8 * (ticks + nInt), nInt * L.NSLICE),
+    tickHashes: new BigUint64Array(buf, TH, ticks),
+    intervalHashes: new BigUint64Array(buf, TH + 8 * ticks, nInt),
+    sliceDigests: new BigUint64Array(buf, TH + 8 * (ticks + nInt), nInt * L.NSLICE),
   };
 }
 

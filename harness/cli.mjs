@@ -19,4 +19,5 @@ export const DEFAULTS = {
   salt: 0,
   out: '',
   tag: '',
+  flags: '',
 };
