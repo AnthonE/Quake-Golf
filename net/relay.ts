@@ -368,7 +368,9 @@ async function session(incoming: Deno.QuicIncoming) {
     return;
   }
   const maxDatagram = wt.datagrams.maxDatagramSize;
-  try { (wt.datagrams as unknown as { outgoingMaxAge: number }).outgoingMaxAge = 2 * W.TICK_MS; } catch { /* optional */ }
+  // A bundle stale by a few ticks still carries ticks its client needs (after a
+  // stall here, the catch-up burst is paced out): drop only what a repair would beat.
+  try { (wt.datagrams as unknown as { outgoingMaxAge: number }).outgoingMaxAge = 8 * W.TICK_MS; } catch { /* optional */ }
   try { (wt.datagrams as unknown as { incomingHighWaterMark: number }).incomingHighWaterMark = 256; } catch { /* optional */ }
   stats.serverMaxDatagram.push(maxDatagram);
   stats.clientMaxDatagram.push(hello!.maxDatagram);
