@@ -138,7 +138,7 @@ int main(void) {
   match_start(&match, (uint32_t)now.QuadPart | 1u, grab);
   const LONGLONG step = freq.QuadPart / 125;
   LONGLONG next = now.QuadPart;
-  int mode = TITLE, cursor = 0;
+  int mode = TITLE, cursor = 0, me = 0; // me: the controller that plays online
   uint32_t prev = 0;
   const char *error = 0;
   char status[96];
@@ -191,7 +191,11 @@ int main(void) {
         if (edge & (BTN_A | BTN_B | BTN_START)) mode = TITLE;
       } else if (edge & BTN_Y) { mode = EDIT; cursor = (int)strlen(server); }
       else if (edge & (BTN_A | BTN_START)) { mode = LOCAL; error = 0; prev |= BTN_A | BTN_START; }
-      else if (edge & BTN_X) { mode = CONNECTING; error = 0; }
+      else if (edge & BTN_X) {
+        for (me = 0; me < LOCAL_MAX - 1 && !(pads[me].buttons & BTN_X); me++) {}
+        mode = CONNECTING;
+        error = 0;
+      }
       continue;
     }
 
@@ -211,7 +215,7 @@ int main(void) {
 
     if (mode == ONLINE) {
       // Back and Start together leave
-      if ((pads[0].buttons & (BTN_BACK | BTN_START)) == (BTN_BACK | BTN_START) || online.state == ON_FAILED) {
+      if ((pads[me].buttons & (BTN_BACK | BTN_START)) == (BTN_BACK | BTN_START) || online.state == ON_FAILED) {
         error = online.state == ON_FAILED ? online.error : 0;
         online_leave(&online);
         match_start(&match, (uint32_t)now.QuadPart | 1u, grab);
@@ -220,9 +224,9 @@ int main(void) {
         continue;
       }
       // twice a frame: datagrams, the stream, inputs, then the confirmed world
-      online_poll(&online, &match.p[0], &pads[0], 6);
+      online_poll(&online, &match.p[0], &pads[me], 6);
       match.netSlot = online.slot;
-      int n = online_predict(&online, &match.p[0], &pads[0]);
+      int n = online_predict(&online, &match.p[0], &pads[me]);
       match.netPred = n > 0;
       if (online.state == ON_PLAYING) match.status = 0;
       else {
@@ -230,7 +234,7 @@ int main(void) {
         match.status = status;
       }
       match_render(&match, frame, W, W, H);
-      online_poll(&online, &match.p[0], &pads[0], 6);
+      online_poll(&online, &match.p[0], &pads[me], 6);
       present();
       continue;
     }
@@ -242,9 +246,12 @@ int main(void) {
     match.status = 0;
     match_render(&match, frame, W, W, H);
     present();
-    if ((pads[0].buttons & (BTN_BACK | BTN_START)) == (BTN_BACK | BTN_START)) {
+    // Back and Start together, on any controller, back to the title
+    for (int k = 0; k < LOCAL_MAX; k++) {
+      if ((pads[k].buttons & (BTN_BACK | BTN_START)) != (BTN_BACK | BTN_START)) continue;
       match_start(&match, (uint32_t)now.QuadPart | 1u, grab);
       mode = TITLE;
+      break;
     }
   }
 }
