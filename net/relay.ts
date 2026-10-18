@@ -10,9 +10,11 @@
 // differs from the referee's, a hole too old to repair, or a client far
 // behind gets a resync from a keyframe. A room that empties starts over on a new seed.
 //
-//   .tools/deno run --unstable-net -A net/relay.ts [--port 4433] [--duration 70] [--cc low-latency|default] [--seed N] [--host 127.0.0.1]
+//   .tools/deno run --unstable-net -A net/relay.ts [--port 4433] [--native-port 4434] [--duration 70] [--cc low-latency|default] [--seed N] [--host 127.0.0.1]
 // Clients are Chrome (net/run-m0.mjs hosts the bots there): Deno's WebTransport
-// client always binds an IPv6 socket, which hosts without IPv6 refuse.
+// client always binds an IPv6 socket, which hosts without IPv6 refuse. Native
+// clients (the Xbox) come in on --native-port instead: the same session over a
+// TCP connection for the stream and UDP for the datagrams (net/wire.mjs).
 import * as W from './wire.mjs';
 import { recordLog } from './inbox.mjs';
 
@@ -33,6 +35,7 @@ const log = (...a: unknown[]) => { if (verbose) console.error(`[relay ${((perfor
 // a fixed course for every room, else a random one each time a room starts
 const seedArg = opt('seed', '');
 const hostname = opt('host', '127.0.0.1');
+const nativePort = Number(opt('native-port', '4434')); // 0: no native door
 const newSeed = () => (seedArg ? Number(seedArg) >>> 0 : crypto.getRandomValues(new Uint32Array(1))[0]);
 // where the run summary goes; stdout by default (V8 traces share stdout, so runners pass a file)
 const summaryPath = opt('summary', '');
@@ -49,6 +52,14 @@ type Slot = {
   // ticks from fromTick on reach this client by bundle or repair (before it, by its last fill)
   fromTick: number; repairTick: Int32Array; repairAt: Float64Array;
   keys: number; syncing: boolean; lastSync: number; lastDesync: number; lastReport: number; reports: Map<number, bigint>;
+  token: number; // a native session's, 0 for WebTransport
+};
+// How a session reaches its client: its stream (read and write) and its datagrams.
+type Door = {
+  sr: ReturnType<typeof W.bufferedReader>; sw: WritableStreamDefaultWriter<Uint8Array>;
+  datagrams: { write(b: Uint8Array): Promise<unknown> }; close: () => void;
+  maxDatagram: number; // 0: whatever the client's hello says, up to W.MAX_DATAGRAM
+  token: number;
 };
 
 const E = performance.now();
@@ -347,15 +358,12 @@ function pump() {
   else channel.port2.postMessage(0);
 }
 
-async function session(incoming: Deno.QuicIncoming) {
-  const conn = await incoming.accept();
-  const wt = await Deno.upgradeWebTransport(conn);
-  await wt.ready;
-  const { value: stream } = await wt.incomingBidirectionalStreams.getReader().read();
-  if (!stream) return;
-  const sr = W.bufferedReader(stream.readable.getReader());
-  const sw = stream.writable.getWriter();
-  const hello = W.decodeHello(await sr.read(24));
+// A session from its hello on: the slot, the welcome, the join's keyframe,
+// then the stream's requests (pings, and resyncs for a hole too old to repair
+// or a client far behind, at most one a second) until it ends. Returns the
+// slot, with a leave(why) that schedules the leave, or null if it was refused.
+async function admit(d: Door) {
+  const hello = W.decodeHello(await d.sr.read(24));
   const p = freeSlot();
   let reason = 0;
   if (!hello || hello.proto !== W.PROTO) reason = W.REJECT.PROTO;
@@ -363,53 +371,67 @@ async function session(incoming: Deno.QuicIncoming) {
   else if (p < 0) reason = W.REJECT.FULL;
   if (reason) {
     stats.rejected++;
-    await sw.write(W.encodeReject(reason));
-    await sw.close();
-    return;
+    await d.sw.write(W.encodeReject(reason)).catch(() => {});
+    await d.sw.close().catch(() => {});
+    return null;
   }
-  const maxDatagram = wt.datagrams.maxDatagramSize;
-  // A bundle stale by a few ticks still carries ticks its client needs (after a
-  // stall here, the catch-up burst is paced out): drop only what a repair would beat.
-  try { (wt.datagrams as unknown as { outgoingMaxAge: number }).outgoingMaxAge = 8 * W.TICK_MS; } catch { /* optional */ }
-  try { (wt.datagrams as unknown as { incomingHighWaterMark: number }).incomingHighWaterMark = 256; } catch { /* optional */ }
+  const maxDatagram = d.maxDatagram || Math.min(W.MAX_DATAGRAM, hello!.maxDatagram);
   stats.serverMaxDatagram.push(maxDatagram);
   stats.clientMaxDatagram.push(hello!.maxDatagram);
   const joinTick = scheduleEvent(p, W.EV_JOIN, closed + 1 + 4);
   if (roomStart < 0) startRoom(joinTick);
   const s: Slot = {
-    slot: p, joinTick, leaveTick: Infinity, writer: wt.datagrams.writable.getWriter(), ctl: sw, maxDatagram,
-    last: 0, missing: 0, late: 0, lastSlack: 0, periodSlack: Infinity, contig: joinTick - 1, lastRecv: performance.now(), pendingLate: 0, close: () => wt.close(),
+    slot: p, joinTick, leaveTick: Infinity, writer: d.datagrams as WritableStreamDefaultWriter<Uint8Array>, ctl: d.sw, maxDatagram,
+    last: 0, missing: 0, late: 0, lastSlack: 0, periodSlack: Infinity, contig: joinTick - 1, lastRecv: performance.now(), pendingLate: 0, close: d.close,
     words: new Uint32Array(W.RING), wordTick: new Int32Array(W.RING).fill(-1), arrival: new Float64Array(W.RING),
     fromTick: Infinity, repairTick: new Int32Array(W.RING).fill(-1), repairAt: new Float64Array(W.RING),
-    keys: 0, syncing: false, lastSync: -1e9, lastDesync: -1e9, lastReport: -1, reports: new Map(),
+    keys: 0, syncing: false, lastSync: -1e9, lastDesync: -1e9, lastReport: -1, reports: new Map(), token: d.token,
   };
   slots[p] = s;
   stats.sessions++;
-  await sw.write(W.encodeWelcome({ slot: p, maxDatagram, joinTick, seed: roomSeed, serverTick: closed + 1, roomStart }));
-  log(`slot ${p} joins at ${joinTick}, room ${roomStart}`);
+  await d.sw.write(W.encodeWelcome({ slot: p, maxDatagram, joinTick, seed: roomSeed, serverTick: closed + 1, roomStart, token: d.token }));
+  log(`slot ${p} joins at ${joinTick}, room ${roomStart}${d.token ? ' (native)' : ''}`);
   sendKey(s, W.SYNC.JOIN);
   const leave = (why: string) => {
     if (s.leaveTick !== Infinity) return;
     stats.leaves[why] = (stats.leaves[why] || 0) + 1;
     stats.leaveAt.push(Number(((performance.now() - E) / 1000).toFixed(2)));
     s.leaveTick = scheduleEvent(p, W.EV_LEAVE, Math.max(closed + 1, s.joinTick));
+    if (s.token) natives.delete(s.token);
     // the slot is gone at leaveTick, so end the session too rather than leave it open and silent
     try { s.close(); } catch { /* already closed */ }
   };
-  wt.closed.then((i) => leave('closed:' + JSON.stringify(i)), (e) => leave('closed-error:' + String(e)));
-  // Requests on the control stream: pings, and resyncs for a hole too old to
-  // repair or a client far behind (at most one a second). Deno doesn't settle
-  // wt.closed when Chrome closes the session, but this stream ends: the
-  // client closes it on the way out.
   (async () => {
     for (;;) {
-      const buf = await sr.read(16);
+      const buf = await d.sr.read(16);
       if (buf.length < 16) break;
       const m = W.decodeClient(buf);
       if (m?.type === W.T_PING) { stats.pongs++; s.ctl.write(W.encodePong(m.nonce, (performance.now() - E) / W.TICK_MS)).catch(() => {}); }
       if (m?.type === W.T_SYNC && performance.now() - s.lastSync > 1000) sendKey(s, m.reason);
     }
   })().then(() => leave('stream-end'), () => leave('stream-error'));
+  return { s, leave };
+}
+
+async function session(incoming: Deno.QuicIncoming) {
+  const conn = await incoming.accept();
+  const wt = await Deno.upgradeWebTransport(conn);
+  await wt.ready;
+  const { value: stream } = await wt.incomingBidirectionalStreams.getReader().read();
+  if (!stream) return;
+  // A bundle stale by a few ticks still carries ticks its client needs (after a
+  // stall here, the catch-up burst is paced out): drop only what a repair would beat.
+  try { (wt.datagrams as unknown as { outgoingMaxAge: number }).outgoingMaxAge = 8 * W.TICK_MS; } catch { /* optional */ }
+  try { (wt.datagrams as unknown as { incomingHighWaterMark: number }).incomingHighWaterMark = 256; } catch { /* optional */ }
+  const joined = await admit({
+    sr: W.bufferedReader(stream.readable.getReader()), sw: stream.writable.getWriter(), datagrams: wt.datagrams.writable.getWriter(),
+    close: () => wt.close(), maxDatagram: wt.datagrams.maxDatagramSize, token: 0,
+  });
+  if (!joined) return;
+  const { s, leave } = joined;
+  // Deno doesn't settle wt.closed when Chrome closes the session, but the
+  // stream ends: the client closes it on the way out.
+  wt.closed.then((i) => leave('closed:' + JSON.stringify(i)), (e) => leave('closed-error:' + String(e)));
   const dr = wt.datagrams.readable.getReader();
   try {
     for (;;) {
@@ -419,6 +441,38 @@ async function session(incoming: Deno.QuicIncoming) {
     }
   } catch (e) { leave('read-error:' + String(e)); }
   leave('read-end');
+}
+
+// The native door: a TCP connection per session for the stream, one UDP socket
+// for every session's datagrams. A client's datagram carries its token; the
+// address it came from is where that session's bundles go.
+const natives = new Map<number, { s: Slot | null; addr: Deno.NetAddr | null }>();
+let udp: Deno.DatagramConn | null = null;
+async function nativeSession(conn: Deno.TcpConn) {
+  conn.setNoDelay(true);
+  let token = 0;
+  while (!token || natives.has(token)) token = crypto.getRandomValues(new Uint32Array(1))[0];
+  const route: { s: Slot | null; addr: Deno.NetAddr | null } = { s: null, addr: null };
+  natives.set(token, route);
+  const joined = await admit({
+    sr: W.bufferedReader(conn.readable.getReader()), sw: conn.writable.getWriter(),
+    datagrams: { write: (b: Uint8Array) => (route.addr && udp ? udp.send(b, route.addr) : Promise.resolve(0)) },
+    close: () => { try { conn.close(); } catch { /* gone */ } }, maxDatagram: 0, token,
+  }).catch(() => null);
+  if (!joined) { natives.delete(token); try { conn.close(); } catch { /* gone */ } return; }
+  route.s = joined.s;
+}
+async function nativeDatagrams(sock: Deno.DatagramConn) {
+  for (;;) {
+    let got: [Uint8Array, Deno.Addr];
+    try { got = await sock.receive(); } catch { return; }
+    const [buf, addr] = got;
+    if (buf.length < 4) continue;
+    const n = natives.get(new DataView(buf.buffer, buf.byteOffset, 4).getUint32(0, true));
+    if (!n?.s || slots[n.s.slot] !== n.s) continue;
+    n.addr = addr as Deno.NetAddr;
+    onInput(n.s, buf.subarray(4), performance.now());
+  }
 }
 
 function summary() {
@@ -451,8 +505,14 @@ function summary() {
 const endpoint = new Deno.QuicEndpoint({ hostname, port });
 const listener = endpoint.listen({ cert, key, alpnProtocols: ['h3'], congestionControl: cc });
 (async () => { for await (const incoming of listener) session(incoming).catch(() => {}); })();
+if (nativePort) {
+  udp = Deno.listenDatagram({ hostname, port: nativePort, transport: 'udp' });
+  nativeDatagrams(udp);
+  const tcp = Deno.listen({ hostname, port: nativePort, transport: 'tcp' });
+  (async () => { for await (const conn of tcp) nativeSession(conn).catch(() => {}); })();
+}
 pump();
-if (!quiet) console.error(`relay listening on https://${hostname}:${port}/ (${cc}), tick ${W.TICK_MS} ms`);
+if (!quiet) console.error(`relay listening on https://${hostname}:${port}/ (${cc})${nativePort ? `, native clients on ${hostname}:${nativePort} (TCP and UDP)` : ''}, tick ${W.TICK_MS} ms`);
 
 async function finish() {
   const text = JSON.stringify(summary());
