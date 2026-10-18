@@ -70,3 +70,23 @@ test('a stamped copy of a shared body equals a bundle encoded for that recipient
   assert.deepEqual([...stamped], [...W.encodeBundle({ T: 41, rows, events, inAck: 39, slack: -2.25, late: 7 })]);
   assert.equal(body[body.length - 2], 0, 'the shared body is untouched');
 });
+
+test('the welcome carries the room start; needs and fills round-trip', () => {
+  const w = W.decodeWelcome(W.encodeWelcome({ slot: 1, maxDatagram: 1200, joinTick: 900, seed: 0xdeadbeef, serverTick: 896, roomStart: 512 }));
+  assert.equal(w.roomStart, 512);
+  assert.equal(w.seed, 0xdeadbeef);
+  assert.deepEqual(W.decodeNeed(W.encodeNeed(512, 896)), { from: 512, to: 896 });
+  const ticks = [
+    W.encodeTick([{ slot: 0, kind: W.EV_JOIN }], [[0, 0xffffffff]]),
+    W.encodeTick([], [[0, 7], [5, 0]]),
+    W.encodeTick([{ slot: 5, kind: W.EV_LEAVE }], []),
+  ];
+  const buf = W.encodeFill(512, ticks);
+  const head = W.decodeFillHead(buf);
+  assert.deepEqual(head, { from: 512, n: 3, bytes: buf.length - 16 });
+  assert.deepEqual(W.decodeFillBody(head.from, head.n, buf.subarray(16)), [
+    { tick: 512, events: [{ slot: 0, kind: W.EV_JOIN }], words: [[0, 0xffffffff]] },
+    { tick: 513, events: [], words: [[0, 7], [5, 0]] },
+    { tick: 514, events: [{ slot: 5, kind: W.EV_LEAVE }], words: [] },
+  ]);
+});

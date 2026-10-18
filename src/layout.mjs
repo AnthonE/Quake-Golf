@@ -82,7 +82,27 @@ export const CELLOF = 0x209000; // u16[BALL_CAP]
 export const TERRAIN_H = 0x220000; // u16[512 * 512], 1/256 m
 export const TERRAIN_S = 0x2a0000; // u8[512 * 512] surface type
 export const TERRAIN_END = 0x2e0000;
-export const NET = 0x2e0000; // M0 rings
+export const NET = 0x2e0000; // the client's threads talk here; init never clears it
+
+// The client's shared slots (main thread, net worker, sim worker, bot).
+// Input, written by the main thread or a bot, sampled by the net worker every tick:
+export const CL_MOVE = NET + 0; // u32 move bits (forward 1, back 2, left 4, right 8) | jump 16
+export const CL_YAW = NET + 4; // u32, 1/16384 turn
+export const CL_PITCH = NET + 8; // u32, 10 bits, 512 level
+export const CL_PRESSES = NET + 12; // u32 shots asked for; the word's counter follows it a step a tick
+export const CL_WEAPON = NET + 16; // u32 0 rocket, 1 grenade
+// Session, written by the net worker:
+export const CL_SLOT = NET + 32; // i32, -1 until the welcome
+export const CL_ROOM = NET + 36; // u32 server tick of sim tick 0
+export const CL_LEAD = NET + 40; // f32 ticks of input lead
+export const CL_PING = NET + 44; // f32 ms, bundle slack seen by the relay (negative = late)
+export const CL_PLAY = NET + 48; // f64 server tick, f64 epoch ms: the playout clock P(now) = tick + (now - epoch) / 8
+// Sim, written by the sim worker:
+export const CL_STATE = NET + 64; // u32 0 connecting, 1 catching up, 2 playing, 3 failed
+export const CL_SEQ = NET + 68; // u32, odd while the sim worker is stepping
+export const CL_QUEUED = NET + 72; // u32 ticks received, not yet stepped
+export const CL_FILLS = NET + 76; // u32 fill requests sent: the history, then one per hole
+export const PLAY_DELAY = 3; // ticks of playout buffer past the earliest bundle arrival
 
 export const BALL_CAP = 16384;
 export const NCELL = 16384; // 32 x 16 x 32 modular grid: 27 neighbours never alias

@@ -12,18 +12,38 @@ Target: the newest Chrome; the server is Deno.
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| M2 · first hole | a full hole plays end to end, two players over the real server | **passed** · [results](#m2-the-first-hole) |
 | M1 · determinism harness | zero hash mismatches over 1M ticks | **passed** · [results](#results) |
 | M0 · net skeleton | a 64-player bundle fits one datagram | **passed** · [results](#results) |
+
+## Play it
+
+```sh
+npm ci && sh tools/install-deno.sh   # once
+node net/play.mjs                    # the relay and the page; open the URL it prints in two Chrome tabs
+```
+
+Click to play. The mouse aims, WASD runs, Space jumps, left click fires, 1/2
+or right click picks the rocket or the grenade, Tab shows scores, F goes
+fullscreen. Every shot is a stroke. The rocket is the club: a blast just
+behind your ball drives it 200+ m with loft, one 4 m back rolls it a few
+metres, and the cup is a slipgate that swallows any ball under 8 m/s. The
+grenade bounces and pops after 2.5 s, for lobs. A rocket at your own feet is
+a rocket jump (and a stroke). Holes last 4 minutes; not finishing costs 2.
+Your own movement shows one round trip late until M3's prediction layer;
+aiming is instant.
 
 ## Run it
 
 ```sh
 npm ci && sh tools/install-deno.sh     # wabt, binaryen, Deno 2.9.7 into .tools/
 npm run build                          # src/*.wat -> build/game.wasm
-npm test                               # assembler, XXH64, sim, splits, keyframes, threads, wire
+npm test                               # assembler, XXH64, sim, gameplay, splits, keyframes, threads, wire
 node harness/matrix.mjs --ticks 20000  # Node, Deno, Chrome x Liftoff/TurboFan x 1/2/4 threads
+node tools/gengame.mjs --bots 4 --out logs/game.qgl && node harness/matrix.mjs --ticks 20000 --log logs/game.qgl
 node harness/perf.mjs                  # per-phase cost at 10,000 balls
 node net/run-m0.mjs --bots 63 --duration 60 [--impair delay=40,jitter=10,loss=0.05]
+node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played Chrome clients, one hole
 ```
 
 ## How it fits together
@@ -41,9 +61,27 @@ node net/run-m0.mjs --bots 63 --duration 60 [--impair delay=40,jitter=10,loss=0.
 - `harness/` replays one event log in Node, Deno and a Chrome worker and
   records a hash of the whole region every tick. `tools/compare.mjs` names the
   first tick that differs and which slice and field it was in.
-- `net/relay.ts` is the M0 relay: one isolate owns the QUIC sessions, an 8 ms
+- `net/relay.ts` is the relay: one isolate owns the QUIC sessions, an 8 ms
   clock from a fixed epoch, and the bundles (four ticks every second tick, with
-  a per-recipient trailer). Bots are WebTransport sessions in Chrome workers.
+  a per-recipient trailer). It also records every closed tick from the room's
+  start, and answers fill requests from that record on the control stream: a
+  joiner's whole history (M3 replaces it with keyframes) and any tick lost on
+  the way (M3 replaces it with repair datagrams). An emptied room starts over
+  on a new seed.
+- Gameplay is in the sim too, all serial and in index order: `players.wat`
+  (Quake movement, shots on a shot-counter advance, pushes on other players'
+  balls), `weapons.wat` (rockets marched in half steps, bouncing grenades,
+  blasts on balls and players), `hole.wat` (the slipgate cup and the hole
+  clock) and `terrain.wat`, which lays out a hole per seed: tee, fairway,
+  rough, bunkers and a flattened green. Inputs, joins and leaves are inbox
+  records, so a match is an ordinary event log the harness replays.
+- `client/` is the browser game on three threads over one shared memory. The
+  net worker owns WebTransport and the clock and samples one input word a
+  tick; the sim worker steps confirmed ticks behind a 3-tick playout delay;
+  the main thread reads raw mouse and keys and draws with WebGPU straight
+  from shared memory: the terrain ray-marched per pixel at 320x200, bodies
+  as splats, a 3x5 HUD font. `?bot=1` hands the controls to `client/bot.mjs`,
+  which plans every shot on a private copy of the sim.
 
 ## Results
 

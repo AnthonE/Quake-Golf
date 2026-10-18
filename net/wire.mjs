@@ -1,6 +1,6 @@
-// Wire format v0, little-endian. Shared by the relay, the bots and the browser client.
+// Wire format v2, little-endian. Shared by the relay, the bots and the browser client.
 //
-// Input word (32 bits): yaw b0-13 | pitch b14-23 | move b24-27 | jump b28 | shot counter b29-30 | weapon b31
+// Input word (32 bits): yaw b0-13 | pitch b14-23 | move b24-27 (forward, back, left, right) | jump b28 | shot counter b29-30 | weapon b31
 //
 // Input datagram, client to server (16 + 4n B):
 //   0 u8 0x01 | 1 u8 n | 2 u16 seq | 4 u32 first_tick | 8 u32 ack_tick | 12 u32 ack_bits | 16 n x u32 words
@@ -13,14 +13,23 @@
 // Handshake on a client-opened bidirectional stream, which stays open for the
 // whole session; the client ending it means it has left:
 //   hello   (24 B): 0x10 | proto | u16 client max datagram | u8[8] sha-256(game.wasm) prefix | u32 room | u32 nonce | u32 0
-//   welcome (32 B): 0x11 | slot | u16 server max datagram | u32 join_tick | u32 seed | u32 server_tick | u32 tick_us | u8 send_every | u8 nb | u8 np | u8 0 | u64 0
+//   welcome (32 B): 0x11 | slot | u16 server max datagram | u32 join_tick | u32 seed | u32 server_tick | u32 tick_us | u8 send_every | u8 nb | u8 np | u8 0 | u32 room_start | u32 0
 //   reject  (4 B):  0x1f | reason (1 wasm mismatch, 2 room full, 3 protocol) | 0 | 0
+// The room's sim began at room_start with the seed; sim tick k is server tick
+// room_start + k. On the same stream the client asks for closed ticks it lacks
+// (the room's history when it joins, a hole later) and the relay answers from
+// its record:
+//   need (12 B):        0x12 | 0 | 0 | 0 | u32 from | u32 to (ticks [from, to))
+//   fill (16 B + body): 0x13 | 0 | 0 | 0 | u32 from | u32 n | u32 body bytes, then n ticks:
+//                       u8 ne | ne x (u8 slot, u8 kind) | u8 nw | nw x (u8 slot, u32 word), the active slots only
 
-export const PROTO = 1;
+export const PROTO = 2;
 export const T_INPUT = 0x01;
 export const T_BUNDLE = 0x02;
 export const T_HELLO = 0x10;
 export const T_WELCOME = 0x11;
+export const T_NEED = 0x12;
+export const T_FILL = 0x13;
 export const T_REJECT = 0x1f;
 export const REJECT = { WASM: 1, FULL: 2, PROTO: 3 };
 export const EV_JOIN = 1;
@@ -155,7 +164,7 @@ export function decodeHello(buf) {
   return { proto: dv.getUint8(1), maxDatagram: dv.getUint16(2, true), wasmPrefix: buf.slice(4, 12), room: dv.getUint32(12, true), nonce: dv.getUint32(16, true) };
 }
 
-export function encodeWelcome({ slot, maxDatagram, joinTick, seed, serverTick }) {
+export function encodeWelcome({ slot, maxDatagram, joinTick, seed, serverTick, roomStart = 0 }) {
   const buf = new Uint8Array(32);
   const dv = new DataView(buf.buffer);
   dv.setUint8(0, T_WELCOME);
@@ -168,6 +177,7 @@ export function encodeWelcome({ slot, maxDatagram, joinTick, seed, serverTick })
   dv.setUint8(20, SEND_EVERY);
   dv.setUint8(21, NB);
   dv.setUint8(22, NP);
+  dv.setUint32(24, roomStart, true);
   return buf;
 }
 
@@ -178,7 +188,71 @@ export function decodeWelcome(buf) {
   return {
     slot: dv.getUint8(1), maxDatagram: dv.getUint16(2, true), joinTick: dv.getUint32(4, true), seed: dv.getUint32(8, true),
     serverTick: dv.getUint32(12, true), tickUs: dv.getUint32(16, true), sendEvery: dv.getUint8(20), nb: dv.getUint8(21), np: dv.getUint8(22),
+    roomStart: dv.getUint32(24, true),
   };
+}
+
+export function encodeNeed(from, to) {
+  const buf = new Uint8Array(12);
+  const dv = new DataView(buf.buffer);
+  dv.setUint8(0, T_NEED);
+  dv.setUint32(4, from >>> 0, true);
+  dv.setUint32(8, to >>> 0, true);
+  return buf;
+}
+
+export function decodeNeed(buf) {
+  if (buf.length < 12 || buf[0] !== T_NEED) return null;
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return { from: dv.getUint32(4, true), to: dv.getUint32(8, true) };
+}
+
+// One closed tick as the record keeps it: events [{ slot, kind }], words [[slot, word]].
+export function encodeTick(events, words) {
+  const buf = new Uint8Array(2 + 2 * events.length + 5 * words.length);
+  const dv = new DataView(buf.buffer);
+  let o = 0;
+  buf[o++] = events.length;
+  for (const e of events) { buf[o++] = e.slot; buf[o++] = e.kind; }
+  buf[o++] = words.length;
+  for (const [slot, w] of words) { buf[o++] = slot; dv.setUint32(o, w >>> 0, true); o += 4; }
+  return buf;
+}
+
+export function encodeFill(from, ticks) {
+  const bytes = ticks.reduce((a, t) => a + t.length, 0);
+  const buf = new Uint8Array(16 + bytes);
+  const dv = new DataView(buf.buffer);
+  dv.setUint8(0, T_FILL);
+  dv.setUint32(4, from >>> 0, true);
+  dv.setUint32(8, ticks.length, true);
+  dv.setUint32(12, bytes, true);
+  let o = 16;
+  for (const t of ticks) { buf.set(t, o); o += t.length; }
+  return buf;
+}
+
+export function decodeFillHead(buf) {
+  if (buf.length < 16 || buf[0] !== T_FILL) return null;
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return { from: dv.getUint32(4, true), n: dv.getUint32(8, true), bytes: dv.getUint32(12, true) };
+}
+
+// The ticks of a fill body: [{ tick, events: [{ slot, kind }], words: [[slot, word]] }].
+export function decodeFillBody(from, n, body) {
+  const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  const out = [];
+  let o = 0;
+  for (let k = 0; k < n; k++) {
+    const events = [];
+    const words = [];
+    const ne = body[o++];
+    for (let i = 0; i < ne; i++) { events.push({ slot: body[o], kind: body[o + 1] }); o += 2; }
+    const nw = body[o++];
+    for (let i = 0; i < nw; i++) { words.push([body[o], dv.getUint32(o + 1, true)]); o += 5; }
+    out.push({ tick: from + k, events, words });
+  }
+  return out;
 }
 
 export const encodeReject = (reason) => new Uint8Array([T_REJECT, reason, 0, 0]);

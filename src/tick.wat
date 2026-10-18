@@ -93,7 +93,7 @@
 (func (export "init") (param $seed i32)
   (memory.fill (i32.const @INTERVAL_HASH) (i32.const 0) (i32.const @(INBOX_REC - INTERVAL_HASH)))
   (memory.fill (i32.const @FX) (i32.const 0) (i32.const @(FX_REC - FX + FX_MAX * 32)))
-  (memory.fill (i32.const @REGION) (i32.const 0) (i32.const @(PAGES * 65536 - REGION)))
+  (memory.fill (i32.const @REGION) (i32.const 0) (i32.const @(NET - REGION)))
   (i32.store (i32.const @HDR_SEED) (local.get $seed))
   (i32.store (i32.const @HDR_RNG)
     (select (i32.xor (local.get $seed) (i32.const 0x9e3779b9)) (i32.const 1)

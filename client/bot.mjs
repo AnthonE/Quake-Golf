@@ -54,10 +54,16 @@ export class Planner {
   }
 
   // Copies the confirmed region out of `src` (the shared memory's bytes).
-  load(src) {
+  // With `seq` (the client's i32 view), only between the sim worker's steps.
+  load(src, seq) {
     const seed = new DataView(src.buffer, src.byteOffset).getUint32(L.HDR_SEED, true);
     if (seed !== this.seed) { this.x.init(seed); this.seed = seed; }
-    this.snap.set(src.subarray(L.REGION, L.REGION + L.REGION_SIZE));
+    for (let k = 0; k < 1000; k++) {
+      const s0 = seq ? Atomics.load(seq, L.CL_SEQ >> 2) : 0;
+      if (s0 & 1) continue;
+      this.snap.set(src.subarray(L.REGION, L.REGION + L.REGION_SIZE));
+      if (!seq || Atomics.load(seq, L.CL_SEQ >> 2) === s0) return;
+    }
   }
 
   // Runs one shot by `slot` to its end: { sunk, end, ticks }.
@@ -89,14 +95,16 @@ export class Planner {
 
 export class GolfBot {
   // lag: ticks from deciding an input to seeing its effect in confirmed state
-  constructor(slot, planner, { lag = 6 } = {}) {
+  constructor(slot, planner, { lag = 6, seq = null } = {}) {
     this.slot = slot;
     this.planner = planner;
     this.lag = lag;
+    this.seq = seq;
     this.presses = 0; // shots asked for; the input's 2-bit counter is this mod 4
     this.input = { yaw: 0, pitch: 512, move: 0, jump: 0, weapon: 0 };
     this.plan = null; // { from, shot, score }
     this.firedAt = -1;
+    this.tapAt = -1;
     this.aimTicks = 0;
     this.log = [];
   }
@@ -121,21 +129,26 @@ export class GolfBot {
       this.plan = this.choose(view, ball.pos, h.cup);
       this.log.push({ tick: h.tick, from: ball.pos, dh: this.plan.shot.dh, turn: this.plan.shot.turn, expect: this.plan.score });
     }
-    const { stand, aim } = this.plan.shot;
-    // steer from where we will be when this input lands
-    const ahead = this.lag * 0.008;
-    const ex = stand[0] - (me.pos[0] + me.vel[0] * ahead), ez = stand[2] - (me.pos[2] + me.vel[2] * ahead);
+    const { stand } = this.plan.shot;
+    // Walk there. What we see is a round trip old, so: run while we'll still
+    // be more than 3.5 m short once the inputs in flight land, coast to a
+    // stop, then close the last metres in single taps, each one seen landing
+    // before the next.
+    const ex = stand[0] - me.pos[0], ez = stand[2] - me.pos[2];
     const away = Math.hypot(ex, ez);
+    const speed = Math.hypot(me.vel[0], me.vel[2]);
     if (away > 0.5 || !me.ground) {
-      // walk there, braking early: friction takes about 2 m to stop from a run
       this.aimTicks = 0;
-      if (away > 0.3) inp.yaw = aimAt(me.pos, [me.pos[0] + ex, me.pos[1], me.pos[2] + ez]).yaw;
       inp.pitch = 512;
-      const along = (me.vel[0] * ex + me.vel[2] * ez) / Math.max(away, 1e-3);
-      if (me.ground && along < Math.min(10, away * 2)) inp.move = 1;
+      const ahead = this.lag * 0.008;
+      const short = Math.hypot(ex - me.vel[0] * ahead, ez - me.vel[2] * ahead);
+      if (speed < 1 || short > 3.5) inp.yaw = aimAt(me.pos, stand).yaw;
+      if (!me.ground) return this.word();
+      if (short > 3.5) inp.move = 1;
+      else if (speed < 0.2 && h.tick - this.tapAt > this.lag + 2) { inp.move = 1; this.tapAt = h.tick; }
       return this.word();
     }
-    if (Math.hypot(me.vel[0], me.vel[2]) > 0.5) return this.word();
+    if (speed > 0.5) return this.word();
     // on the spot and still: aim from where we really stand, hold it, fire
     const a = aimAt([me.pos[0], me.pos[1] + EYE, me.pos[2]], this.plan.shot.bp);
     inp.yaw = a.yaw;
@@ -153,7 +166,7 @@ export class GolfBot {
   // a little, and keeps the one that ends nearest the cup on the best lie.
   choose(view, ball, cup) {
     const p = this.planner;
-    p.load(view.u8);
+    p.load(view.u8, this.seq);
     const rate = (shot) => {
       const r = p.try(this.slot, shot, cup);
       if (r.sunk) return -1000 + r.ticks / 100;
