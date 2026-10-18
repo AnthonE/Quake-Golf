@@ -7,33 +7,15 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { newMemory, instantiate, Sim } from '../harness/core.mjs';
+import { newMemory, instantiate, Sim, encodeLog } from '../harness/core.mjs';
+
+export { encodeLog };
 import { View } from '../src/view.mjs';
 import { GolfBot, Planner } from '../client/bot.mjs';
 import * as L from '../src/layout.mjs';
 import { isMain } from './main.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-
-export function encodeLog({ courseSeed, genSeed = 0, ticks, recs }) {
-  const buf = new Uint8Array(32 + recs.length * L.REC);
-  const dv = new DataView(buf.buffer);
-  buf.set([0x51, 0x47, 0x45, 0x4c], 0); // QGEL
-  dv.setUint16(4, 1, true);
-  dv.setUint16(6, L.REC, true);
-  dv.setUint32(8, courseSeed >>> 0, true);
-  dv.setUint32(12, genSeed >>> 0, true);
-  dv.setUint32(16, ticks, true);
-  dv.setUint32(20, recs.length, true);
-  recs.forEach(([t, kind, slot, word = 0], i) => {
-    const o = 32 + i * L.REC;
-    dv.setUint32(o, t, true);
-    dv.setUint8(o + 4, kind);
-    dv.setUint8(o + 5, slot);
-    dv.setUint32(o + 8, word >>> 0, true);
-  });
-  return buf;
-}
 
 // Bots join at `joins[k]` and play until `ticks`; each bot's inputs land
 // `delay` ticks after it decides them, standing in for the round trip.

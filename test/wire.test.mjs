@@ -71,11 +71,10 @@ test('a stamped copy of a shared body equals a bundle encoded for that recipient
   assert.equal(body[body.length - 2], 0, 'the shared body is untouched');
 });
 
-test('the welcome carries the room start; needs and fills round-trip', () => {
+test('the welcome carries the room start; fills round-trip', () => {
   const w = W.decodeWelcome(W.encodeWelcome({ slot: 1, maxDatagram: 1200, joinTick: 900, seed: 0xdeadbeef, serverTick: 896, roomStart: 512 }));
   assert.equal(w.roomStart, 512);
   assert.equal(w.seed, 0xdeadbeef);
-  assert.deepEqual(W.decodeNeed(W.encodeNeed(512, 896)), { from: 512, to: 896 });
   const ticks = [
     W.encodeTick([{ slot: 0, kind: W.EV_JOIN }], [[0, 0xffffffff]]),
     W.encodeTick([], [[0, 7], [5, 0]]),
@@ -89,4 +88,77 @@ test('the welcome carries the room start; needs and fills round-trip', () => {
     { tick: 513, events: [], words: [[0, 7], [5, 0]] },
     { tick: 514, events: [{ slot: 5, kind: W.EV_LEAVE }], words: [] },
   ]);
+});
+
+test('acks are per tick, and the holes they show are the ones a few ticks old', () => {
+  const r = new W.Received();
+  for (let t = 100; t <= 140; t++) if (t !== 120 && t !== 121 && t !== 138) r.add(t);
+  assert.equal(r.add(130), false, 'a tick twice is not new');
+  const { ackTick, ackBits } = r.ack();
+  assert.equal(ackTick, 140);
+  assert.equal((ackBits >>> (140 - 1 - 120)) & 1, 0);
+  assert.equal((ackBits >>> (140 - 1 - 119)) & 1, 1);
+  // 138 is too recent to call lost; nothing before `from` is asked for
+  assert.deepEqual(W.holes(ackTick, ackBits), [120, 121]);
+  assert.deepEqual(W.holes(ackTick, ackBits, 121), [121]);
+  assert.deepEqual(W.holes(ackTick, ackBits, 0, 2), [120, 121, 138]);
+  // a lone first tick: nothing older is a hole
+  const one = new W.Received();
+  one.add(5);
+  assert.deepEqual(W.holes(one.ack().ackTick, one.ack().ackBits, 5), []);
+});
+
+test('input datagrams carry an interval hash report when there is one', () => {
+  const words = [1, 2, 3];
+  const plain = W.decodeInput(W.encodeInput({ seq: 1, firstTick: 9, ackTick: 8, ackBits: 3, words }));
+  assert.equal(plain.report, null);
+  const hash = 0xfedcba9876543210n;
+  const m = W.decodeInput(W.encodeInput({ seq: 1, firstTick: 9, ackTick: 8, ackBits: 3, words, report: { interval: 1280, hash } }));
+  assert.deepEqual([...m.words], words);
+  assert.deepEqual(m.report, { interval: 1280, hash });
+});
+
+test('a repair carries as many consecutive ticks as fit, and decodes like a fill', () => {
+  const ticks = Array.from({ length: 10 }, (_, k) => W.encodeTick(k === 0 ? [{ slot: 3, kind: W.EV_JOIN }] : [], Array.from({ length: 64 }, (_, p) => [p, k * 100 + p])));
+  const { buf, n } = W.encodeRepair(700, ticks);
+  assert.ok(buf.length <= W.MAX_DATAGRAM);
+  assert.equal(n, 3, '322-byte ticks: three fit');
+  const back = W.decodeRepair(buf);
+  assert.equal(back.length, 3);
+  assert.equal(back[0].tick, 700);
+  assert.deepEqual(back[0].events, [{ slot: 3, kind: W.EV_JOIN }]);
+  assert.deepEqual(back[2].words[63], [63, 263]);
+  assert.equal(W.decodeTick(ticks[1]).words[5][1], 105);
+});
+
+test('the control stream: sync, ping, pong, keyframes with and without digests, fills', async () => {
+  assert.deepEqual(W.decodeClient(W.encodeSync(W.SYNC.HOLE, 4242)), { type: W.T_SYNC, reason: W.SYNC.HOLE, have: 4242 });
+  assert.deepEqual(W.decodeClient(W.encodePing(77)), { type: W.T_PING, nonce: 77 });
+  const region = new Uint8Array(1 << 19);
+  new Float32Array(region.buffer, 0x10000, 4096).set(Array.from({ length: 4096 }, (_, i) => 100 + i * 0.25));
+  const packed = await W.packKey(region);
+  assert.ok(packed.length < 20000, `packed ${packed.length} B`);
+  const digests = Uint8Array.from({ length: 1024 }, (_, i) => i & 255);
+  const fill = W.encodeFill(900, [W.encodeTick([], [[1, 5]])]);
+  const parts = [
+    W.encodePong(77, 1234.5),
+    W.encodeKeyHead({ reason: W.SYNC.JOIN, tick: 896, raw: region.length, packed: packed.length }), packed, fill,
+    W.encodeKeyHead({ reason: W.SYNC.DESYNC, tick: 1024, raw: region.length, packed: packed.length, interval: 896, digests }), packed,
+  ];
+  const all = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
+  parts.reduce((o, p) => (all.set(p, o), o + p.length), 0);
+  // delivered in 100-byte pieces, as a stream may
+  let off = 0;
+  const reader = { read: async () => (off >= all.length ? { done: true } : { value: all.slice(off, (off += 100)), done: false }) };
+  const sr = W.bufferedReader(reader);
+  assert.deepEqual(await W.readControl(sr), { type: W.T_PONG, nonce: 77, serverTick: 1234.5 });
+  const k = await W.readControl(sr);
+  assert.deepEqual([k.type, k.reason, k.tick, k.raw, k.interval, k.digests], [W.T_KEY, W.SYNC.JOIN, 896, region.length, -1, null]);
+  assert.deepEqual(await W.unpackKey(k.packed), region);
+  const f = await W.readControl(sr);
+  assert.deepEqual(W.decodeFillBody(f.from, f.n, f.body), [{ tick: 900, events: [], words: [[1, 5]] }]);
+  const d = await W.readControl(sr);
+  assert.deepEqual([d.reason, d.tick, d.interval], [W.SYNC.DESYNC, 1024, 896]);
+  assert.deepEqual(d.digests, digests);
+  assert.equal(await W.readControl(sr), null);
 });

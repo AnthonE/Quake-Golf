@@ -65,8 +65,7 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
   let lastBundleT = -1;
   let inAck = 0;
   let seq = 0;
-  let ackTick = -1; // none yet
-  let ackBits = 0;
+  const recv = new W.Received(); // closed ticks heard, for the acks
 
   const st = {
     seed, slot: welcome.slot, joinTick: welcome.joinTick, maxDatagram, serverMaxDatagram: welcome.maxDatagram,
@@ -86,7 +85,7 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
     for (let t = first; t < nextTick; t++) words.push(wordFor.get(t));
     for (const t of wordFor.keys()) if (t < lastBundleT - 8) wordFor.delete(t); else break;
     if (!words.length) return;
-    const buf = W.encodeInput({ seq: seq++, firstTick: first, ackTick: Math.max(0, ackTick), ackBits, words });
+    const buf = W.encodeInput({ seq: seq++, firstTick: first, ...recv.ack(), words });
     st.sent++;
     st.sentBytes += buf.length;
     st.maxInput = Math.max(st.maxInput, buf.length);
@@ -102,22 +101,13 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
     st.arrivals.push([b.T, now - tWelcome]);
     for (let k = 0; k < b.nb; k++) {
       const t = b.T - k;
+      recv.add(t);
       if (t < welcome.joinTick || st.seen.has(t)) continue;
       st.seen.add(t);
       const sent = wordFor.get(t);
       if (sent !== undefined) { st.mine++; if (b.rows[k][welcome.slot] === sent) st.mineMatched++; }
     }
     for (const e of b.events) if (e.slot === welcome.slot && e.kind === W.EV_JOIN) st.joinSeen = true;
-    // ack: latest bundle tick, plus bit k for bundle tick ackTick-1-k (reordered ones too)
-    if (ackTick < 0) {
-      ackTick = b.T;
-    } else if (b.T > ackTick) {
-      const shift = b.T - ackTick;
-      ackBits = shift > 32 ? 0 : shift === 32 ? 0x80000000 : ((ackBits << shift) | (1 << (shift - 1))) >>> 0;
-      ackTick = b.T;
-    } else if (b.T < ackTick && ackTick - b.T <= 32) {
-      ackBits = (ackBits | (1 << (ackTick - 1 - b.T))) >>> 0;
-    }
     lastBundleT = Math.max(lastBundleT, b.T);
     inAck = Math.max(inAck, b.inAck);
     st.slack.push(b.slack);
