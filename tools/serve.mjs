@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Static server for the browser harness and client. Every response is
 // cross-origin isolated (COOP + COEP), which shared wasm memory needs.
+// It serves the repository, except the certificate's private key.
 // PUT /out/<name> saves a trace into traces/.
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -37,6 +38,8 @@ export function serve({ port = 0, host = '127.0.0.1' } = {}) {
       }
       const path = normalize(join(ROOT, decodeURIComponent(url.pathname)));
       if (!path.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+      // the page needs the certificate's hash, never its key
+      if (path.startsWith(join(ROOT, 'certs')) && !path.endsWith('hash.txt')) { res.writeHead(403).end(); return; }
       const body = await readFile(path.endsWith('/') ? join(path, 'index.html') : path);
       res.writeHead(200, { 'Content-Type': TYPES[extname(path)] || 'application/octet-stream' }).end(body);
     } catch {

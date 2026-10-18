@@ -20,6 +20,9 @@ export function makeMacros({ DEBUG }) {
     // v128 indexes by ball, so a block of four f32 lanes starts at ball 4k.
     ld: (type, base, idx) => `(${LOAD[type]} offset=${base} ${scaled(type, idx)})`,
     st: (type, base, idx, val) => `(${STORE[type]} offset=${base} ${scaled(type, idx)} ${val})`,
+    // (!at f32 @(PLAYERS + P_VX) (local.get $pb)): a field of a record whose byte address is given.
+    at: (type, off, addr) => `(${LOAD[type]} offset=${off} ${addr})`,
+    put: (type, off, addr, val) => `(${STORE[type]} offset=${off} ${addr} ${val})`,
 
     // (!for $i from to body...): counted loop, `to` re-read each pass.
     for: (v, from, to, ...body) => {

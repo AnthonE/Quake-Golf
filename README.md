@@ -12,18 +12,38 @@ Target: the newest Chrome; the server is Deno.
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| M2 · first hole | a full hole plays end to end, two players over the real server | **passed** · [results](#m2-the-first-hole) |
 | M1 · determinism harness | zero hash mismatches over 1M ticks | **passed** · [results](#results) |
 | M0 · net skeleton | a 64-player bundle fits one datagram | **passed** · [results](#results) |
+
+## Play it
+
+```sh
+npm ci && sh tools/install-deno.sh   # once
+node net/play.mjs                    # the relay and the page; open the URL it prints in two Chrome tabs
+```
+
+Click to play. The mouse aims, WASD runs, Space jumps, left click fires, 1/2
+or right click picks the rocket or the grenade, Tab shows scores, F goes
+fullscreen. Every shot is a stroke. The rocket is the club: a blast just
+behind your ball drives it 200+ m with loft, one 4 m back rolls it a few
+metres, and the cup is a slipgate that swallows any ball under 8 m/s. The
+grenade bounces and pops after 2.5 s, for lobs. A rocket at your own feet is
+a rocket jump (and a stroke). Holes last 4 minutes; not finishing costs 2.
+Your own movement shows one round trip late until M3's prediction layer;
+aiming is instant.
 
 ## Run it
 
 ```sh
 npm ci && sh tools/install-deno.sh     # wabt, binaryen, Deno 2.9.7 into .tools/
 npm run build                          # src/*.wat -> build/game.wasm
-npm test                               # assembler, XXH64, sim, splits, keyframes, threads, wire
+npm test                               # assembler, XXH64, sim, gameplay, splits, keyframes, threads, wire
 node harness/matrix.mjs --ticks 20000  # Node, Deno, Chrome x Liftoff/TurboFan x 1/2/4 threads
+node tools/gengame.mjs --bots 4 --out logs/game.qgl && node harness/matrix.mjs --ticks 20000 --log logs/game.qgl
 node harness/perf.mjs                  # per-phase cost at 10,000 balls
 node net/run-m0.mjs --bots 63 --duration 60 [--impair delay=40,jitter=10,loss=0.05]
+node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played Chrome clients, one hole
 ```
 
 ## How it fits together
@@ -41,15 +61,66 @@ node net/run-m0.mjs --bots 63 --duration 60 [--impair delay=40,jitter=10,loss=0.
 - `harness/` replays one event log in Node, Deno and a Chrome worker and
   records a hash of the whole region every tick. `tools/compare.mjs` names the
   first tick that differs and which slice and field it was in.
-- `net/relay.ts` is the M0 relay: one isolate owns the QUIC sessions, an 8 ms
+- `net/relay.ts` is the relay: one isolate owns the QUIC sessions, an 8 ms
   clock from a fixed epoch, and the bundles (four ticks every second tick, with
-  a per-recipient trailer). Bots are WebTransport sessions in Chrome workers.
+  a per-recipient trailer). It also records every closed tick from the room's
+  start, and answers fill requests from that record on the control stream: a
+  joiner's whole history (M3 replaces it with keyframes) and any tick lost on
+  the way (M3 replaces it with repair datagrams). An emptied room starts over
+  on a new seed.
+- Gameplay is in the sim too, all serial and in index order: `players.wat`
+  (Quake movement, shots on a shot-counter advance, pushes on other players'
+  balls), `weapons.wat` (rockets marched in half steps, bouncing grenades,
+  blasts on balls and players), `hole.wat` (the slipgate cup and the hole
+  clock) and `terrain.wat`, which lays out a hole per seed: tee, fairway,
+  rough, bunkers and a flattened green. Inputs, joins and leaves are inbox
+  records, so a match is an ordinary event log the harness replays.
+- `client/` is the browser game on three threads over one shared memory. The
+  net worker owns WebTransport and the clock and samples one input word a
+  tick; the sim worker steps confirmed ticks behind a 3-tick playout delay;
+  the main thread reads raw mouse and keys and draws with WebGPU straight
+  from shared memory: the terrain ray-marched per pixel at 320x200, bodies
+  as splats, a 3x5 HUD font. `?bot=1` hands the controls to `client/bot.mjs`,
+  which plans every shot on a private copy of the sim.
+
+## M2, the first hole
+
+`node net/run-m2.mjs` starts the Deno relay and two headless Chrome 141
+clients. Each client runs WebGPU on SwiftShader with the golf bot at the
+controls, and the second joins a few seconds late and replays the room's
+history from a fill. The gate: both balls sunk (no time-limit penalty), every
+128-tick interval hash equal across the clients, and no client left behind
+the playout clock.
+
+| | clean, loopback | 60 ms RTT, 15 ms jitter, 5% loss each way |
+| --- | --- | --- |
+| hole | seed 7, par 3, 168 m | seed 9, par 3, 160 m |
+| scores | 2 and 2, both sunk | 3 and 2, both sunk |
+| interval hashes compared | 70, all equal | 51, all equal |
+| fill requests (history + holes) | 1 each, the history | 9 and 4 |
+
+The bots act on wall-clock timing, so scores vary from run to run (an
+earlier clean run scored 2 and 3); the hashes never have.
+
+A four-bot match (`tools/gengame.mjs`, 20,000 ticks) replays to the same
+region hash on every tick in all 27 runtime x JIT x thread configurations;
+CI runs it next to the M1 log. In Node, the bots finish courses 7 to 10 in
+2 to 5 strokes against par 3 and 4, with a 6- or 16-tick round trip.
+
+game.wasm is now 13,503 B, 6,409 B gzipped (M1's was 3,200): players,
+weapons, the hole and the course generator. The client's JS is about 28 KB
+gzipped as written, unminified; fitting it all into 13,312 B is M5's job.
+
+Headless Chrome here loses its WebGPU device as soon as a canvas presents a
+frame (even a plain clear), so the gate runs the client with `present=0`. It
+draws only when a screenshot is asked for, renders into a texture and reads
+the pixels back. The screenshots land in `traces/m2-*.png`.
 
 ## Results
 
-Measured in a 4-core cloud container on 2026-10-18, game.wasm sha256
-`42a59430…`: 6,401 B, 3,200 B gzipped. Binaryen `-O3` makes it 5,923 B but
-3,220 B gzipped, so the hand-written build ships as is.
+Measured in a 4-core cloud container on 2026-10-18. At M1, game.wasm (sha256
+`42a59430…`) was 6,401 B, 3,200 B gzipped; Binaryen `-O3` makes it 5,923 B
+but 3,220 B gzipped, so the hand-written build ships as is.
 
 **M1, determinism.** One 1M-tick log (10,000 balls, ~600 awake, a blast
 every 24 ticks, a wake storm every 2,000) replayed in Node 22 (V8 12.4),
@@ -69,6 +140,13 @@ At ~600 awake, threads do not help: three barriers a tick cost about what
 the split saves. With ~2,900 awake (a large blast every 8 ticks) one thread
 takes 1.51 ms, at the budget, while 2 threads take 0.98 ms and 4 take 0.77 ms.
 `node harness/perf.mjs` prints all of this.
+
+Those are M1's numbers. M2's golf rolling (a fixed slowdown per surface, and
+rough wherever there is no hole) settles balls sooner, so the same log now
+keeps ~127 awake: a tick takes 0.18 ms on one thread (p99 0.40), and the
+storm keeps 1,359 awake at 0.71 / 0.55 / 0.51 ms on 1 / 2 / 4 threads. The
+M1 matrix still agrees in all 27 configurations. M4's worst case, a grenade
+into a 10,000-ball pit, replaces this log as the benchmark.
 
 **M0, the relay.** 63 bots and one client, each a WebTransport session in a
 Chrome worker, against the Deno relay on loopback for 60 s:

@@ -1,6 +1,6 @@
 ;; Tick orchestration, threads, init, keyframes.
 
-;; Serial: apply wakes, advance the tick, digest one slice. Slice s of the
+;; Serial: apply wakes, the cup and hole clock, advance the tick, digest one slice. Slice s of the
 ;; interval that starts at tick K is digested at tick K+s+1, and the interval
 ;; closes at K+128. So every digest of an interval is taken after its boundary,
 ;; and a keyframe at a multiple of 128 restarts the sliced hash cleanly.
@@ -13,6 +13,7 @@
         (!st u8 @FLAGS (local.get $i) (i32.or (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE)))
         (!st u8 @SLEEP (local.get $i) (i32.const 0))
         (!st u8 @WAKE (local.get $i) (i32.const 0)))))
+  (call $hole)
   (local.set $t (i32.add (i32.load (i32.const @HDR_TICK)) (i32.const 1)))
   (i32.store (i32.const @HDR_TICK) (local.get $t))
   (local.set $s (i32.and (i32.sub (local.get $t) (i32.const 1)) (i32.const @(NSLICE - 1))))
@@ -91,12 +92,14 @@
 
 (func (export "init") (param $seed i32)
   (memory.fill (i32.const @INTERVAL_HASH) (i32.const 0) (i32.const @(INBOX_REC - INTERVAL_HASH)))
-  (memory.fill (i32.const @REGION) (i32.const 0) (i32.const @(PAGES * 65536 - REGION)))
+  (memory.fill (i32.const @FX) (i32.const 0) (i32.const @(FX_REC - FX + FX_MAX * 32)))
+  (memory.fill (i32.const @REGION) (i32.const 0) (i32.const @(NET - REGION)))
   (i32.store (i32.const @HDR_SEED) (local.get $seed))
   (i32.store (i32.const @HDR_RNG)
     (select (i32.xor (local.get $seed) (i32.const 0x9e3779b9)) (i32.const 1)
             (i32.xor (local.get $seed) (i32.const 0x9e3779b9))))
-  (call $terrain_gen (local.get $seed)))
+  (call $terrain_gen (local.get $seed))
+  (call $course_gen (local.get $seed)))
 
 ;; Keyframes only at interval boundaries (a multiple of 128), right after an
 ;; interval closes, so the next interval's digests all come from restored state.

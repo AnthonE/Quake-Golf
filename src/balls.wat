@@ -17,7 +17,8 @@
                   (i32.shl (i32.and (local.get $cy) (i32.const 15)) (i32.const 5)))
           (i32.shl (i32.and (local.get $cz) (i32.const 31)) (i32.const 9))))
 
-;; Serial: events, grid (counting sort, stable in index order), awake list, blocks.
+;; Serial: events, grid (counting sort, stable in index order), players and
+;; projectiles (which look balls up in the grid), then the awake list and blocks.
 (func $tick_begin (export "tick_begin") (result i32)
   (local $n i32) (local $i i32) (local $b i32) (local $t i32) (local $acc i32)
   (local $na i32) (local $nb i32) (local $blk i32) (local $nblk i32)
@@ -25,9 +26,13 @@
   (local.set $n (i32.load (i32.const @HDR_NBALLS)))
   (memory.fill (i32.const @CELLSTART) (i32.const 0) (i32.const @((NCELL + 1) * 4)))
   (!for $i (i32.const 0) (local.get $n)
-    (local.set $b (call $bucket (call $cell (!ld f32 @PX (local.get $i)) (!ld f32 @PY (local.get $i)) (!ld f32 @PZ (local.get $i)))))
-    (!st u16 @CELLOF (local.get $i) (local.get $b))
-    (!st i32 @(CELLSTART + 4) (local.get $b) (i32.add (!ld i32 @(CELLSTART + 4) (local.get $b)) (i32.const 1))))
+    (if (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_LIVE))
+      (then
+        (local.set $b (call $bucket (call $cell (!ld f32 @PX (local.get $i)) (!ld f32 @PY (local.get $i)) (!ld f32 @PZ (local.get $i)))))
+        (!st u16 @CELLOF (local.get $i) (local.get $b))
+        (!st i32 @(CELLSTART + 4) (local.get $b) (i32.add (!ld i32 @(CELLSTART + 4) (local.get $b)) (i32.const 1))))
+      ;; out of play (sunk): in no cell
+      (else (!st u16 @CELLOF (local.get $i) (i32.const 0xffff)))))
   ;; bucket b holds SORTED[CELLSTART[b] .. CELLSTART[b + 1])
   (local.set $acc (i32.const 0))
   (!for $b (i32.const 0) (i32.const @NCELL)
@@ -36,9 +41,14 @@
   (memory.copy (i32.const @CURSOR) (i32.const @CELLSTART) (i32.const @(NCELL * 4)))
   (!for $i (i32.const 0) (local.get $n)
     (local.set $b (!ld u16 @CELLOF (local.get $i)))
-    (local.set $t (!ld i32 @CURSOR (local.get $b)))
-    (!st u16 @SORTED (local.get $t) (local.get $i))
-    (!st i32 @CURSOR (local.get $b) (i32.add (local.get $t) (i32.const 1))))
+    (if (i32.ne (local.get $b) (i32.const 0xffff))
+      (then
+        (local.set $t (!ld i32 @CURSOR (local.get $b)))
+        (!st u16 @SORTED (local.get $t) (local.get $i))
+        (!st i32 @CURSOR (local.get $b) (i32.add (local.get $t) (i32.const 1))))))
+  (call $players)
+  (call $push_balls)
+  (call $projectiles)
   (local.set $na (i32.const 0))
   (!for $i (i32.const 0) (local.get $n)
     (if (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE))
@@ -200,7 +210,7 @@
       ;; fairway, rough, sand, green
       (local.set $e (select (f32.const 0.35) (select (f32.const 0.2) (select (f32.const 0.05) (f32.const 0.25)
                       (i32.eq (local.get $surf) (i32.const 2))) (i32.eq (local.get $surf) (i32.const 1))) (i32.eqz (local.get $surf))))
-      (local.set $mu (select (f32.const 0.01) (select (f32.const 0.04) (select (f32.const 0.15) (f32.const 0.005)
+      (local.set $mu (select (f32.const 0.004) (select (f32.const 0.016) (select (f32.const 0.08) (f32.const 0.0027)
                       (i32.eq (local.get $surf) (i32.const 2))) (i32.eq (local.get $surf) (i32.const 1))) (i32.eqz (local.get $surf))))
       (local.set $vn (!dot3 (local.get $vx) (local.get $vy) (local.get $vz) (local.get $nx) (local.get $ny) (local.get $nz)))
       (if (f32.lt (local.get $vn) (f32.const 0))
@@ -211,8 +221,10 @@
           (local.set $vy (f32.sub (local.get $vy) (f32.mul (local.get $ny) (local.get $vn))))
           (local.set $vz (f32.sub (local.get $vz) (f32.mul (local.get $nz) (local.get $vn))))))
       ;; rolling resistance on the tangential part: a constant deceleration per
-      ;; surface (so a ball stops on a gentle slope) plus a proportional drag
-      (local.set $rr (select (f32.const 0.0064) (select (f32.const 0.016) (select (f32.const 0.032) (f32.const 0.004)
+      ;; surface (so a ball stops on a gentle slope) plus a proportional drag.
+      ;; Per second: fairway 2.5 m/s^2 and 2 s, rough 5 and 0.5 s, sand 10 and
+      ;; 0.1 s, green 1 and 3 s, so a 3 m/s putt rolls about 3 m
+      (local.set $rr (select (f32.const 0.02) (select (f32.const 0.04) (select (f32.const 0.08) (f32.const 0.008)
                        (i32.eq (local.get $surf) (i32.const 2))) (i32.eq (local.get $surf) (i32.const 1))) (i32.eqz (local.get $surf))))
       (local.set $vn (!dot3 (local.get $vx) (local.get $vy) (local.get $vz) (local.get $nx) (local.get $ny) (local.get $nz)))
       (local.set $tx (f32.sub (local.get $vx) (f32.mul (local.get $nx) (local.get $vn))))

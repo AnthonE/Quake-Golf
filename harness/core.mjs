@@ -119,6 +119,24 @@ export class Sim {
     Atomics.store(this.i32, L.INBOX >> 2, n);
   }
 
+  // Player records for the coming tick, after whatever feed() put there, applied
+  // in order: [EV_JOIN, slot], [EV_INPUT, slot, word], [EV_LEAVE, slot].
+  feedPlayers(recs) {
+    let n = Atomics.load(this.i32, L.INBOX >> 2);
+    const dv = new DataView(this.memory.buffer);
+    for (const [kind, slot, word = 0] of recs) {
+      if (n === L.INBOX_MAX) throw new Error(`more than ${L.INBOX_MAX} events at tick ${this.tick}`);
+      const o = L.INBOX_REC + n * L.REC;
+      this.u8.fill(0, o, o + L.REC);
+      dv.setUint32(o, this.tick, true);
+      this.u8[o + 4] = kind;
+      this.u8[o + 5] = slot;
+      dv.setUint32(o + 8, word >>> 0, true);
+      n++;
+    }
+    Atomics.store(this.i32, L.INBOX >> 2, n);
+  }
+
   // Every phase over random ranges in shuffled order; must equal step().
   stepSplit(split) {
     this.x.tick_begin();
