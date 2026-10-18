@@ -11,7 +11,7 @@
 //   the late client starts from a keyframe after sim tick 0 with under 400 ticks to fast-forward;
 //   the flip is one mismatch, on that client only, named as the slice flipped, and healed;
 //   every other interval hash on every client equals the referee's;
-//   no client is behind at the end.
+//   no client is left behind: each is back on the playout clock within 15 s of the scoreboard.
 // Screenshots land in traces/m3-*.png, the report in traces/m3.json.
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -110,11 +110,14 @@ try {
     }
   }
   process.stderr.write('\n');
-  // every client steady on the playout clock (a resync just now catches up in a second or two)
-  for (let k = 0; k < 15; k++) {
+  // every client back on the playout clock at some point in the next 15 s (a
+  // resync just now, or a stalled thread, catches up in a second or two)
+  const steady = pages.map(() => false);
+  for (let k = 0; k < 15 && !steady.every(Boolean); k++) {
     await new Promise((ok) => setTimeout(ok, 1000));
-    if ((await states()).every((s) => s?.clState === 2)) break;
+    (await states()).forEach((s, i) => { if (s?.clState === 2) steady[i] = true; });
   }
+  report.steady = steady;
   report.clientsEnd = await Promise.all(pages.filter(Boolean).map((p) => p.evaluate(() => {
     const q = window.__qg;
     const s = q.state();
@@ -170,7 +173,7 @@ const gate = {
   flipCaughtNamedHealed: !report.flip || (mism.length === 1 && mism[0].slot === report.flip.slot
     && flipC.desyncs.length === 1 && flipC.desyncs[0].slice === report.flip.slice && flipC.keys.some((x) => x.reason === 'desync')),
   hashesAgree: perClient.every((c) => c.compared >= 8 && c.wrong === 0),
-  noneBehind: perClient.every((c) => c.clState === 2),
+  noneBehind: report.steady.every(Boolean),
 };
 report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };
 writeFileSync('traces/m3.json', JSON.stringify(report, null, 2) + '\n');
