@@ -33,6 +33,8 @@ $(SIM) $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h &: $(ROOT)/build/game.wasm 
 	cd $(ROOT) && node tools/x86.mjs --no-runner
 
 $(CURDIR)/main.obj $(CURDIR)/game.obj $(CURDIR)/brain.obj $(CURDIR)/online.obj: $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h
+$(CURDIR)/main.obj: $(CURDIR)/golfer.h
+$(CURDIR)/main.obj $(CURDIR)/game.obj $(CURDIR)/brain.obj: $(CURDIR)/brain.h $(CURDIR)/game.h
 
 # the server, rewritten every build so a new SERVER always lands in the ISO;
 # GOLFER=qg2:... puts a neural golfer's genome beside it (Black seats it)
