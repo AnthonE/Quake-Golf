@@ -76,12 +76,12 @@ Chrome worker, against the Deno relay on loopback for 60 s:
 | | clean | 40 ms RTT, 10 ms jitter, 5% loss |
 | --- | --- | --- |
 | largest bundle (limit 1,161 B) | 1,052 B | 1,052 B |
-| ticks delivered | 100% | 99.75% (expected 99.75%) |
-| inputs applied as sent | 99.93% | 98.93% |
-| bundle jitter p50 / p95 / p99 | 0.33 / 3.0 / 5.1 ms | 2.5 / 5.6 / 15 ms |
-| tick close lateness p99 | 1.0 ms | 2.7 ms |
+| ticks delivered | 100%, every client | 99.745% (expected 99.75%), worst client 99.44% |
+| inputs applied as sent | 99.92% | 99.40% |
+| bundle jitter p50 / p95 / p99 | 0.23 / 2.6 / 6.9 ms | 2.5 / 5.4 / 9.3 ms |
+| tick close lateness p50 / p99 | 0.001 / 3.8 ms | 0.002 / 3.5 ms |
 | per session, down / up (payload) | 65 / 1.5 KB/s | 65 / 2.7 KB/s |
-| relay CPU | 40% of a core | 40% of a core |
+| relay CPU | 39% of a core | 41% of a core |
 
 Chrome reports a 1,024 B `maxDatagramSize`, which only limits what it sends;
 it receives the 1,052 B bundles fine. The relay's cost is per packet in Deno's
@@ -89,3 +89,16 @@ QUIC path (~8,000 packets a second per room); the referee sim is about 5% of a
 core. So packets set rooms per core: about two today. BBR
 (`congestionControl: "low-latency"`) and the default controller measured the
 same.
+
+The tail is this VM, not the relay. Closes ran 30-70 ms late a few times a
+minute even with no clients connected. Two causes:
+
+- V8's parallel scavenger waits on helper threads, and idle vCPUs here wake
+  slowly, so a 0.3 ms scavenge took up to 69 ms. The relay runs with
+  `--v8-flags=--single-threaded-gc`; a Node timer loop goes from 28 ms gaps to
+  none with it.
+- A thread sleeping on a timer also wakes late. Spinning instead of sleeping
+  (`--early 9`) takes an idle relay from a 54 ms worst case to 18 ms, but under
+  load it barely helps and costs a whole core, so the relay still sleeps.
+
+Across seven 60 s runs the close-lateness p99 ranged from 1.0 to 3.8 ms.
