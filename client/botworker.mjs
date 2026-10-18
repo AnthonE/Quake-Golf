@@ -1,11 +1,13 @@
 // ?bot=1: a golf bot plays instead of the mouse and keys, writing the same
-// input slots a person's mouse and keys would.
+// input slots a person's mouse and keys would. With &genome=qg1:..., a
+// neural golfer (client/brain.mjs) does, on the same legs.
 import * as L from '../src/layout.mjs';
 import { View } from '../src/view.mjs';
 import { GolfBot, Planner } from './bot.mjs';
+import { BrainBot } from './brain.mjs';
 
 self.onmessage = async (e) => {
-  const { module, memory } = e.data;
+  const { module, memory, genome } = e.data;
   const i32 = new Int32Array(memory.buffer);
   const f32 = new Float32Array(memory.buffer);
   const f64 = new Float64Array(memory.buffer);
@@ -17,7 +19,7 @@ self.onmessage = async (e) => {
   setInterval(() => {
     const slot = get(L.CL_SLOT);
     if (slot < 0 || get(L.CL_STATE) !== 2) return;
-    if (!bot || bot.slot !== slot) bot = new GolfBot(slot, planner, { seq: i32 });
+    if (!bot || bot.slot !== slot) bot = genome ? new BrainBot(slot, genome, { seq: i32 }) : new GolfBot(slot, planner, { seq: i32 });
     // a round trip in ticks: the input lead plus the playout clock's delay (the bot plays the confirmed world)
     bot.lag = Math.round(f32[L.CL_LEAD >> 2] + f32[L.CL_DELAY >> 2] + 2);
     bot.think(view);

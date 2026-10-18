@@ -5,7 +5,7 @@
 // nothing by thinking, while the hole clock still counts every tick it plays.
 // The match is an ordinary event log, saved after every command, that the
 // M1 harness replays to the same hashes.
-//   node tools/agent.mjs [--course 7] [--agents 1] [--bots 1] [--delay 6] [--port 7777] [--out logs/agent.qgl] [--stdin]
+//   node tools/agent.mjs [--course 7] [--agents 1] [--bots 1] [--genome qg1:...] [--delay 6] [--port 7777] [--out logs/agent.qgl] [--stdin]
 //   curl -s localhost:7777/0                         look, as slot 0
 //   curl -s localhost:7777/0 -d 'face cup; hold w 2' act, then look
 //   curl -s localhost:7777/0.json                    the same view as JSON
@@ -18,6 +18,7 @@ import { newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { View } from '../src/view.mjs';
 import { GolfBot, Planner } from '../client/bot.mjs';
 import { HELP, Hands, see, look } from '../client/agent.mjs';
+import { BrainBot } from '../client/brain.mjs';
 import { encodeLog } from './gengame.mjs';
 import * as L from '../src/layout.mjs';
 import { isMain } from './main.mjs';
@@ -25,18 +26,19 @@ import { isMain } from './main.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export class Room {
-  // Agents take slots 0..agents-1 and bots the ones after; everyone joins on
-  // tick 0. Each player's inputs land `delay` ticks after it makes them.
-  static async create({ bytes, courseSeed = 7, agents = 1, bots = 1, delay = 6 } = {}) {
+  // Agents take slots 0..agents-1, golf bots the ones after, then a neural
+  // golfer per genome; everyone joins on tick 0. Each player's inputs land
+  // `delay` ticks after it makes them.
+  static async create({ bytes, courseSeed = 7, agents = 1, bots = 1, genomes = [], delay = 6 } = {}) {
     const module = await WebAssembly.compile(bytes);
     const memory = newMemory();
     const sim = new Sim(await instantiate(module, memory), memory);
     sim.init(courseSeed);
     const planner = bots ? await Planner.create(module) : null;
-    return new Room(sim, courseSeed, agents, bots, delay, planner);
+    return new Room(sim, courseSeed, agents, bots, genomes, delay, planner);
   }
 
-  constructor(sim, courseSeed, agents, bots, delay, planner) {
+  constructor(sim, courseSeed, agents, bots, genomes, delay, planner) {
     this.sim = sim;
     this.view = new View(sim.memory.buffer);
     this.courseSeed = courseSeed;
@@ -44,6 +46,7 @@ export class Room {
     this.players = [
       ...Array.from({ length: agents }, () => ({ hands: new Hands(), seen: 0 })),
       ...Array.from({ length: bots }, (_, k) => ({ bot: new GolfBot(agents + k, planner, { lag: delay }) })),
+      ...genomes.map((g, k) => ({ bot: new BrainBot(agents + bots + k, g, { lag: delay }) })),
     ].map((p) => ({ ...p, queue: [], last: -1 }));
     this.agents = agents;
     this.recs = [];
@@ -116,12 +119,13 @@ if (isMain(import.meta.url)) {
   const bytes = readFileSync(join(ROOT, 'build/game.wasm'));
   const room = await Room.create({
     bytes, courseSeed: Number(arg('course', 7)), agents: Number(arg('agents', 1)), bots: Number(arg('bots', 1)), delay: Number(arg('delay', 6)),
+    genomes: process.argv.flatMap((a, i) => (process.argv[i - 1] === '--genome' ? [a] : [])),
   });
   const out = arg('out', 'logs/agent.qgl');
   mkdirSync(dirname(out), { recursive: true });
   const save = () => writeFileSync(out, room.log());
   const banner = `${HELP}\n\nThis room is stepped: the world moves only while your commands run. ` +
-    `Agents are slots 0..${room.agents - 1}; golf bots play the slots after.`;
+    `Agents are slots 0..${room.agents - 1}; golf bots, then neural golfers, play the slots after.`;
   if (process.argv.includes('--stdin')) {
     console.log(`${banner}\nYou are slot 0. One line of commands at a time.\n\n${room.act(0)}\n`);
     for await (const line of createInterface({ input: process.stdin })) {

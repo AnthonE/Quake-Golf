@@ -87,7 +87,7 @@ async function main() {
   let locked = false;
   if (BOT) {
     const bot = new Worker(new URL('./botworker.mjs', import.meta.url), { type: 'module' });
-    bot.postMessage({ module, memory });
+    bot.postMessage({ module, memory, genome: q.get('genome') });
   } else {
     canvas.addEventListener('click', () => {
       sound.wake();
