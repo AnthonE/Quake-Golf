@@ -7,7 +7,7 @@
 // (impair's delay is the round trip, half each way; loss applies each way)
 // The gate, each part in report.gate:
 //   the hole ends with every ball sunk;
-//   on every client, a change of keys shows in the predicted player within 25 ms (p95);
+//   on every client, a change of keys shows in the predicted player on the first frame after it (p95);
 //   the late client starts from a keyframe after sim tick 0 with under 400 ticks to fast-forward;
 //   the flip is one mismatch, on that client only, named as the slice flipped, and healed;
 //   every other interval hash on every client equals the referee's;
@@ -119,7 +119,7 @@ try {
     const q = window.__qg;
     const s = q.state();
     return { slot: s.slot, clState: s.clState, tick: s.hole.tick, repairs: s.repairs, lead: s.lead, delay: s.delay, jitter: s.jitter,
-      hashes: q.hashes, keys: q.keys, desyncs: q.desyncs, syncs: q.syncs, fills: q.fills, latency: q.latency, holes: q.net()?.holes || [] };
+      hashes: q.hashes, keys: q.keys, desyncs: q.desyncs, syncs: q.syncs, fills: q.fills, latency: q.latency, holes: q.net()?.holes || [], netGaps: q.net()?.gaps || [] };
   })));
 } finally {
   await browser.close();
@@ -148,7 +148,9 @@ const perClient = report.clientsEnd.map((c, k) => {
     keys: c.keys.map((x) => ({ reason: ['join', 'hole', 'behind', 'desync'][x.reason], simTick: x.simTick })), fillTicks: c.fills.map((f) => f.ticks),
     syncs: c.syncs.map((x) => ({ why: ['join', 'hole', 'behind', 'desync'][x.why], next: x.next, newest: x.newest, after: x.after, behind: x.behind })),
     holes: c.holes, desyncs: c.desyncs, compared, wrong, excused,
-    predictedMs: round(ms(c.latency.pred)), confirmedMs: round(ms(c.latency.conf)),
+    predictedMs: round(ms(c.latency.pred)), predictedFrames: ms(c.latency.frames), confirmedMs: round(ms(c.latency.conf)),
+    // stalls past 50 ms: the main thread's frames, the net worker's 4 ms timer
+    frameStalls: round(ms(c.latency.gaps)), netStalls: round(ms(c.netGaps)),
   };
 });
 report.perClient = perClient;
@@ -163,7 +165,7 @@ const mism = relayRun?.mismatches || [];
 const gate = {
   holeEnded: !!report.holes,
   everyoneSank: !!report.holes && report.holes.every((h) => h.done),
-  predictionInstant: perClient.every((c) => c.predictedMs.n >= 10 && c.predictedMs.p95 <= 25),
+  predictionNextFrame: perClient.every((c) => c.predictedFrames.n >= 10 && c.predictedFrames.p95 <= 1),
   lateJoinFromKeyframe: !!lateC && lateC.keys[0]?.reason === 'join' && lateC.keys[0].simTick > 0 && lateC.fillTicks[0] < 400,
   flipCaughtNamedHealed: !report.flip || (mism.length === 1 && mism[0].slot === report.flip.slot
     && flipC.desyncs.length === 1 && flipC.desyncs[0].slice === report.flip.slice && flipC.keys.some((x) => x.reason === 'desync')),

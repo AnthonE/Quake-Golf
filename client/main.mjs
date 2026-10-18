@@ -132,8 +132,9 @@ async function main() {
   let banner = { text: '', until: 0 };
   let frames = 0, fpsAt = performance.now(), fps = 0, lastFrame = performance.now();
   // input to screen, ms: when the move keys changed until a frame's predicted
-  // player had them, and until the confirmed world had stepped the first tick with them
-  const latency = { pred: [], conf: [] };
+  // player had them, and until the confirmed world had stepped the first tick
+  // with them; and in frames, 1 being the first frame drawn after the change
+  const latency = { pred: [], conf: [], frames: [], gaps: [] };
   let moved = { at: 0 }, sampled = { tick: -1 };
   let me = null, pme = null;
   window.__qg = {
@@ -205,6 +206,7 @@ async function main() {
     if (now - fpsAt > 1000) { fps = frames; frames = 0; fpsAt = now; }
     const ms = now - lastFrame;
     lastFrame = now;
+    if (ms > 50) latency.gaps.push(Math.round(ms));
     const nowE = epoch();
     const st = get(L.CL_STATE);
     const slot = get(L.CL_SLOT);
@@ -248,12 +250,16 @@ async function main() {
     // (only changes made and shown in play count: one made in the countdown waits for the tee-off)
     const playing = h.state === L.H_PLAY && me?.live && st === 2;
     const movedAt = f64[L.CL_MOVEAT >> 3];
-    if (movedAt !== moved.at) moved = { at: movedAt, bits: get(L.CL_MOVE) & 15, done: !playing };
+    if (movedAt !== moved.at) moved = { at: movedAt, bits: get(L.CL_MOVE) & 15, done: !playing, frame: frames };
     const moveTick = get(L.CL_MOVETICK);
     if (moveTick !== sampled.tick) sampled = { tick: moveTick, at: f64[L.CL_MOVESEEN >> 3], done: !playing };
     if (!playing) moved.done = sampled.done = true;
     else {
-      if (moved.at && !moved.done && pme && ((pme.input >>> 24) & 15) === moved.bits) { moved.done = true; latency.pred.push(nowE - moved.at); }
+      if (moved.at && !moved.done && pme && ((pme.input >>> 24) & 15) === moved.bits) {
+        moved.done = true;
+        latency.pred.push(nowE - moved.at);
+        latency.frames.push(frames - moved.frame + 1);
+      }
       if (sampled.at && !sampled.done && room + h.tick > sampled.tick) { sampled.done = true; latency.conf.push(nowE - sampled.at); }
     }
 

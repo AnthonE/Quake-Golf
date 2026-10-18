@@ -92,7 +92,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
   };
 
   // what this worker has seen, for the runs
-  const seen = { pongs: 0, keys: 0, fills: 0, bundles: 0, repairs: 0, rtt: bestRtt, ctlError: '', holes: [] };
+  const seen = { pongs: 0, keys: 0, fills: 0, bundles: 0, repairs: 0, rtt: bestRtt, ctlError: '', holes: [], gaps: [] };
   const repairedAt = new Map(); // tick -> repair datagrams that carried it, the last 512 ticks
   setInterval(() => self.postMessage({ seen: { ...seen, rtt: bestRtt, lead } }), 1000);
   // The control stream: keyframes (unpacked here), the fills after them, pongs.
@@ -156,8 +156,12 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
     const buf = W.encodeInput({ seq: seq++, firstTick: from, ...recv.ack(), words: list, report: r });
     imp.send(() => dw.write(buf).catch(() => {}));
   };
+  let lastTimer = epoch();
   const timer = setInterval(() => {
     const now = epoch();
+    // how late this 4 ms timer runs: a starved worker samples, sends and acks late
+    if (now - lastTimer > 50) seen.gaps.push(Math.round(now - lastTimer));
+    lastTimer = now;
     const predicted = Math.floor(serverTick(now) + lead);
     if (nextTick > predicted) return;
     while (nextTick <= predicted) {
