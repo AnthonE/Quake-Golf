@@ -15,8 +15,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: unzip, for setup-deno
-        run: apt-get update && apt-get install -y --no-install-recommends unzip
+      - name: unzip, for setup-deno; clang, lld and qemu-user, for the Pentium III build
+        run: apt-get update && apt-get install -y --no-install-recommends unzip clang lld qemu-user
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -29,17 +29,42 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       - run: npm run build
       - run: npm test
-      - name: Node, Deno and Chrome x both JIT tiers x 1, 2, 4 threads
-        run: node harness/matrix.mjs --ticks 20000
+      - name: Node, Deno and Chrome x both JIT tiers x 1, 2, 4 threads, and the Xbox's Pentium III build (native and under qemu)
+        run: node harness/matrix.mjs --ticks 20000 --runtimes node,deno,chromium,x86,pentium3
       - name: The same for a match four golf bots play
         run: |
           node tools/gengame.mjs --course 8 --bots 4 --ticks 20000 --out logs/game.qgl
-          node harness/matrix.mjs --ticks 20000 --log logs/game.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/game.qgl --runtimes node,deno,chromium,x86,pentium3
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: traces
           path: traces/
+
+  xbox:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: nxdk's toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld llvm make cmake flex bison git
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .tools/nxdk
+          key: nxdk-${{ hashFiles('tools/install-nxdk.sh') }}
+      - run: sh tools/install-nxdk.sh
+      - name: The XBE and a bootable ISO
+        run: make -C xbox -j"$(nproc)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quake-golf-xbox
+          path: |
+            xbox/bin/default.xbe
+            xbox/*.iso
 
   gate:
     if: github.event_name == 'workflow_dispatch'
