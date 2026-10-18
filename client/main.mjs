@@ -245,13 +245,14 @@ async function main() {
     const camPitch = me?.live ? (pitch - 512) / 1024 * Math.PI : -0.12;
 
     // how long a change of keys takes to show, predicted and confirmed
-    // (only changes made in play count: one made in the countdown waits for the tee-off)
+    // (only changes made and shown in play count: one made in the countdown waits for the tee-off)
     const playing = h.state === L.H_PLAY && me?.live && st === 2;
     const movedAt = f64[L.CL_MOVEAT >> 3];
     if (movedAt !== moved.at) moved = { at: movedAt, bits: get(L.CL_MOVE) & 15, done: !playing };
     const moveTick = get(L.CL_MOVETICK);
     if (moveTick !== sampled.tick) sampled = { tick: moveTick, at: f64[L.CL_MOVESEEN >> 3], done: !playing };
-    if (playing) {
+    if (!playing) moved.done = sampled.done = true;
+    else {
       if (moved.at && !moved.done && pme && ((pme.input >>> 24) & 15) === moved.bits) { moved.done = true; latency.pred.push(nowE - moved.at); }
       if (sampled.at && !sampled.done && room + h.tick > sampled.tick) { sampled.done = true; latency.conf.push(nowE - sampled.at); }
     }
