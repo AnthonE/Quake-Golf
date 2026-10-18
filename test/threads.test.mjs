@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
-import { VX, FLAGS, F_AWAKE, JOB_ABORT, BAR_GEN } from '../src/layout.mjs';
+import { VX, FLAGS, F_AWAKE } from '../src/layout.mjs';
 import { generate } from '../tools/genlog.mjs';
 import { compareTraces } from '../tools/compare.mjs';
 import { wasmBytes } from './helpers.mjs';
@@ -34,21 +34,16 @@ test('a trap on one thread fails the run instead of hanging it', async () => {
   sim.init(log.courseSeed);
   for (let t = 0; t < 300; t++) { sim.feed(log, t); sim.x.step(); }
   const workers = await startWorkers({ bytes, memory, n: 4 });
-  // poison every ball, awake, so whichever thread integrates it traps
+  // poison the last ball only: the last thread integrates it and traps, so
+  // thread 0 must see the abort at the next barrier and the trap must be reported
   const f32 = new Float32Array(memory.buffer);
-  for (let i = 0; i < sim.nballs; i++) { f32[(VX >> 2) + i] = NaN; sim.u8[FLAGS + i] |= F_AWAKE; }
+  const last = sim.nballs - 1;
+  f32[(VX >> 2) + last] = NaN;
+  sim.u8[FLAGS + last] |= F_AWAKE;
   const t0 = performance.now();
-  // thread 0 either traps itself or sees a worker's abort at the next barrier
-  let trap = null, aborted = 0;
-  try { sim.feed(log, 300); aborted = sim.x.step_mt(4); } catch (e) { trap = e; }
-  assert.ok(trap instanceof WebAssembly.RuntimeError || aborted === 1, `step_mt returned ${aborted}, threw ${trap}`);
-  Atomics.store(sim.i32, JOB_ABORT >> 2, 1);
-  Atomics.notify(sim.i32, BAR_GEN >> 2);
-  // an abort means a worker trapped and must say so; if thread 0 trapped
-  // first, the workers may have left cleanly on the abort flag instead
-  const err = await workers.stop().then(() => null, (e) => e);
-  if (!trap) assert.match(String(err), /thread/);
-  else assert.ok(err === null || /thread/.test(err.message), String(err));
+  sim.feed(log, 300);
+  assert.equal(sim.x.step_mt(4), 1, 'thread 0 saw no abort');
+  await assert.rejects(workers.stop(), /thread 3: /);
   assert.ok(performance.now() - t0 < 4000, 'workers took too long to give up');
 });
 
