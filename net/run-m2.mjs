@@ -2,7 +2,7 @@
 // M2: the Deno relay and two Chrome clients (WebGPU on, a golf bot at each
 // pair of hands) play one hole end to end over real WebTransport. The second
 // client joins late, from a keyframe (M3; in M2 it replayed the room's history).
-//   node net/run-m2.mjs [--clients 2] [--seed 7] [--late 4] [--limit 300] [--impair delay=40,jitter=10,loss=0.02] [--genome qg1:...]
+//   node net/run-m2.mjs [--clients 2] [--seed 7] [--late 4] [--limit 300] [--impair delay=40,jitter=10,loss=0.02] [--genome qg2:...]
 // The gate: every client sinks its ball (no penalty) and the hole ends on the
 // scoreboard; every 128-tick interval hash agrees across clients; no client
 // is left behind the playout clock. Screenshots land in traces/m2-*.png.

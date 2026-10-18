@@ -5,7 +5,7 @@
 // nothing by thinking, while the hole clock still counts every tick it plays.
 // The match is an ordinary event log, saved after every command, that the
 // M1 harness replays to the same hashes.
-//   node tools/agent.mjs [--course 7] [--agents 1] [--bots 1] [--genome qg1:...] [--delay 6] [--port 7777] [--out logs/agent.qgl] [--stdin]
+//   node tools/agent.mjs [--course 7] [--agents 1] [--bots 1] [--genome qg2:...] [--delay 6] [--port 7777] [--out logs/agent.qgl] [--stdin]
 //   curl -s localhost:7777/0                         look, as slot 0
 //   curl -s localhost:7777/0 -d 'face cup; hold w 2' act, then look
 //   curl -s localhost:7777/0.json                    the same view as JSON

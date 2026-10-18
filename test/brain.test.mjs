@@ -11,14 +11,15 @@ import * as L from '../src/layout.mjs';
 const G = { base: 0xc0ffee, muts: [1, 0x4001, 0x8002, 0xc003, 0xffff] };
 
 test('a genome is a few characters, and the longest still fits in a tweet', () => {
-  assert.equal(encode(G), 'qg1:7v_AAAEAAUACgAPA__8');
+  assert.equal(encode(G), 'qg2:7v_AAAEAAUACgAPA__8');
   assert.deepEqual(decode(encode(G)), G);
   assert.deepEqual(decode(encode({ base: 7, muts: [] })), { base: 7, muts: [] });
   const full = encode({ base: 0xffffffff, muts: Array(MAX_MUTATIONS).fill(0xffff) });
   assert.ok(full.length <= TWEET, `${full.length} chars`);
   assert.ok(encode({ base: 0, muts: Array(MAX_MUTATIONS + 1).fill(0) }).length > TWEET, 'and one more does not');
-  assert.throws(() => decode('hello'), /qg1:/);
-  assert.throws(() => decode('qg1:AAAAAAA'), /4 \+ 2n bytes, this one is 5/);
+  assert.throws(() => decode('hello'), /qg2:/);
+  assert.throws(() => decode('qg1:AAAAAA'), /f64 brain/);
+  assert.throws(() => decode('qg2:AAAAAAA'), /4 \+ 2n bytes, this one is 5/);
 });
 
 test('the recipe rebuilds the same weights bit for bit', () => {
@@ -26,8 +27,8 @@ test('the recipe rebuilds the same weights bit for bit', () => {
   assert.equal(w.length, NW);
   let h = 0x811c9dc5;
   for (const x of new Uint8Array(w.buffer)) { h ^= x; h = Math.imul(h, 0x01000193) >>> 0; }
-  // only + - * / on doubles: any engine that rounds IEEE 754 gets this hash
-  assert.equal(h.toString(16), '4760994');
+  // f32 + - * / only: V8, any browser and the Pentium III's SSE1 get this hash
+  assert.equal(h.toString(16), 'ffac99fb');
   assert.deepEqual(weights(decode(encode(G))), w);
   assert.notDeepEqual(weights({ ...G, muts: G.muts.slice(0, 4) }), w, 'each mutation moves the weights');
 });
@@ -63,7 +64,7 @@ test('the zoo keeps a child only if it wins twice', async () => {
   const log = [];
   try {
     const genome = await breed({ pool, gens: 2, kids: 3, courses: 2, confirm: 2, bases: 3, seed: 5, log: (e) => log.push(e) });
-    assert.match(genome, /^qg1:/);
+    assert.match(genome, /^qg2:/);
     assert.equal(log[0].gen, -1);
     for (const e of log.slice(1)) {
       if (e.took) assert.ok(e.child <= e.parent + 3 && e.again[1] < e.again[0], 'took it only after winning again');

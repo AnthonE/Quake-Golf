@@ -4,6 +4,7 @@
 #ifndef QG_XBOX_GAME_H
 #define QG_XBOX_GAME_H
 #include <stdint.h>
+#include "brain.h"
 
 #define LOCAL_MAX 4 // controller ports
 
@@ -30,8 +31,19 @@ typedef struct {
   float prevRt, prevLt;
 } Local;
 
+// A neural golfer at a local slot (xbox/brain.c): the brain picks each shot
+// and these legs walk to it and fire, as client/bot.mjs's GolfBot does.
+typedef struct {
+  int on;
+  Brain brain;
+  int planned;               // a shot is chosen: where the blast lands, where to stand
+  float from[3], bp[3], stand[3];
+  uint32_t firedAt, tapAt, aimTicks;
+} Cpu;
+
 typedef struct {
   Local p[LOCAL_MAX];        // pad k plays sim slot k (locally; online, pad 0 plays netSlot)
+  Cpu cpu[LOCAL_MAX];        // local play: a neural golfer at slot k instead of pad k
   int netSlot;               // online: the slot the relay gave us, or -1 for local play
   int netPred;               // online: the prediction layer holds this frame's player
   const char *status;        // a line for the top of the screen, or null
@@ -58,6 +70,9 @@ void match_render(Match *m, uint32_t *px, int stride, int w, int h);
 void match_aim_at(Match *m, int k, float x, float y, float z);
 // The same for local player k standing in sim slot `slot` (online).
 void match_aim_from(Match *m, int k, uint32_t slot, float x, float y, float z);
+// Local play: seat a neural golfer with this qg2 genome at slot k; it joins on
+// the next tick. 0, or -1 for a genome brain_init refuses.
+int match_add_cpu(Match *m, int k, const char *genome);
 
 // One tick's input word from a controller (net/wire.mjs packInput's layout).
 // commit 1 samples it: the aim turns, a trigger pull becomes a press, the shot

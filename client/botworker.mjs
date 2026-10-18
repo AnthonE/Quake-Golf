@@ -1,5 +1,5 @@
 // ?bot=1: a golf bot plays instead of the mouse and keys, writing the same
-// input slots a person's mouse and keys would. With &genome=qg1:..., a
+// input slots a person's mouse and keys would. With &genome=qg2:..., a
 // neural golfer (client/brain.mjs) does, on the same legs.
 import * as L from '../src/layout.mjs';
 import { View } from '../src/view.mjs';

@@ -8,9 +8,9 @@
 // fresh courses (the best of fifteen beats its parent on a few courses by
 // luck alone). The genome grows by one 16-bit seed per replacement and stops
 // at what fits in a tweet. Held-out courses score it at the end.
-//   node tools/zoo.mjs [--gens 200] [--kids 15] [--courses 8] [--confirm 16] [--bases 32] [--workers 4] [--seed 1] [--from qg1:...] [--out logs/zoo]
-//   node tools/zoo.mjs --bench [qg1:... ...]   # the test courses: a random net, a rule of thumb, the golf bot, and any genomes given
-//   node tools/zoo.mjs --real qg1:... [--holes 10]   # real holes, walking and the clock: the genome, then the golf bot, alone
+//   node tools/zoo.mjs [--gens 200] [--kids 15] [--courses 8] [--confirm 16] [--bases 32] [--workers 4] [--seed 1] [--from qg2:...] [--out logs/zoo]
+//   node tools/zoo.mjs --bench [qg2:... ...]   # the test courses: a random net, a rule of thumb, the golf bot, and any genomes given
+//   node tools/zoo.mjs --real qg2:... [--holes 10]   # real holes, walking and the clock: the genome, then the golf bot, alone
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -212,7 +212,7 @@ else if (isMain(import.meta.url)) {
     }
     console.log(`${secs()} s`);
   } else if (process.argv.includes('--bench')) {
-    const given = process.argv.slice(process.argv.indexOf('--bench') + 1).filter((a) => a.startsWith('qg1:'));
+    const given = process.argv.slice(process.argv.indexOf('--bench') + 1).filter((a) => a.startsWith('qg2:'));
     const rows = await bench(pool, [encode({ base: 1, muts: [] }), 'rule', 'bot', ...given]);
     console.log(`${TEST.length} held-out courses (seeds ${TEST[0]}-${TEST.at(-1)}), shots alone, ${MAX_SHOTS} shots at most (else strokes + 2):`);
     for (const r of rows) {

@@ -16,6 +16,7 @@
 #include "plat.h"
 #include "qg_sim.h"
 #include "layout.h"
+#include "golfer.h"
 
 // The sim calls out for these. One thread steps it, so nothing ever waits.
 void qg_rt_trap(uint32_t code) {
@@ -89,6 +90,22 @@ static void present(void) {
   XVideoFlushFB();
 }
 
+// The neural golfer that Black seats in local play: a qg2 genome from
+// D:\golfer.txt beside the XBE (the Makefile writes it, GOLFER=qg2:...), else
+// the one bred into this build.
+static char golfer[512] = GOLFER_DEFAULT;
+static void load_golfer(void) {
+  FILE *f = fopen("D:\\golfer.txt", "r");
+  if (!f) return;
+  char line[512] = { 0 };
+  if (fgets(line, sizeof line, f) && line[0] == 'q') {
+    size_t n = strlen(line);
+    while (n && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' ')) line[--n] = 0;
+    strcpy(golfer, line);
+  }
+  fclose(f);
+}
+
 // The server, from D:\quakegolf.txt beside the XBE (the Makefile writes it,
 // SERVER=host:port), else xemu's NAT address for the machine running it.
 static char server[64] = "10.0.2.2:4434";
@@ -131,6 +148,7 @@ int main(void) {
   }
   SDL_GameController *ports[LOCAL_MAX] = { 0 };
   load_server();
+  load_golfer();
 
   LARGE_INTEGER freq, now;
   QueryPerformanceFrequency(&freq);
@@ -180,6 +198,7 @@ int main(void) {
       draw_text(frame, W, W, H, 60, 128, "X  PLAY ONLINE", 2, 0xffffff);
       draw_text(frame, W, W, H, 84, 146, server, 2, mode == EDIT ? 0xffe066 : 0x9ec8ff);
       draw_text(frame, W, W, H, 60, 164, mode == EDIT ? "D-PAD EDITS, WHITE DELETES, A DONE" : "Y  CHANGE SERVER", 1, 0xbbbbbb);
+      if (mode != EDIT) draw_text(frame, W, W, H, 60, 174, "BLACK IN A GAME  ADD A NEURAL GOLFER", 1, 0xbbbbbb);
       if (mode == EDIT) {
         int x = 84 + text_width(server, 2) * cursor / (int)(strlen(server) ? strlen(server) : 1);
         for (int k = 0; k < 6; k++) frame[(158) * W + x + k] = 0xffe066;
@@ -239,11 +258,17 @@ int main(void) {
       continue;
     }
 
+    // local: Black seats a neural golfer at the first port with no controller and no player
+    if (edge & BTN_BLACK) {
+      int k = 0;
+      while (k < LOCAL_MAX && (match.p[k].joined || match.cpu[k].on || pads[k].connected)) k++;
+      if (k < LOCAL_MAX && match_add_cpu(&match, k, golfer)) error = "GOLFER.TXT IS NO QG2 GENOME";
+    }
     // local: the fixed 125 Hz step; after a long stall, drop the time instead of racing to catch up
     int ticks = 0;
     while (now.QuadPart >= next && ticks < 8) { match_tick(&match, pads); next += step; ticks++; }
     if (ticks == 8) next = now.QuadPart + step;
-    match.status = 0;
+    match.status = error;
     match_render(&match, frame, W, W, H);
     present();
     // Back and Start together, on any controller, back to the title
