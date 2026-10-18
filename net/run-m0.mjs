@@ -4,20 +4,29 @@
 //   node net/run-m0.mjs [--bots 63] [--duration 60] [--impair delay=40,jitter=10,loss=0.05] [--cc low-latency] [--label clean]
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { serve } from '../tools/serve.mjs';
 import { MAX_DATAGRAM, TICK_MS, percentile } from './wire.mjs';
+import { parseImpair } from './impair.js';
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
 const bots = Number(opt('bots', 63));
 const duration = Number(opt('duration', 60));
 const impair = opt('impair', '');
+// parsed exactly as the bots parse it, so the gate's loss is the loss they apply
+const imp = parseImpair(impair);
+for (const [k, v] of Object.entries(imp)) {
+  const ok = ['delay', 'jitter', 'loss', 'seed'].includes(k) && Number.isFinite(v) && v >= 0 && (k !== 'loss' || v < 1);
+  if (!ok) { console.error(`bad --impair ${k}=${v}: use delay=ms,jitter=ms,loss=0..1`); process.exit(2); }
+}
 const cc = opt('cc', 'low-latency');
 const port = Number(opt('port', 4433));
 const workers = Number(opt('workers', 4));
 const label = opt('label', impair ? 'impaired' : 'clean');
 const precise = opt('precise', '1');
+// ms before each deadline the relay stops sleeping and spins; 9 spins all the time
+const early = opt('early', '1.5');
 const DENO = existsSync('.tools/deno') ? '.tools/deno' : 'deno';
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
@@ -26,7 +35,16 @@ if (!existsSync('build/game.wasm')) execFileSync(process.execPath, ['tools/asm.m
 const hash = readFileSync('certs/hash.txt', 'utf8').trim();
 
 // 1. relay
-const relay = spawn(DENO, ['run', '--unstable-net', '-A', 'net/relay.ts', '--port', String(port), '--duration', String(duration + 10), '--cc', cc, '--precise', precise], { stdio: ['ignore', 'pipe', 'pipe'] });
+// V8's parallel scavenger waits on helper threads, and on a VM whose idle vCPUs
+// wake slowly a 0.3 ms scavenge became a 30-70 ms stall, so the relay collects
+// garbage on its own thread. QG_RELAY_V8='--trace-gc' adds flags (comma-separated);
+// the relay's stdout is then kept in traces/.
+const extraV8 = process.env.QG_RELAY_V8 || '';
+const relayV8 = [`--v8-flags=--single-threaded-gc${extraV8 ? ',' + extraV8 : ''}`];
+mkdirSync('traces', { recursive: true });
+const summaryPath = `traces/m0-${label}.relay.json`;
+rmSync(summaryPath, { force: true });
+const relay = spawn(DENO, ['run', '--unstable-net', '-A', ...relayV8, 'net/relay.ts', '--summary', summaryPath, '--port', String(port), '--duration', String(duration + 10), '--cc', cc, '--precise', precise, '--early', early], { stdio: ['ignore', 'pipe', 'pipe'] });
 let relayOut = '';
 relay.stdout.on('data', (d) => { relayOut += d; });
 const relayDone = new Promise((ok) => relay.on('exit', (code) => ok(code)));
@@ -75,7 +93,8 @@ const cpu1 = cpuSeconds(relay.pid);
 const wall1 = Date.now();
 if (m0.error) { console.error(m0.error); relay.kill(); process.exit(1); }
 await relayDone;
-const r = JSON.parse(relayOut.trim().split('\n').at(-1));
+if (extraV8) writeFileSync(`traces/m0-${label}.relay.log`, relayOut);
+const r = JSON.parse(readFileSync(summaryPath, 'utf8'));
 
 // 3. the gate
 const all = [m0.client, ...m0.bots];
@@ -98,7 +117,7 @@ const matched = all.reduce((a, b) => a + (b.mineMatched || 0), 0);
 const limit = Math.min(MAX_DATAGRAM, r.serverMaxDatagram.min);
 const maxInput = Math.max(...all.map((b) => b.maxInput || 0));
 const report = {
-  label, bots, sessions: r.sessions, rejects, durationS: duration, cc,
+  label, bots, sessions: r.sessions, rejects, durationS: duration, cc, early: Number(early),
   impair: impair || 'none',
   chromeMaxDatagram: m0.client.maxDatagram,
   serverMaxDatagram: r.serverMaxDatagram,
@@ -111,27 +130,35 @@ const report = {
   // share of one core the relay used while the clients ran (clock, 64 sessions, ~8,000 packets/s)
   relayCpuPct: cpu0 !== null && cpu1 !== null ? Number((100 * (cpu1 - cpu0) / ((wall1 - wall0) / 1000)).toFixed(1)) : null,
 };
-// Each tick rides two bundles, so at loss p a tick is lost with probability p^2
-// until hole repair exists; the 99.9% bar applies to clean runs, impaired ones report.
-const loss = Number((impair.match(/loss=([\d.]+)/) || [])[1] || 0);
+// Each tick rides two bundles, and ticks travel in pairs (2k and 2k+1 share
+// both), so at loss p a tick is lost with probability p^2, two at a time: over
+// n ticks the delivered share has sigma = 100 p sqrt(2/n). Clean runs need 99.9%
+// overall and for every client. Impaired runs need the expectation less 5 sigma
+// overall and 6 sigma per client, and at least 0.1 point below it either way.
+const loss = imp.loss || 0;
+const sigma = (n) => (n > 0 ? 100 * loss * Math.sqrt(2 / n) : Infinity);
+const round3 = (x) => Number(x.toFixed(3));
 const earlyClose = all.filter((b) => b.closedEarlyAt !== null && b.closedEarlyAt !== undefined && b.closedEarlyAt < (b.durationMs || duration * 1000) - 500).length;
 report.expectedDelivered = Number((100 * (1 - loss * loss)).toFixed(3));
 report.earlyCloses = earlyClose;
-// clean runs need 99.9% for every client; impaired runs need the p^2 expectation, less 0.1 point
-report.deliveredBar = loss === 0 ? 99.9 : Number(Math.min(99.9, report.expectedDelivered - 0.1).toFixed(3));
-const perClient = all.filter((b) => b.ticksExpected).map((b) => 100 * b.ticksSeen / b.ticksExpected);
-report.worstClientDelivered = perClient.length ? Number(Math.min(...perClient).toFixed(3)) : 0;
+const bar = (n, k) => (loss === 0 ? 99.9 : round3(Math.min(99.9, report.expectedDelivered - Math.max(0.1, k * sigma(n)))));
+report.deliveredBar = bar(expected, 5);
+const perClient = all.filter((b) => b.ticksExpected).map((b) => ({ delivered: round3(100 * b.ticksSeen / b.ticksExpected), bar: bar(b.ticksExpected, 6) }));
+perClient.sort((x, y) => (x.delivered - x.bar) - (y.delivered - y.bar));
+report.worstClient = perClient[0] || null;
+report.worstClientDelivered = perClient.length ? Math.min(...perClient.map((c) => c.delivered)) : 0;
+report.perClientDelivered = perClient.map((c) => c.delivered).sort((x, y) => x - y);
 const gate = {
   fits: r.maxBundle <= limit && maxInput <= m0.client.maxDatagram,
   noOversize: r.oversize === 0,
-  delivered: report.delivered >= report.deliveredBar && (loss > 0 || report.worstClientDelivered >= report.deliveredBar),
+  delivered: perClient.length > 0 && report.delivered >= report.deliveredBar && perClient.every((c) => c.delivered >= c.bar),
   everyoneJoined: rejects === 0 && r.sessions === bots + 1,
   noEarlyClose: earlyClose === 0,
 };
 report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };
 mkdirSync('traces', { recursive: true });
 writeFileSync(`traces/m0-${label}.json`, JSON.stringify(report, null, 2) + '\n');
-console.log(JSON.stringify({ ...report, relay: undefined }, null, 2));
+console.log(JSON.stringify({ ...report, relay: undefined, perClientDelivered: undefined }, null, 2));
 console.log(`relay: ${report.relayCpuPct}% of a core, close lateness p99 ${r.closeLateMs.p99} ms (max ${r.closeLateMs.max}, ${r.stalls} closes over a tick late), input slack p5 ${r.inputSlackMs.p5} ms, substituted ${r.substitutedPct}%, ${r.downKBpsPerSession} KB/s down, ${r.upKBpsPerSession} KB/s up per session`);
 console.log(report.gate.pass ? 'M0 gate: PASS' : 'M0 gate: FAIL');
 process.exit(report.gate.pass ? 0 : 1);

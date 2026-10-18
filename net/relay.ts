@@ -18,8 +18,11 @@ const cc = opt('cc', 'low-latency') as 'low-latency' | 'default' | 'throughput';
 // early, then yields through a MessageChannel until the deadline, so datagram
 // reads keep flowing while it waits.
 const precise = opt('precise', '1') !== '0';
-const EARLY_MS = 1.5;
+// how long before a deadline the timer hands over to the yield loop; --early 8 never sleeps
+const EARLY_MS = Number(opt('early', '1.5'));
 const quiet = argv.includes('--quiet');
+// where the run summary goes; stdout by default (V8 traces share stdout, so runners pass a file)
+const summaryPath = opt('summary', '');
 
 const cert = await Deno.readTextFile('certs/cert.pem');
 const key = await Deno.readTextFile('certs/key.pem');
@@ -38,7 +41,7 @@ const slots: (Slot | null)[] = new Array(W.NP).fill(null);
 const rows = Array.from({ length: W.RING }, () => new Uint32Array(W.NP));
 let events: { slot: number; kind: number; tick: number }[] = [];
 const stats = {
-  ticks: 0, closeLate: [] as number[], sent: 0, sentBytes: 0, maxBundle: 0, oversize: 0, lateArrivals: 0,
+  ticks: 0, closeLate: [] as number[], stallEvents: [] as number[][], sent: 0, sentBytes: 0, maxBundle: 0, oversize: 0, lateArrivals: 0,
   recv: 0, recvBytes: 0, onTime: 0, substituted: 0, sessions: 0, rejected: 0, slack: [] as number[], activeTicks: 0, activeSlotTicks: 0, silent: 0, warmup: 0,
   leaves: {} as Record<string, number>, leaveAt: [] as number[],
   serverMaxDatagram: [] as number[], clientMaxDatagram: [] as number[], cc,
@@ -167,6 +170,9 @@ const channel = new MessageChannel();
 channel.port1.onmessage = () => pump();
 function pump() {
   const now = performance.now();
+  // a wakeup more than a tick late: [ms since start, ms behind], for lining up with --trace-gc
+  const behind = now - deadline(closed + 1);
+  if (behind > W.TICK_MS && stats.stallEvents.length < 1000) stats.stallEvents.push([Number(now.toFixed(1)), Number(behind.toFixed(1))]);
   while (deadline(closed + 1) <= now) closeTick(closed + 1, now);
   const wait = deadline(closed + 1) - performance.now();
   if (!precise) setTimeout(pump, Math.max(0, wait));
@@ -242,6 +248,7 @@ function summary() {
     closeLateMs: { p50: pct(cl, 0.5), p95: pct(cl, 0.95), p99: pct(cl, 0.99), max: pct(cl, 1) },
     // closes more than a whole tick late: the event loop stalled
     stalls: cl.filter((v) => v > W.TICK_MS).length,
+    stallEvents: stats.stallEvents,
     inputSlackMs: { p5: pct(sl, 0.05), p50: pct(sl, 0.5) },
     onTime: stats.onTime, substituted: stats.substituted, warmupSubstituted: stats.warmup, silentTicks: stats.silent,
     substitutedPct: stats.onTime + stats.substituted ? Number((100 * stats.substituted / (stats.onTime + stats.substituted)).toFixed(3)) : 0,
@@ -261,6 +268,8 @@ if (!quiet) console.error(`relay listening on https://127.0.0.1:${port}/ (${cc})
 
 if (durationS > 0) {
   await new Promise((ok) => setTimeout(ok, durationS * 1000));
-  console.log(JSON.stringify(summary()));
+  const text = JSON.stringify(summary());
+  if (summaryPath) await Deno.writeTextFile(summaryPath, text + '\n');
+  else console.log(text);
   Deno.exit(0);
 }
