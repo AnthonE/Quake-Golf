@@ -96,9 +96,11 @@ test('after a keyframe, the production interval hashes match too (late join and 
   joiner.setRegion(key);
   assert.deepEqual(await intervals(joiner, log, K, TICKS), want, 'late join');
 
-  a.x.restore(0);
-  a.recPtr = 0;
-  assert.deepEqual(await intervals(a, log, K, TICKS), want, 'resync in place');
+  // twice: feed() has to seek back to the keyframe's tick each time
+  for (const n of [1, 2]) {
+    a.x.restore(0);
+    assert.deepEqual(await intervals(a, log, K, TICKS), want, `resync in place, ${n}`);
+  }
 
   const fresh = await newSim();
   fresh.init(log.courseSeed);

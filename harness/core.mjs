@@ -99,8 +99,14 @@ export class Sim {
   get nballs() { return Atomics.load(this.i32, L.HDR_NBALLS >> 2); }
   get awake() { return Atomics.load(this.i32, L.JOB_NA >> 2); }
 
-  // Copy this tick's records into the inbox. Logs are sorted by tick.
+  // Copy this tick's records into the inbox. Logs are sorted by tick; going
+  // back in time (after a restore) seeks the cursor back too.
   feed(log, t) {
+    if (this.recPtr > 0 && log.tickOf(this.recPtr - 1) >= t) {
+      let lo = 0, hi = this.recPtr;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (log.tickOf(mid) < t) lo = mid + 1; else hi = mid; }
+      this.recPtr = lo;
+    }
     while (this.recPtr < log.count && log.tickOf(this.recPtr) < t) this.recPtr++;
     let n = 0;
     while (this.recPtr < log.count && log.tickOf(this.recPtr) === t) {
