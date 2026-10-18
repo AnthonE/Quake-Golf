@@ -85,3 +85,11 @@ test('a neural golfer plays a real hole on the bot\'s legs, and the game replays
   const tr = decodeTrace((await replay({ bytes, log: parseLog(room.log()), ticks: room.t, tag: 'brain' })).trace);
   assert.equal(tr.tickHashes[room.t - 1], room.hash);
 });
+
+test('a real hole is scored by the game\'s own scoreboard', async () => {
+  const { realHole } = await import('../tools/zoo.mjs');
+  const r = await realHole(wasmBytes(), encode(G), 7);
+  assert.ok(r.ticks < 40000, 'the hole ended');
+  assert.ok(r.score >= 1 && r.score <= 40, `score ${r.score}`);
+  if (!r.sunk) assert.ok(r.score >= 2, 'not in the cup costs 2');
+});

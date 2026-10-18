@@ -2,7 +2,7 @@
 // M2: the Deno relay and two Chrome clients (WebGPU on, a golf bot at each
 // pair of hands) play one hole end to end over real WebTransport. The second
 // client joins late, from a keyframe (M3; in M2 it replayed the room's history).
-//   node net/run-m2.mjs [--clients 2] [--seed 7] [--late 4] [--limit 300] [--impair delay=40,jitter=10,loss=0.02]
+//   node net/run-m2.mjs [--clients 2] [--seed 7] [--late 4] [--limit 300] [--impair delay=40,jitter=10,loss=0.02] [--genome qg1:...]
 // The gate: every client sinks its ball (no penalty) and the hole ends on the
 // scoreboard; every 128-tick interval hash agrees across clients; no client
 // is left behind the playout clock. Screenshots land in traces/m2-*.png.
@@ -45,7 +45,8 @@ const pages = [];
 // present=0: headless Chrome loses the WebGPU device presenting a canvas, so
 // frames are drawn only for captures, read back from the GPU
 const impair = opt('impair', '');
-const q = new URLSearchParams({ bot: '1', present: '0', url: `https://127.0.0.1:${port}/`, hash, impair });
+const genome = opt('genome', ''); // a neural golfer at every client's controls instead of the golf bot
+const q = new URLSearchParams({ bot: '1', present: '0', url: `https://127.0.0.1:${port}/`, hash, impair, ...(genome ? { genome } : {}) });
 const open = async (k) => {
   const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') process.stderr.write(`[client ${k}] ${m.text()}\n`); });

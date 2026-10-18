@@ -10,6 +10,7 @@
 // at what fits in a tweet. Held-out courses score it at the end.
 //   node tools/zoo.mjs [--gens 200] [--kids 15] [--courses 8] [--confirm 16] [--bases 32] [--workers 4] [--seed 1] [--from qg1:...] [--out logs/zoo]
 //   node tools/zoo.mjs --bench [qg1:... ...]   # the test courses: a random net, a rule of thumb, the golf bot, and any genomes given
+//   node tools/zoo.mjs --real qg1:... [--holes 10]   # real holes, walking and the clock: the genome, then the golf bot, alone
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -176,6 +177,18 @@ export async function bench(pool, kinds, courses = TEST) {
   }));
 }
 
+// Real holes: one golfer alone in the agent room, walking to each shot on
+// the golf bot's legs against the hole clock, scored by the game's own
+// scoreboard. `kind` is 'bot' or a genome.
+export async function realHole(bytes, kind, courseSeed) {
+  const { Room } = await import('./agent.mjs');
+  const room = await Room.create({ bytes, courseSeed, agents: 0, bots: kind === 'bot' ? 1 : 0, genomes: kind === 'bot' ? [] : [kind] });
+  const v = new View(room.sim.memory.buffer);
+  while (room.t < 40000 && !(v.hole().state === L.H_OVER)) room.tick();
+  const p = v.player(0);
+  return { score: p.score, sunk: p.done, ticks: room.t };
+}
+
 function arg(name, def) {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? process.argv[i + 1] : def;
@@ -187,7 +200,18 @@ else if (isMain(import.meta.url)) {
   const pool = new Pool(bytes, Number(arg('workers', Math.min(4, cpus().length))));
   const t0 = performance.now();
   const secs = () => ((performance.now() - t0) / 1000).toFixed(0);
-  if (process.argv.includes('--bench')) {
+  if (process.argv.includes('--real')) {
+    const genome = arg('real');
+    const holes = TEST.slice(0, Number(arg('holes', 10)));
+    console.log(`real holes on ${holes.length} held-out courses (seeds ${holes[0]}-${holes.at(-1)}), alone, walking, 4 min a hole:`);
+    for (const kind of [genome, 'bot']) {
+      const rs = [];
+      for (const c of holes) rs.push(await realHole(bytes, kind, c));
+      console.log(`  ${(kind === 'bot' ? 'golf bot' : `genome ${kind.length} chars`).padEnd(18)} mean ${mean(rs.map((r) => r.score)).toFixed(2)}, ` +
+        `sunk ${rs.filter((r) => r.sunk).length}/${rs.length}: ${rs.map((r) => r.score).join(' ')}`);
+    }
+    console.log(`${secs()} s`);
+  } else if (process.argv.includes('--bench')) {
     const given = process.argv.slice(process.argv.indexOf('--bench') + 1).filter((a) => a.startsWith('qg1:'));
     const rows = await bench(pool, [encode({ base: 1, muts: [] }), 'rule', 'bot', ...given]);
     console.log(`${TEST.length} held-out courses (seeds ${TEST[0]}-${TEST.at(-1)}), shots alone, ${MAX_SHOTS} shots at most (else strokes + 2):`);
