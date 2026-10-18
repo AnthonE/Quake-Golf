@@ -82,7 +82,9 @@ async function run({ module, memory, netPort }) {
     // Holes: a tick six older than the newest one here has missed every bundle
     // that carried it (four deep, plus room for reordering). Ask for each run
     // of them at once, and again if the fill hasn't come (longer for big runs).
-    for (let t = welcome.roomStart + k; t < newest - 6;) {
+    // (the next 1,024 ticks are plenty: anything past them is asked for later)
+    const end = Math.min(newest - 6, welcome.roomStart + k + 1024);
+    for (let t = welcome.roomStart + k; t < end;) {
       if (store.has(t)) { t++; continue; }
       let e = t;
       while (e < newest - 6 && !store.has(e)) e++;

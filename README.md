@@ -83,11 +83,41 @@ node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played C
   as splats, a 3x5 HUD font. `?bot=1` hands the controls to `client/bot.mjs`,
   which plans every shot on a private copy of the sim.
 
+## M2, the first hole
+
+`node net/run-m2.mjs` starts the Deno relay and two headless Chrome 141
+clients. Each client runs WebGPU on SwiftShader with the golf bot at the
+controls, and the second joins a few seconds late and replays the room's
+history from a fill. The gate: both balls sunk (no time-limit penalty), every
+128-tick interval hash equal across the clients, and no client left behind
+the playout clock.
+
+| | clean, loopback | 60 ms RTT, 15 ms jitter, 5% loss each way |
+| --- | --- | --- |
+| hole | seed 7, par 3, 168 m | seed 9, par 3, 160 m |
+| scores | 2 and 3, both sunk | 3 and 2, both sunk |
+| interval hashes compared | 50, all equal | 51, all equal |
+| fill requests (history + holes) | the late joiner's history | 9 and 4 |
+
+A four-bot match (`tools/gengame.mjs`, 20,000 ticks) replays to the same
+region hash on every tick in all 27 runtime x JIT x thread configurations;
+CI runs it next to the M1 log. In Node, the bots finish courses 7 to 10 in
+2 to 5 strokes against par 3 and 4, with a 6- or 16-tick round trip.
+
+game.wasm is now 13,503 B, 6,409 B gzipped (M1's was 3,200): players,
+weapons, the hole and the course generator. The client's JS is about 28 KB
+gzipped as written, unminified; fitting it all into 13,312 B is M5's job.
+
+Headless Chrome here loses its WebGPU device as soon as a canvas presents a
+frame (even a plain clear), so the gate runs the client with `present=0`. It
+draws only when a screenshot is asked for, renders into a texture and reads
+the pixels back. The screenshots land in `traces/m2-*.png`.
+
 ## Results
 
-Measured in a 4-core cloud container on 2026-10-18, game.wasm sha256
-`42a59430…`: 6,401 B, 3,200 B gzipped. Binaryen `-O3` makes it 5,923 B but
-3,220 B gzipped, so the hand-written build ships as is.
+Measured in a 4-core cloud container on 2026-10-18. At M1, game.wasm (sha256
+`42a59430…`) was 6,401 B, 3,200 B gzipped; Binaryen `-O3` makes it 5,923 B
+but 3,220 B gzipped, so the hand-written build ships as is.
 
 **M1, determinism.** One 1M-tick log (10,000 balls, ~600 awake, a blast
 every 24 ticks, a wake storm every 2,000) replayed in Node 22 (V8 12.4),

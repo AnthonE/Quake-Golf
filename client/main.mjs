@@ -85,7 +85,7 @@ async function main() {
       if (e.button === 2) setWeapon(weapon ^ 1);
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
-    document.addEventListener('wheel', () => { if (locked) setWeapon(weapon ^ 1); });
+    document.addEventListener('wheel', (e) => { if (locked && e.deltaY) setWeapon(e.deltaY > 0 ? 1 : 0); });
     document.addEventListener('keydown', (e) => {
       if (e.code === 'Digit1') setWeapon(0);
       else if (e.code === 'Digit2') setWeapon(1);
