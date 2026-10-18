@@ -16,11 +16,14 @@ const FIRE_TICKS = 12; // long enough for the press to cross the round trip and 
 
 export const HELP = `QUAKE GOLF. Sink your ball in the cup (a slipgate: it swallows a ball under 8 m/s) in as few shots as you can.
 Every shot is a stroke. The rocket is your club: shoot the ground just behind your ball, on the side away from where it
-should go. On a flat fairway a blast 0.5 m behind it went about 225 m, 2 m behind about 75 m, 4 m behind about 10 m.
-Stand 1 to 4 m behind the blast point and look down at it: where you stand barely changes the shot, but nearer than
-2 m the blast throws you about 20 m. The grenade bounces and pops after 2.5 s, for lobs. A hole lasts 4 min; not
-finishing costs 2. Bearings are yaw degrees (0 is +x, 90 is +z), the numbers aim takes; pitch 0 is level, down is
-negative. You run at 10 m/s and slide about 2.5 m after letting go; a 0.05 s tap moves you about 0.8 m.
+should go. From four tees, a blast this far behind the ball sent it: 0.5-1 m, 200-350 m; 1.5 m, 150-180 m; 2 m,
+80-170 m; 3 m, 30-70 m; 4 m, 11 m. Rough and slopes change that a lot (a 1 m blast from uphill rough went 47 m), and
+past a cup in a hollow the ball runs on up the far side, so leave it short. Stand 1 to 4 m behind the blast point and
+look down at it: where you stand barely changes the shot, but nearer than 2 m the blast throws you about 20 m. You
+pass through your own ball (no dribbling) and push everyone else's. The grenade bounces and pops after 2.5 s, for
+lobs. A hole lasts 4 min; not finishing costs 2. Bearings are yaw degrees (0 is +x, 90 is +z), the numbers aim
+takes; pitch 0 is level, down is negative. You run at 10 m/s and slide about 2.5 m after letting go; a 0.05 s tap
+moves you about 0.8 m.
 Commands, several at once joined by ";":
   look                                what you see (every reply ends with it)
   aim <yaw> [<pitch>]                 turn to a bearing, in degrees
@@ -81,7 +84,7 @@ export function see(view, slot, { since = 0, aim = null } = {}) {
 
 const v3 = (p) => `(${p.map((x) => x.toFixed(1)).join(' ')})`;
 const ud = (dy, what) => `${Math.abs(dy).toFixed(1)} m ${dy >= 0 ? 'above' : 'below'} ${what}`;
-const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const clock = (s) => { const c = Math.ceil(s); return `${Math.floor(c / 60)}:${String(c % 60).padStart(2, '0')}`; };
 
 // see() as the few lines a person would read off the screen.
 export function look(s) {
@@ -136,7 +139,7 @@ export class Hands {
     };
     const secs = (x) => {
       const v = num(x, 'seconds');
-      if (v <= 0 || v > 30) throw new Error(`${verb}: seconds should be above 0 and at most 30`);
+      if (v <= 0 || v > 60) throw new Error(`${verb}: seconds should be above 0 and at most 60`);
       return Math.max(1, Math.round(v * HZ));
     };
     const me = view.player(slot);

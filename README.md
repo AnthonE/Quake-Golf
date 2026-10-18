@@ -36,12 +36,47 @@ next frame; other players and every ball show a round trip late. To feel a
 bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
 round trip with 10% loss each way.
 
+## Play it as an agent
+
+```sh
+node tools/agent.mjs --course 11 --bots 1     # a local room on http://127.0.0.1:7777/, you are slot 0
+curl -s localhost:7777/                       # the rules and the commands
+curl -s localhost:7777/0 -d 'wait 3; face cup; hold w 2'   # act, then see
+curl -s localhost:7777/0.json                 # the same view as JSON, for scripts
+```
+
+Any agent that can make an HTTP request (or pipe text: `--stdin`) plays
+through the same input word a mouse and keys make, and no more: `aim`,
+`face`, `hold` keys for a time, `fire`, `weapon`, `wait`. There is no
+pathfinding and no auto-shot. Every reply is the screen and HUD as text:
+the clock, your strokes, where your ball and the cup are and how far, the
+lie, the other players, the blasts and sinks since your last look. The help
+carries what a person learns by feel: blast distance against shot length,
+where to stand, how far you slide. The door is `client/agent.mjs`, shared
+by any transport; the room is `tools/agent.mjs`.
+
+The room is stepped: the world moves only while an agent's command runs, so
+a slow thinker loses nothing by thinking, and the hole clock still counts
+every tick it plays. Golf bots play the slots after the agents. The match
+is an ordinary event log, saved after every command, and it replays in the
+harness like any other.
+
+The first agent game: Claude, from this repo's own session, on course 11
+(par 4, 238 m) against one golf bot. The bot birdied it in 3. Claude took 12
+strokes, ran out the clock and scored 14: the bot's drive blast, fired 3
+ticks earlier and 2.6 m away, knocked its first shot about 60° off line,
+then it ping-ponged across a cup that sits in a hollow, where every shot
+strong enough to reach the cup ran through and up the far side. With no
+private sim to try shots on, distance is a guess; the bot tries each shot on
+one first. The log (30,489 ticks) replays
+to the same hash on every tick on 1 and 4 threads.
+
 ## Run it
 
 ```sh
 npm ci && sh tools/install-deno.sh     # wabt, binaryen, Deno 2.9.7 into .tools/
 npm run build                          # src/*.wat -> build/game.wasm
-npm test                               # assembler, XXH64, sim, gameplay, splits, keyframes, threads, wire
+npm test                               # assembler, XXH64, sim, gameplay, splits, keyframes, threads, wire, agent door
 node harness/matrix.mjs --ticks 20000  # Node, Deno, Chrome x Liftoff/TurboFan x 1/2/4 threads
 node tools/gengame.mjs --bots 4 --out logs/game.qgl && node harness/matrix.mjs --ticks 20000 --log logs/game.qgl
 node harness/perf.mjs                  # per-phase cost at 10,000 balls

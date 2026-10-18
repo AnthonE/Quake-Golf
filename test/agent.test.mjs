@@ -33,9 +33,10 @@ test('the hands make the word a mouse and keys would', async () => {
 
 test('the door says what went wrong and what to type', async () => {
   const r = await room();
+  assert.match(r.act(0, 'look'), /t1 · hole 1 · countdown · par 3 · 0:03 left/, 'the clock rounds up: 2.99 s is 0:03');
   assert.match(r.act(0, 'bogus'), /error: no command "bogus"; try help/);
   assert.match(r.act(0, 'hold x 1'), /error: hold: keys are any of w a s d j/);
-  assert.match(r.act(0, 'hold w 40'), /at most 30/);
+  assert.match(r.act(0, 'hold w 70'), /at most 60/);
   assert.match(r.act(0, 'aim north'), /yaw should be a number, got "north"/);
   assert.match(r.act(0, 'fire'), /no shots while the hole is countdown/);
   const t = r.t;
