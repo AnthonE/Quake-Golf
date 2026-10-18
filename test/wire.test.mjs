@@ -61,3 +61,12 @@ test('compare refuses traces of different length or without a log hash', async (
   const other = { ...base, intervalHashes: BigUint64Array.of(0n, 9n) };
   assert.match(compareTraces(base, other).what, /interval hash 1/);
 });
+
+test('a stamped copy of a shared body equals a bundle encoded for that recipient', () => {
+  const rows = [0, 1, 2, 3].map((k) => Uint32Array.from({ length: W.NP }, (_, p) => k * 7 + p));
+  const events = [{ slot: 2, kind: W.EV_JOIN, tick: 40 }];
+  const body = W.encodeBundle({ T: 41, rows, events, inAck: 0, slack: 0, late: 0 });
+  const stamped = W.stampTrailer(body.slice(), { inAck: 39, slack: -2.25, late: 7 });
+  assert.deepEqual([...stamped], [...W.encodeBundle({ T: 41, rows, events, inAck: 39, slack: -2.25, late: 7 })]);
+  assert.equal(body[body.length - 2], 0, 'the shared body is untouched');
+});

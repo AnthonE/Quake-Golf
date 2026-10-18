@@ -138,13 +138,15 @@ function broadcast(T: number) {
   events = events.filter((e) => e.tick > T - W.NB - 4);
   for (const t of eventsAt.keys()) if (t <= T - W.NB) eventsAt.delete(t);
   const evs = events.filter((e) => e.tick <= T && e.tick > T - W.NB);
+  // the body is the same for everyone: encode it once, then copy and stamp each trailer
+  const body = W.encodeBundle({ T, rows: r, events: evs, inAck: 0, slack: 0, late: 0 });
   for (const s of slots) {
     if (!s) continue;
     // the worst slack since the last bundle, late arrivals included, so the
     // client's lead controller reacts to lateness it would otherwise never see
     const slack = Number.isFinite(s.periodSlack) ? s.periodSlack : s.lastSlack;
     s.periodSlack = Infinity;
-    const buf = W.encodeBundle({ T, rows: r, events: evs, inAck: s.contig, slack, late: s.late });
+    const buf = W.stampTrailer(body.slice(), { inAck: s.contig, slack, late: s.late });
     if (buf.length > Math.min(W.MAX_DATAGRAM, s.maxDatagram)) { stats.oversize++; continue; }
     stats.maxBundle = Math.max(stats.maxBundle, buf.length);
     stats.sent++;

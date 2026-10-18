@@ -100,6 +100,17 @@ export function encodeBundle({ T, rows, events, inAck, slack, late, flags = 0 })
   return buf;
 }
 
+// The per-recipient trailer, stamped onto a copy of a shared bundle body.
+export function stampTrailer(buf, { inAck, slack, late, flags = 0 }) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const o = buf.length - 8;
+  dv.setUint32(o, inAck >>> 0, true);
+  dv.setInt16(o + 4, Math.max(-32768, Math.min(32767, Math.round(slack * 16))), true);
+  dv.setUint8(o + 6, late & 0xff);
+  dv.setUint8(o + 7, flags);
+  return buf;
+}
+
 export function decodeBundle(buf) {
   if (buf.length < 16 || buf[0] !== T_BUNDLE) return null;
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
