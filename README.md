@@ -6,12 +6,14 @@ deterministic lockstep at 125 Hz, so only inputs cross the network: bandwidth
 follows players, never balls.
 
 Design doc and netcode review: [Quake Golf — Design Doc](https://claude.ai/artifact/QTA2QtjNiu4HLWW2115bW7).
-Target: the newest Chrome; the server is Deno.
+Target: the newest Chrome; the server is Deno. The same sim also runs as
+Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 ## Where it is
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| X1 · original Xbox | the sim as Pentium III code equals V8 on every tick of 1M; an XBE builds; a match played on the Xbox build replays in V8 tick for tick | **passed** under QEMU's Pentium III, not yet on a console · [results](#x1-the-original-xbox) |
 | M3 · netcode | four players at 150 ms and 10% loss: your moves show next frame, a late join from a keyframe, a flipped bit caught and healed | **passed** · [results](#m3-netcode) |
 | M2 · first hole | a full hole plays end to end, two players over the real server | **passed** · [results](#m2-the-first-hole) |
 | M1 · determinism harness | zero hash mismatches over 1M ticks | **passed** · [results](#results) |
@@ -36,6 +38,22 @@ next frame; other players and every ball show a round trip late. To feel a
 bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
 round trip with 10% loss each way.
 
+## Play it on an original Xbox
+
+```sh
+npm ci && sh tools/install-nxdk.sh   # once: nxdk, the open-source Xbox SDK, pinned, into .tools/nxdk
+make -C xbox                         # xbox/bin/default.xbe and xbox/Quake Golf.iso
+```
+
+Copy `default.xbe` to a softmodded or modchipped console (FTP it to, say,
+`E:\Apps\QuakeGolf\`), or boot the ISO in xemu, which needs your own
+console's boot ROM, BIOS and disk dumps. CI builds both on every push (the
+`quake-golf-xbox` artifact). Each controller port is a player, up to four in
+split screen: Start joins, the left stick runs, the right stick aims, A
+jumps, the right trigger fires, Y or X switches between rocket and grenade,
+and holding the left trigger or B slows the aim for lining up a shot. Play
+is local for now; no network yet.
+
 ## Run it
 
 ```sh
@@ -48,6 +66,10 @@ node harness/perf.mjs                  # per-phase cost at 10,000 balls
 node net/run-m0.mjs --bots 63 --duration 60 [--impair delay=40,jitter=10,loss=0.05]
 node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played Chrome clients, one hole
 node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # four, a late join, a flipped bit
+node tools/x86.mjs                     # game.wasm -> Pentium III assembly, the native runner, the Xbox core's test driver (clang)
+node harness/matrix.mjs --ticks 20000 --runtimes node,x86,pentium3   # that code on this CPU and under qemu-i386 -cpu pentium3
+build/x86/replay --log logs/perf24000.qgl --ticks 24000 --time-from 16000   # its per-tick cost, perf.mjs's window
+build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the Xbox core: frames (.ppm), the match (.qgl, .qgh)
 ```
 
 ## How it fits together
@@ -106,6 +128,85 @@ node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # fo
   splats, your own player and shots from the prediction, a 3x5 HUD font.
   `?bot=1` hands the controls to `client/bot.mjs`, which plans every shot on a
   private copy of the sim.
+- `tools/w2x86.mjs` translates game.wasm into i386 assembly for the Xbox's
+  Pentium III: integer ops and CMOV, SSE1 for f32 and f32x4, nothing from
+  SSE2. Every op keeps wasm's bits: MXCSR pinned to round-to-nearest with no
+  FTZ or DAZ; min and max from both orders of `minss`/`maxss`, so NaN comes
+  out and -0 < +0; saturating truncation and unsigned conversion with their
+  edges on cold paths; floor-then-truncate as truncate and step down; i64 in
+  register pairs; integer SIMD lanes as scalar code; a bounds check on every
+  computed address. Locals live in the frame, the operand stack is cached in
+  registers within a basic block, compares feed branches, `select` and CMOV
+  straight from the flags, and leaf functions up to 48 ops are inlined. Each
+  export gets a cdecl wrapper that saves and sets MXCSR and the x87 control
+  word, so nothing the host does to the FPU reaches the sim.
+- `harness/native/` runs that code the way `harness/` runs the wasm:
+  freestanding (raw Linux syscalls, no libc), the same .qgh trace, graded by
+  `matrix.mjs` as `x86` (this CPU) and `pentium3` (`qemu-i386 -cpu pentium3`,
+  which faults on anything past SSE1). `test/x86.test.mjs` runs every op the
+  translator knows over the values that catch a port out, against V8.
+- `xbox/` is the console game. `game.c` turns controllers into input words,
+  steps at 125 Hz and draws in software: Comanche-style voxel columns over the
+  sim's heightfield with the browser's surface colours, fog and sky; balls,
+  players, projectiles and blasts as depth-tested sprites; the browser's 3x5
+  HUD font. `main.c` is the nxdk front end (SDL2 game controllers, a 320x240
+  frame doubled into the 640x480 framebuffer). `headless.c` is the same core
+  on Linux with scripted controllers: `test/xbox.test.mjs` plays a two-player
+  hole on it and replays the recorded match in V8.
+
+## X1, the original Xbox
+
+The original Xbox is a 733 MHz Pentium III (SSE1, no SSE2, 128 KiB of L2)
+with 64 MB shared with an NV2A GPU. The sim reaches it as a translation of
+the same game.wasm, not a port: `tools/w2x86.mjs` emits Pentium III assembly
+op for op, and nxdk (open source, no Microsoft code) links it into an XBE.
+A port that only matched V8 most of the time would be useless for lockstep,
+so the gate is the same as M1's: equal region hashes on every tick.
+
+| Check | Result |
+| --- | --- |
+| M1's 1M-tick log, native x86 vs Node | every tick's region hash equal |
+| M1's 20,000-tick log and the 4-bot match, `x86` and `pentium3` (QEMU) beside Node, Deno and Chrome | all agree, in CI |
+| every op on signed zeros, NaNs, denormals, saturation edges, rounding ties and 64-bit shift counts (`test/x86.test.mjs`, natively and under QEMU) | equal to V8, except NaN bits, which wasm leaves open (the sim never makes a NaN) |
+| that test against translators with one lowering broken (min, floor, unsigned conversion, a 64-bit rotate, flag ordering) | each fails it |
+| a scripted two-player hole on the Xbox core, replayed from its .qgl in V8 | every tick equal; under QEMU's Pentium III the rendered frames are byte-identical too |
+| the XBE | builds; its disassembly has no instruction past SSE1 |
+
+| Confirmed tick, 10,000 balls, ticks 16,000 to 24,000 (perf.mjs's window, ~127 awake) | |
+| --- | --- |
+| V8 TurboFan, this container (`node harness/perf.mjs`) | 0.123 ms |
+| the Pentium III code, natively on this container's CPU | 0.166 ms |
+| instructions per tick (callgrind), 1.88 M of them in tick_begin | 2.43 M |
+| Pentium III at 733 MHz, at 1 to 1.5 cycles an instruction | 3.3 to 5.0 ms, of 8 |
+
+The translation runs at about 1.35 times TurboFan's time on the same machine,
+without registers for locals and with half of x86-64's registers. The
+Pentium III figure is an estimate, not a measurement: no console was at hand,
+and with 128 KiB of L2 under a working set larger than that, memory stalls
+could push it past 1.5 cycles an instruction. Three quarters of the
+instructions are tick_begin re-binning all 10,000 balls, asleep or not, about
+190 a ball; a grid that moves only awake balls is the change that pays most
+here, and in the browser too. A storm (1,359 awake) costs V8 4.6 times a
+quiet tick, which would not fit a Pentium III's 8 ms. The renderer, about
+3 ms a frame here at 320x240, is the next cost to measure on hardware.
+
+Not done yet:
+
+- **A console.** Nothing has run on an Xbox or in xemu (xemu needs the
+  console's own ROM and disk dumps). QEMU checks the instruction set and the
+  floating point, not the chipset, the kernel or the controllers.
+- **The network.** The relay speaks WebTransport (QUIC and TLS 1.3). The Xbox
+  needs a plain UDP door on the relay, carrying the same bundles (at most
+  1,161 B, one Ethernet frame) and inputs. The sim side is ready: a match is
+  already an event log both builds replay identically.
+- **The renderer.** Voxel columns tilt by sliding the horizon, which
+  distorts at steep pitch, as the browser's ray march does. The NV2A (a
+  GeForce 3) should draw the heightfield as a mesh and the balls as point
+  sprites.
+- **Speed.** Locals live in the frame, and an inlined call passes its
+  arguments and results through memory. Registers for locals, then
+  hand-written assembly for tick_begin's binning loop, come after the grid
+  change above.
 
 ## M3, netcode
 
