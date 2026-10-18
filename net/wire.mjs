@@ -18,9 +18,10 @@
 //   0 u8 0x03 | 1 u8 n | 2 u16 0 | 4 u32 from | n consecutive ticks as the record keeps them (below)
 //
 // Handshake on a client-opened bidirectional stream, which stays open for the
-// whole session; the client ending it means it has left:
+// whole session; the client ending it means it has left (a native client, the
+// Xbox, uses a TCP connection to the relay's native port as the stream):
 //   hello   (24 B): 0x10 | proto | u16 client max datagram | u8[8] sha-256(game.wasm) prefix | u32 room | u32 nonce | u32 0
-//   welcome (32 B): 0x11 | slot | u16 server max datagram | u32 join_tick | u32 seed | u32 server_tick | u32 tick_us | u8 send_every | u8 nb | u8 np | u8 0 | u32 room_start | u32 0
+//   welcome (32 B): 0x11 | slot | u16 server max datagram | u32 join_tick | u32 seed | u32 server_tick | u32 tick_us | u8 send_every | u8 nb | u8 np | u8 0 | u32 room_start | u32 token
 //   reject  (4 B):  0x1f | reason (1 wasm mismatch, 2 room full, 3 protocol) | 0 | 0
 // The room's sim began at room_start with the seed; sim tick k is server tick
 // room_start + k. After those, every message on the stream opens with 16 B.
@@ -34,6 +35,12 @@
 //   fill (16 B + body): 0x13 | 0 | 0 | 0 | u32 from | u32 n | u32 body bytes, then n ticks:
 //        u8 ne | ne x (u8 slot, u8 kind) | u8 nw | nw x (u8 slot, u32 word), the active slots only
 //   pong (16 B): 0x16 | 0 | 0 | 0 | u32 nonce | f64 the server's tick when it answered, fractional
+//
+// Native clients (net/relay.ts --native-port, TCP and UDP on one number): the
+// stream above is the TCP connection; datagrams are UDP to the same port, the
+// server's exactly as above, the client's each prefixed with the welcome's u32
+// token (0 for WebTransport sessions), which is how the relay finds the session
+// and the address to send bundles to.
 
 export const PROTO = 3;
 export const T_INPUT = 0x01;
@@ -227,7 +234,7 @@ export function decodeHello(buf) {
   return { proto: dv.getUint8(1), maxDatagram: dv.getUint16(2, true), wasmPrefix: buf.slice(4, 12), room: dv.getUint32(12, true), nonce: dv.getUint32(16, true) };
 }
 
-export function encodeWelcome({ slot, maxDatagram, joinTick, seed, serverTick, roomStart = 0 }) {
+export function encodeWelcome({ slot, maxDatagram, joinTick, seed, serverTick, roomStart = 0, token = 0 }) {
   const buf = new Uint8Array(32);
   const dv = new DataView(buf.buffer);
   dv.setUint8(0, T_WELCOME);
@@ -241,6 +248,7 @@ export function encodeWelcome({ slot, maxDatagram, joinTick, seed, serverTick, r
   dv.setUint8(21, NB);
   dv.setUint8(22, NP);
   dv.setUint32(24, roomStart, true);
+  dv.setUint32(28, token >>> 0, true);
   return buf;
 }
 
@@ -251,7 +259,7 @@ export function decodeWelcome(buf) {
   return {
     slot: dv.getUint8(1), maxDatagram: dv.getUint16(2, true), joinTick: dv.getUint32(4, true), seed: dv.getUint32(8, true),
     serverTick: dv.getUint32(12, true), tickUs: dv.getUint32(16, true), sendEvery: dv.getUint8(20), nb: dv.getUint8(21), np: dv.getUint8(22),
-    roomStart: dv.getUint32(24, true),
+    roomStart: dv.getUint32(24, true), token: dv.getUint32(28, true),
   };
 }
 

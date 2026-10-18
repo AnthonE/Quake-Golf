@@ -4,3 +4,9 @@ logs/
 traces/
 certs/
 .tools/
+xbox/bin/
+xbox/*.iso
+xbox/*.obj
+xbox/*.d
+xbox/*.exe
+xbox/*.lib

@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Replays one log in every runtime x V8 tier x thread count and compares
 // every trace with the first.
-//   node harness/matrix.mjs --ticks 100000 [--runtimes node,deno,chromium] [--flags default,liftoff-only,no-liftoff] [--threads 1,2,4]
+//   node harness/matrix.mjs --ticks 100000 [--runtimes node,deno,chromium,x86,pentium3] [--flags default,liftoff-only,no-liftoff] [--threads 1,2,4]
+// x86 is the sim translated for the Xbox's Pentium III (tools/w2x86.mjs) on
+// this machine's CPU; pentium3 is the same binary under qemu-i386 -cpu
+// pentium3, which faults on anything past SSE1. Both run one config: no V8
+// tiers, one thread.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { decodeTrace } from './core.mjs';
@@ -16,10 +20,13 @@ const threadCounts = opt('threads', '1,2,4').split(',').map(Number);
 const log = opt('log', `logs/m${ticks}.qgl`);
 const wasm = opt('wasm', 'build/game.wasm');
 const DENO = existsSync('.tools/deno') ? '.tools/deno' : 'deno';
+const NATIVE = new Set(['x86', 'pentium3']);
 
 mkdirSync('traces', { recursive: true });
 if (!existsSync('build/game.wasm')) execFileSync(process.execPath, ['tools/asm.mjs'], { stdio: 'inherit' });
 if (!existsSync(log)) execFileSync(process.execPath, ['tools/genlog.mjs', '--ticks', String(ticks), '--out', log], { stdio: 'inherit' });
+// the native runner is rebuilt from this very module every time, so it is never stale
+if (runtimes.some((rt) => NATIVE.has(rt))) execFileSync(process.execPath, ['tools/x86.mjs', '--wasm', wasm], { stdio: 'inherit' });
 
 function command(rt, tier, n, out) {
   const common = ['--log', log, '--wasm', wasm, '--ticks', String(ticks), '--threads', String(n), '--out', out];
@@ -27,6 +34,8 @@ function command(rt, tier, n, out) {
   if (rt === 'node') return [process.execPath, [...v8, 'harness/run-node.mjs', ...common]];
   if (rt === 'deno') return [DENO, ['run', '-R', '-W', ...(v8.length ? [`--v8-flags=${v8[0]}`] : []), 'harness/run-deno.ts', '--flags', tier, ...common]];
   if (rt === 'chromium') return [process.execPath, ['harness/run-chromium.mjs', '--flags', tier, ...common]];
+  if (rt === 'x86') return ['build/x86/replay', [...common, '--tag', 'x86 native t1']];
+  if (rt === 'pentium3') return ['qemu-i386', ['-cpu', 'pentium3', 'build/x86/replay', ...common, '--tag', 'x86 qemu-pentium3 t1']];
   throw new Error(`unknown runtime ${rt}`);
 }
 
@@ -35,7 +44,9 @@ let ref = null;
 let failed = 0;
 for (const rt of runtimes) {
   for (const tier of tiers) {
-    for (const n of threadCounts) {
+    for (const n0 of threadCounts) {
+      const n = NATIVE.has(rt) ? 1 : n0;
+      if (NATIVE.has(rt) && (tier !== tiers[0] || n0 !== threadCounts[0])) continue;
       const out = `traces/m-${rt}-${tier}-t${n}-${ticks}.qgh`;
       const [cmd, cargs] = command(rt, tier, n, out);
       rmSync(out, { force: true }); // never grade a stale trace
