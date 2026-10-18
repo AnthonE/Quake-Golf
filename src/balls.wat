@@ -48,7 +48,7 @@
         (!st i32 @CURSOR (local.get $b) (i32.add (local.get $t) (i32.const 1))))))
   (call $players)
   (call $push_balls)
-  (call $projectiles)
+  (call $projectiles (i32.const 0) (i32.const -1))
   (local.set $na (i32.const 0))
   (!for $i (i32.const 0) (local.get $n)
     (if (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE))

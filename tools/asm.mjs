@@ -10,7 +10,7 @@
 // data segments (they would rewrite shared memory on every instantiate) and
 // mutable globals (per-thread state the region never sees).
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -181,6 +181,14 @@ export function constants(src, scope) {
   return out;
 }
 
+// The test files build in parallel processes: a reader sees the old file or
+// the new one, never half of one.
+function writeAtomic(path, data) {
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
+}
+
 export function forbid(wat, where = 'source') {
   const rules = [
     [/\bmemory\.grow\b/, 'memory.grow'],
@@ -256,9 +264,9 @@ async function main() {
   for (const debug of [false, true]) {
     const wat = expand(entry, { DEBUG: debug });
     const base = debug ? 'game.debug' : 'game';
-    writeFileSync(join(out, `${base}.wat`), wat);
+    writeAtomic(join(out, `${base}.wat`), wat);
     const bin = await assemble(wat, `${base}.wat`, { debugNames: debug });
-    writeFileSync(join(out, `${base}.wasm`), bin);
+    writeAtomic(join(out, `${base}.wasm`), bin);
     manifest[base] = {
       raw: bin.length,
       gzip: gzipSync(bin, { level: 9 }).length,
@@ -266,7 +274,7 @@ async function main() {
     };
   }
   manifest.binaryen = await binaryenSize(readFileSync(join(out, 'game.wasm')));
-  writeFileSync(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+  writeAtomic(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   const g = manifest.game;
   console.log(`game.wasm ${g.raw} B, ${g.gzip} B gzip, sha256 ${g.sha256.slice(0, 16)}`);
   if (manifest.binaryen.raw) console.log(`binaryen -O3 would give ${manifest.binaryen.raw} B, ${manifest.binaryen.gzip} B gzip (measurement only)`);

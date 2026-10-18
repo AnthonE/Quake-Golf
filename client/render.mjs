@@ -20,6 +20,7 @@ struct U {
   cup: vec4f,      // cup x, y, z, my slot
   hole: vec4f,     // hole direction x, z, highest ground, flash count
   me: vec4u,       // nballs, my ball (or 0xffffffff), hud rows, sunk-ball count
+  pred: vec4f,     // extrapolate my projectiles (s): they come from the prediction, at its own clock
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var hmap: texture_2d<f32>;
@@ -206,8 +207,9 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
     let b = j * ${L.JSIZE}u;
     let k = (proj[(b + ${L.J_KIND}u) / 4u] >> 16u) & 255u;
     if (k == 0u) { return o; }
+    let mine = (proj[(b + ${L.J_OWNER}u) / 4u] & 255u) == u32(u.cup.w);
     let vel = vec3f(jf(b, ${L.J_VX}u), jf(b, ${L.J_VY}u), jf(b, ${L.J_VZ}u));
-    center = vec3f(jf(b, ${L.J_PX}u), jf(b, ${L.J_PY}u), jf(b, ${L.J_PZ}u)) + vel * dt;
+    center = vec3f(jf(b, ${L.J_PX}u), jf(b, ${L.J_PY}u), jf(b, ${L.J_PZ}u)) + vel * select(dt, u.pred.x, mine);
     if (k == ${L.K_ROCKET}u) { half = vec2f(0.22); color = vec4f(1.0, 0.75, 0.3, 1.0); kind = 2u; minpx = 1.5; }
     else { half = vec2f(0.14); color = vec4f(0.25, 0.32, 0.18, 1.0); kind = 0u; minpx = 1.0; }
   } else if (i < ${L.BALL_CAP + L.NPLAYER + L.NPROJ + MAX_FLASH}u) {
@@ -343,7 +345,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
   const errs = info.messages.filter((m) => m.type === 'error');
   if (errs.length) throw new Error('WGSL: ' + errs.map((m) => `${m.lineNum}:${m.linePos} ${m.message}`).join('; '));
 
-  const ubuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const ubuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const storage = (size) => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const ballBuf = storage(BALL_WORDS * 4);
   const playerBuf = storage(L.NPLAYER * L.PSIZE);
@@ -387,7 +389,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
   const flash = pipe('vs_splat', 'fs_flash', { depthWrite: false, depthCompare: 'less', blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } });
   const hudPipe = pipe('vs_full', 'fs_hud', { depthWrite: false, depthCompare: 'always', blend: over });
 
-  const uf = new Float32Array(24);
+  const uf = new Float32Array(28);
   const uu = new Uint32Array(uf.buffer);
   const hud = new Uint32Array(COLS * rows);
   const flashData = new Float32Array(MAX_FLASH * 8);
@@ -405,7 +407,9 @@ export async function createRenderer(canvas, { present = true } = {}) {
       device.queue.writeTexture({ texture: smap }, u8.slice(L.TERRAIN_S, L.TERRAIN_S + 512 * 512), { bytesPerRow: 512 }, [512, 512]);
     },
 
-    // One frame. s: { cam: [x, y, z], yaw, pitch (radians), time, dt, cup, dir, slot, myBall, nballs, flashes: [{ pos, age, size, kind }], text: Uint32Array }
+    // One frame. s: { cam: [x, y, z], yaw, pitch (radians), time, dt, dtPred, proj, cup, dir, slot, myBall, nballs, flashes: [{ pos, age, size, kind }], text: Uint32Array }
+    // dt extrapolates the confirmed world; projectiles come from address `proj`
+    // (the prediction's copy, where mine are ahead), mine extrapolated by dtPred.
     // Drawn to the canvas, or to `target` (a texture) when given.
     frame(u8, s, target) {
       if (!ctx && !target) return;
@@ -413,6 +417,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
       uf.set([s.cam[0], s.cam[1], s.cam[2], focal, Math.cos(s.yaw), Math.sin(s.yaw), H / 2 + Math.tan(Math.max(-1.35, Math.min(1.35, s.pitch))) * focal, s.time,
         W, H, FAR, s.dt, s.cup[0], s.cup[1], s.cup[2], s.slot, s.dir[0], s.dir[1], hmax + 2, Math.min(s.flashes.length, MAX_FLASH)]);
       uu[20] = s.nballs; uu[21] = s.myBall < 0 ? 0xffffffff : s.myBall; uu[22] = rows; uu[23] = 0;
+      uf[24] = s.dtPred ?? s.dt;
       device.queue.writeBuffer(ubuf, 0, uf);
       const n = s.nballs;
       if (n) {
@@ -421,7 +426,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
         device.queue.writeBuffer(ballBuf, (6 * L.BALL_CAP + L.BALL_CAP / 4) * 4, u8, L.OWNER, ((n + 1) & ~1) * 2);
       }
       device.queue.writeBuffer(playerBuf, 0, u8, L.PLAYERS, L.NPLAYER * L.PSIZE);
-      device.queue.writeBuffer(projBuf, 0, u8, L.PROJ, L.NPROJ * L.JSIZE);
+      device.queue.writeBuffer(projBuf, 0, u8, s.proj ?? L.PROJ, L.NPROJ * L.JSIZE);
       s.flashes.slice(0, MAX_FLASH).forEach((f, k) => flashData.set([f.pos[0], f.pos[1], f.pos[2], 0, f.age, f.size, f.kind, 0], k * 8));
       device.queue.writeBuffer(flashBuf, 0, flashData);
       hud.set(s.text.subarray(0, hud.length));
