@@ -29,7 +29,7 @@
                                                  (!ld f32 @VX (local.get $b)) (!ld f32 @VY (local.get $b)) (!ld f32 @VZ (local.get $b)))
                                           (f32.const @CUP_V2))))
               (then
-                (call $fx (i32.const @FX_SINK) (local.get $p) (!at u16 @(PLAYERS + P_STROKES) (local.get $pb))
+                (call $fx (i32.const 0) (i32.const @FX_SINK) (local.get $p) (!at u16 @(PLAYERS + P_STROKES) (local.get $pb))
                           (f32.load (i32.const @HDR_CUP)) (f32.load (i32.const @(HDR_CUP + 4))) (f32.load (i32.const @(HDR_CUP + 8))) (f32.const 1))
                 (!st u8 @FLAGS (local.get $b) (i32.const @F_SUNK))
                 (!st u8 @SLEEP (local.get $b) (i32.const 0))

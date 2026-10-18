@@ -1,32 +1,37 @@
 // Reads gameplay state out of the sim's shared memory, by the one layout.
-// The client (renderer, HUD, bot) and the tests use the same readers.
+// The client (renderer, HUD, bot) and the tests use the same readers. With
+// bank L.PRED_D it reads the prediction layer's header, players, projectiles
+// and ghost FX instead; balls are always the confirmed ones.
 import * as L from './layout.mjs';
 
 export class View {
-  constructor(buffer) {
+  constructor(buffer, bank = 0) {
     this.dv = new DataView(buffer);
     this.f32 = new Float32Array(buffer);
     this.u8 = new Uint8Array(buffer);
     this.i32 = new Int32Array(buffer);
+    this.bank = bank;
+    this.ring = bank ? L.PFX : L.FX;
   }
 
-  get tick() { return this.dv.getUint32(L.HDR_TICK, true); }
-  get nballs() { return this.dv.getUint32(L.HDR_NBALLS, true); }
+  get tick() { return this.dv.getUint32(L.HDR_TICK + this.bank, true); }
+  get nballs() { return this.dv.getUint32(L.HDR_NBALLS + this.bank, true); }
 
   hole() {
     const d = this.dv;
-    const f = (a) => d.getFloat32(a, true);
+    const o = this.bank;
+    const f = (a) => d.getFloat32(a + o, true);
+    const u = (a) => d.getUint32(a + o, true);
     return {
-      tick: this.tick, hole: d.getUint32(L.HDR_HOLE, true), state: d.getUint32(L.HDR_STATE, true),
-      until: d.getUint32(L.HDR_UNTIL, true), start: d.getUint32(L.HDR_START, true),
+      tick: this.tick, hole: u(L.HDR_HOLE), state: u(L.HDR_STATE), until: u(L.HDR_UNTIL), start: u(L.HDR_START),
       tee: [f(L.HDR_TEE), f(L.HDR_TEE + 4), f(L.HDR_TEE + 8)], cup: [f(L.HDR_CUP), f(L.HDR_CUP + 4), f(L.HDR_CUP + 8)],
-      dir: [f(L.HDR_DIR), f(L.HDR_DIR + 4)], par: d.getUint32(L.HDR_PAR, true), live: d.getUint32(L.HDR_LIVE, true),
+      dir: [f(L.HDR_DIR), f(L.HDR_DIR + 4)], par: u(L.HDR_PAR), live: u(L.HDR_LIVE),
     };
   }
 
   player(p) {
     const d = this.dv;
-    const b = L.PLAYERS + p * L.PSIZE;
+    const b = L.PLAYERS + this.bank + p * L.PSIZE;
     const f = (o) => d.getFloat32(b + o, true);
     const fl = d.getUint8(b + L.P_FL);
     return {
@@ -50,7 +55,7 @@ export class View {
   projectiles() {
     const out = [];
     for (let j = 0; j < L.NPROJ; j++) {
-      const b = L.PROJ + j * L.JSIZE;
+      const b = L.PROJ + this.bank + j * L.JSIZE;
       const kind = this.u8[b + L.J_KIND];
       if (!kind) continue;
       const f = (o) => this.dv.getFloat32(b + o, true);
@@ -61,9 +66,9 @@ export class View {
   }
 
   // FX records from index `from` (a running count) up to the newest; the ring keeps the last FX_MAX.
-  fxCount() { return Atomics.load(this.i32, L.FX >> 2); }
+  fxCount() { return Atomics.load(this.i32, this.ring >> 2); }
   fx(k) {
-    const r = L.FX_REC + (k & (L.FX_MAX - 1)) * 32;
+    const r = this.ring + 16 + (k & (L.FX_MAX - 1)) * 32;
     const d = this.dv;
     return { tick: d.getUint32(r, true), kind: d.getUint8(r + 4), owner: d.getUint8(r + 5), shot: d.getUint16(r + 6, true),
       pos: [d.getFloat32(r + 8, true), d.getFloat32(r + 12, true), d.getFloat32(r + 16, true)], size: d.getFloat32(r + 20, true) };

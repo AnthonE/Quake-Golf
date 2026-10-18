@@ -61,7 +61,7 @@ export const FLAGS = REGION + 0x70000; // u8
 export const SLEEP = REGION + 0x74000; // u8
 export const OWNER = REGION + 0x78000; // u16
 
-// Prediction writes only here (M2). Keyframe slots.
+// The prediction layer (predict.wat) writes only here. Keyframe slots.
 export const PRED = 0x090000;
 export const SNAP0 = 0x0a0000;
 export const SNAP1 = 0x120000;
@@ -158,6 +158,18 @@ export const ROCKET_REFIRE = 100; // 0.8 s
 export const GREN_REFIRE = 75; // 0.6 s
 export const FUSE = 312; // 2.5 s
 export const ROCKET_LIFE = 1000;
+
+// The prediction layer: a copy of the header, players and projectiles at PRED,
+// stepped ahead for one player by the main thread's own instance. Record
+// addresses carry a bank offset, 0 for the confirmed world and PRED_D here,
+// so PLAYERS + PRED_D + 64p is slot p's predicted record. Only the main thread
+// reads or writes PRED.
+export const PRED_D = PRED - REGION;
+export const PRED_COPY = PROJ + NPROJ * JSIZE - REGION; // 48.25 KiB
+export const PFX = PRED + 0xc200; // ghost shots and blasts, laid out as FX
+export const PTRACK = PRED + 0xe400; // after predicted tick k: f32 x, y, z, u32 tick reached
+export const PWORDS = PRED + 0xf400; // u32 input word for each tick to predict
+export const PRED_MAX = 256;
 
 // Hole clock. A join starts a countdown; play ends when every live player
 // is in or the limit passes; the scoreboard shows, then the hole restarts.

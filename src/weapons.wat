@@ -2,13 +2,14 @@
 ;; the players move. A blast changes velocities only, so the grid built at
 ;; the start of the tick stays valid for every later lookup in it.
 
-;; One record on the FX ring. The count is stored last, atomically, so a
-;; reader that sees it sees the record.
-(func $fx (param $kind i32) (param $owner i32) (param $shot i32) (param $x f32) (param $y f32) (param $z f32) (param $size f32)
-  (local $n i32) (local $r i32)
-  (local.set $n (i32.load (i32.const @FX)))
-  (local.set $r (i32.add (i32.const @FX_REC) (i32.shl (i32.and (local.get $n) (i32.const @(FX_MAX - 1))) (i32.const 5))))
-  (i32.store (local.get $r) (i32.load (i32.const @HDR_TICK)))
+;; One record on the FX ring of bank d: the confirmed ring, or the prediction's
+;; own. The count is stored last, atomically, so a reader that sees it sees the record.
+(func $fx (param $d i32) (param $kind i32) (param $owner i32) (param $shot i32) (param $x f32) (param $y f32) (param $z f32) (param $size f32)
+  (local $ring i32) (local $n i32) (local $r i32)
+  (local.set $ring (select (i32.const @PFX) (i32.const @FX) (local.get $d)))
+  (local.set $n (i32.load (local.get $ring)))
+  (local.set $r (i32.add (i32.add (local.get $ring) (i32.const 16)) (i32.shl (i32.and (local.get $n) (i32.const @(FX_MAX - 1))) (i32.const 5))))
+  (i32.store (local.get $r) (i32.load offset=@HDR_TICK (local.get $d)))
   (i32.store8 offset=4 (local.get $r) (local.get $kind))
   (i32.store8 offset=5 (local.get $r) (local.get $owner))
   (i32.store16 offset=6 (local.get $r) (local.get $shot))
@@ -16,22 +17,22 @@
   (f32.store offset=12 (local.get $r) (local.get $y))
   (f32.store offset=16 (local.get $r) (local.get $z))
   (f32.store offset=20 (local.get $r) (local.get $size))
-  (i32.atomic.store (i32.const @FX) (i32.add (local.get $n) (i32.const 1))))
+  (i32.atomic.store (local.get $ring) (i32.add (local.get $n) (i32.const 1))))
 
-;; Launches a projectile from the eye of slot p along its view; u is pitch in
-;; yaw units (1/16384 turn), s and c the yaw's sine and cosine.
-(func $fire (param $p i32) (param $wpn i32) (param $s f32) (param $c f32) (param $u i32)
+;; Launches a projectile from the eye of slot p along its view, in bank d; u is
+;; pitch in yaw units (1/16384 turn), s and c the yaw's sine and cosine.
+(func $fire (param $p i32) (param $d i32) (param $wpn i32) (param $s f32) (param $c f32) (param $u i32)
   (local $pb i32) (local $j i32) (local $jb i32) (local $sp f32) (local $cp f32)
   (local $fx f32) (local $fy f32) (local $fz f32) (local $ex f32) (local $ey f32) (local $ez f32) (local $v f32)
-  (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+  (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
   (local.set $j (i32.const 0))
   (block $found
     (loop $find
-      (br_if $found (i32.eqz (!at u8 @(PROJ + J_KIND) (i32.shl (local.get $j) (i32.const 5)))))
+      (br_if $found (i32.eqz (!at u8 @(PROJ + J_KIND) (i32.add (i32.shl (local.get $j) (i32.const 5)) (local.get $d)))))
       (local.set $j (i32.add (local.get $j) (i32.const 1)))
       (br_if $find (i32.lt_u (local.get $j) (i32.const @NPROJ)))
       (return)))
-  (local.set $jb (i32.shl (local.get $j) (i32.const 5)))
+  (local.set $jb (i32.add (i32.shl (local.get $j) (i32.const 5)) (local.get $d)))
   (call $sincos (local.get $u))
   (local.set $cp) (local.set $sp)
   (local.set $fx (f32.mul (local.get $cp) (local.get $c)))
@@ -52,7 +53,7 @@
   (!put u8 @(PROJ + J_KIND) (local.get $jb) (select (i32.const @K_GRENADE) (i32.const @K_ROCKET) (local.get $wpn)))
   (!put u8 @(PROJ + J_OWNER) (local.get $jb) (local.get $p))
   (!put u16 @(PROJ + J_SHOT) (local.get $jb) (!at u16 @(PLAYERS + P_SHOTS) (local.get $pb)))
-  (call $fx (i32.const @FX_SHOT) (local.get $p) (!at u16 @(PLAYERS + P_SHOTS) (local.get $pb))
+  (call $fx (local.get $d) (i32.const @FX_SHOT) (local.get $p) (!at u16 @(PLAYERS + P_SHOTS) (local.get $pb))
             (local.get $ex) (local.get $ey) (local.get $ez) (f32.convert_i32_u (local.get $wpn))))
 
 ;; The first ball, in grid order, whose centre is within d of (x, y, z), or
@@ -110,12 +111,12 @@
           (then (return (local.get $p)))))))
   (i32.const -1))
 
-;; Knockback on every live player from a blast at (x, y, z), pushing from the
-;; blast to the middle of the body, so one at your feet lifts you: a rocket jump.
-(func $blast_players (param $x f32) (param $y f32) (param $z f32) (param $s f32) (param $r f32)
+;; Knockback on every live player of bank b from a blast at (x, y, z), pushing
+;; from the blast to the middle of the body, so one at your feet lifts you: a rocket jump.
+(func $blast_players (param $b i32) (param $x f32) (param $y f32) (param $z f32) (param $s f32) (param $r f32)
   (local $p i32) (local $pb i32) (local $dx f32) (local $dy f32) (local $dz f32) (local $d2 f32) (local $d f32) (local $f f32) (local $vy f32)
   (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+    (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $b)))
     (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE))
       (then
         (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (local.get $x)))
@@ -134,33 +135,36 @@
               (then (!put u8 @(PLAYERS + P_FL) (local.get $pb)
                       (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(255 ^ PF_GROUND))))))))))))
 
-;; Projectile jb goes off at (x, y, z) and its slot is freed.
-(func $explode (param $jb i32) (param $x f32) (param $y f32) (param $z f32)
+;; Projectile jb (in bank d) goes off at (x, y, z) and its slot is freed. A
+;; predicted blast moves only the prediction's players: never a confirmed ball.
+(func $explode (param $jb i32) (param $d i32) (param $x f32) (param $y f32) (param $z f32)
   (local $rocket i32) (local $s f32) (local $r f32)
   (local.set $rocket (i32.eq (!at u8 @(PROJ + J_KIND) (local.get $jb)) (i32.const @K_ROCKET)))
   (local.set $s (select (f32.const @ROCKET_S) (f32.const @GREN_S) (local.get $rocket)))
   (local.set $r (select (f32.const @ROCKET_RAD) (f32.const @GREN_RAD) (local.get $rocket)))
-  (call $blast (local.get $x) (local.get $y) (local.get $z) (local.get $s) (local.get $r))
-  (call $blast_players (local.get $x) (local.get $y) (local.get $z) (f32.mul (local.get $s) (f32.const @KNOCK)) (local.get $r))
-  (call $fx (i32.const @FX_BLAST) (!at u8 @(PROJ + J_OWNER) (local.get $jb)) (!at u16 @(PROJ + J_SHOT) (local.get $jb))
+  (if (i32.eqz (local.get $d)) (then (call $blast (local.get $x) (local.get $y) (local.get $z) (local.get $s) (local.get $r))))
+  (call $blast_players (local.get $d) (local.get $x) (local.get $y) (local.get $z) (f32.mul (local.get $s) (f32.const @KNOCK)) (local.get $r))
+  (call $fx (local.get $d) (i32.const @FX_BLAST) (!at u8 @(PROJ + J_OWNER) (local.get $jb)) (!at u16 @(PROJ + J_SHOT) (local.get $jb))
             (local.get $x) (local.get $y) (local.get $z) (local.get $r))
   (memory.fill (i32.add (i32.const @PROJ) (local.get $jb)) (i32.const 0) (i32.const @JSIZE)))
 
-(func $projectiles
+;; Every projectile of bank d, or only those of slot `only` when it isn't -1.
+(func $projectiles (param $d i32) (param $only i32)
   (local $j i32) (local $jb i32) (local $kind i32)
   (!for $j (i32.const 0) (i32.const @NPROJ)
-    (local.set $jb (i32.shl (local.get $j) (i32.const 5)))
+    (local.set $jb (i32.add (i32.shl (local.get $j) (i32.const 5)) (local.get $d)))
     (local.set $kind (!at u8 @(PROJ + J_KIND) (local.get $jb)))
-    (if (local.get $kind)
+    (if (i32.and (i32.ne (local.get $kind) (i32.const 0))
+                 (i32.or (i32.lt_s (local.get $only) (i32.const 0)) (i32.eq (!at u8 @(PROJ + J_OWNER) (local.get $jb)) (local.get $only))))
       (then
         (!put u16 @(PROJ + J_AGE) (local.get $jb) (i32.add (!at u16 @(PROJ + J_AGE) (local.get $jb)) (i32.const 1)))
         (if (i32.eq (local.get $kind) (i32.const @K_ROCKET))
-          (then (call $rocket (local.get $jb)))
-          (else (call $grenade (local.get $jb))))))))
+          (then (call $rocket (local.get $jb) (local.get $d)))
+          (else (call $grenade (local.get $jb) (local.get $d))))))))
 
 ;; Rockets fly straight in two half steps a tick (16 cm at 40 m/s), so they
 ;; can't pass through the ground, a ball or a body; the owner's own is never hit.
-(func $rocket (param $jb i32)
+(func $rocket (param $jb i32) (param $d i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vy f32) (local $vz f32) (local $h f32) (local $k i32)
   (local.set $px (!at f32 @(PROJ + J_PX) (local.get $jb)))
   (local.set $py (!at f32 @(PROJ + J_PY) (local.get $jb)))
@@ -180,11 +184,11 @@
     (drop) (drop) (drop) (drop)
     (local.set $h)
     (if (f32.le (local.get $py) (local.get $h))
-      (then (call $explode (local.get $jb) (local.get $px) (local.get $h) (local.get $pz)) (return)))
+      (then (call $explode (local.get $jb) (local.get $d) (local.get $px) (local.get $h) (local.get $pz)) (return)))
     (if (i32.ge_s (call $hit_ball (local.get $px) (local.get $py) (local.get $pz) (f32.const @ROCKET_HIT)) (i32.const 0))
-      (then (call $explode (local.get $jb) (local.get $px) (local.get $py) (local.get $pz)) (return)))
+      (then (call $explode (local.get $jb) (local.get $d) (local.get $px) (local.get $py) (local.get $pz)) (return)))
     (if (i32.ge_s (call $hit_player (local.get $px) (local.get $py) (local.get $pz) (f32.const 0.1) (!at u8 @(PROJ + J_OWNER) (local.get $jb))) (i32.const 0))
-      (then (call $explode (local.get $jb) (local.get $px) (local.get $py) (local.get $pz)) (return))))
+      (then (call $explode (local.get $jb) (local.get $d) (local.get $px) (local.get $py) (local.get $pz)) (return))))
   (!put f32 @(PROJ + J_PX) (local.get $jb) (local.get $px))
   (!put f32 @(PROJ + J_PY) (local.get $jb) (local.get $py))
   (!put f32 @(PROJ + J_PZ) (local.get $jb) (local.get $pz))
@@ -194,9 +198,9 @@
 ;; Grenades fall, bounce off the ground (keeping 40% of the hit, losing a
 ;; tenth of their roll each tick in contact) and off balls, and go off on
 ;; their fuse or on touching someone else.
-(func $grenade (param $jb i32)
+(func $grenade (param $jb i32) (param $d i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vy f32) (local $vz f32)
-  (local $h f32) (local $nx f32) (local $ny f32) (local $nz f32) (local $vn f32) (local $b i32) (local $d f32) (local $surf i32)
+  (local $h f32) (local $nx f32) (local $ny f32) (local $nz f32) (local $vn f32) (local $b i32) (local $dist f32) (local $surf i32)
   (local.set $px (!at f32 @(PROJ + J_PX) (local.get $jb)))
   (local.set $py (!at f32 @(PROJ + J_PY) (local.get $jb)))
   (local.set $pz (!at f32 @(PROJ + J_PZ) (local.get $jb)))
@@ -232,10 +236,10 @@
       (local.set $nx (f32.sub (local.get $px) (!ld f32 @PX (local.get $b))))
       (local.set $ny (f32.sub (local.get $py) (!ld f32 @PY (local.get $b))))
       (local.set $nz (f32.sub (local.get $pz) (!ld f32 @PZ (local.get $b))))
-      (local.set $d (f32.sqrt (f32.max (!dot3 (local.get $nx) (local.get $ny) (local.get $nz) (local.get $nx) (local.get $ny) (local.get $nz)) (f32.const 1e-6))))
-      (local.set $nx (f32.div (local.get $nx) (local.get $d)))
-      (local.set $ny (f32.div (local.get $ny) (local.get $d)))
-      (local.set $nz (f32.div (local.get $nz) (local.get $d)))
+      (local.set $dist (f32.sqrt (f32.max (!dot3 (local.get $nx) (local.get $ny) (local.get $nz) (local.get $nx) (local.get $ny) (local.get $nz)) (f32.const 1e-6))))
+      (local.set $nx (f32.div (local.get $nx) (local.get $dist)))
+      (local.set $ny (f32.div (local.get $ny) (local.get $dist)))
+      (local.set $nz (f32.div (local.get $nz) (local.get $dist)))
       (local.set $vn (!dot3 (local.get $vx) (local.get $vy) (local.get $vz) (local.get $nx) (local.get $ny) (local.get $nz)))
       (if (f32.lt (local.get $vn) (f32.const 0))
         (then
@@ -253,7 +257,7 @@
   (!chk (local.get $vz) 26 (local.get $jb))
   (if (i32.or (i32.ge_u (!at u16 @(PROJ + J_AGE) (local.get $jb)) (i32.const @FUSE))
               (i32.ge_s (call $hit_player (local.get $px) (local.get $py) (local.get $pz) (f32.const @GREN_R) (!at u8 @(PROJ + J_OWNER) (local.get $jb))) (i32.const 0)))
-    (then (call $explode (local.get $jb) (local.get $px) (local.get $py) (local.get $pz)) (return)))
+    (then (call $explode (local.get $jb) (local.get $d) (local.get $px) (local.get $py) (local.get $pz)) (return)))
   (!put f32 @(PROJ + J_PX) (local.get $jb) (local.get $px))
   (!put f32 @(PROJ + J_PY) (local.get $jb) (local.get $py))
   (!put f32 @(PROJ + J_PZ) (local.get $jb) (local.get $pz))

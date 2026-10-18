@@ -11,5 +11,6 @@
   #include "players.wat"
   #include "weapons.wat"
   #include "hole.wat"
+  #include "predict.wat"
   #include "tick.wat"
 )
