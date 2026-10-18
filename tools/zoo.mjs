@@ -31,7 +31,7 @@ const MAX_TICKS = 2500; // ten shots stay inside the 30,000-tick hole clock
 
 // The world at the first tick of play on `seed`, one golfer in slot 0, as a
 // buffer Planner.load reads (the region at its own address).
-async function startOf(module, seed) {
+export async function startOf(module, seed) {
   const memory = newMemory();
   const sim = new Sim(await instantiate(module, memory), memory);
   sim.init(seed);

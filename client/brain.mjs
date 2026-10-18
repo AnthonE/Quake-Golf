@@ -166,3 +166,7 @@ export class BrainBot extends GolfBot {
     return { from: ball.slice(), shot: shotGeometry(view, ball, cup, dh, turn), score: 0 };
   }
 }
+
+// For experiments that grow the net (tools/eden-sel.mjs): the same noise,
+// seeds and squash, so an extended golfer starts as this one, bit for bit.
+export { rng, noise, mix, SIGMA, scale, soft };
