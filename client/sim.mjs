@@ -111,7 +111,13 @@ async function run({ module, memory, netPort }) {
       let why = -1;
       if (!store.has(next) && newest - next >= HOLE_TICKS) why = W.SYNC.HOLE;
       else if (target - k > BEHIND_TICKS) why = W.SYNC.BEHIND;
-      if (why >= 0) { netPort.postMessage({ sync: [why, next] }); syncAt = now; self.postMessage({ sync: why }); }
+      if (why >= 0) {
+        netPort.postMessage({ sync: [why, next] });
+        syncAt = now;
+        let after = 0; // how many ticks past the hole are already here
+        for (let t = next + 1; t <= newest; t++) if (store.has(t)) after++;
+        self.postMessage({ sync: why, next, newest, after, behind: target - k });
+      }
     }
     set(L.CL_QUEUED, store.size);
     set(L.CL_STATE, target - k > 16 ? 1 : 2);

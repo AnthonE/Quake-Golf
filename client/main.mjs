@@ -66,7 +66,7 @@ async function main() {
     if (m.hashes) hashes.push(...m.hashes);
     if (m.key) keys.push({ ...m.key, at: performance.now() });
     if (m.desync) desyncs.push({ ...m.desync, at: performance.now() });
-    if (m.sync !== undefined) syncs.push({ why: m.sync, at: performance.now() });
+    if (m.sync !== undefined) syncs.push({ why: m.sync, at: performance.now(), next: m.next, newest: m.newest, after: m.after, behind: m.behind });
     if (m.filled) fills.push(m.filled);
   };
   // an exception a worker's own timer throws reaches only its error event
@@ -137,7 +137,7 @@ async function main() {
   let moved = { at: 0 }, sampled = { tick: -1 };
   let me = null, pme = null;
   window.__qg = {
-    hashes, keys, desyncs, syncs, fills, latency,
+    hashes, keys, desyncs, syncs, fills, latency, net: () => netSeen,
     state: () => ({
       slot: get(L.CL_SLOT), clState: get(L.CL_STATE), keys: get(L.CL_KEYS), repairs: get(L.CL_REPAIRS), hole: view.hole(), me, predicted: pme, nballs: view.nballs, error, welcome,
       lead: f32[L.CL_LEAD >> 2], delay: f32[L.CL_DELAY >> 2], jitter: f32[L.CL_JITTER >> 2], queued: get(L.CL_QUEUED), next: get(L.CL_NEXT),

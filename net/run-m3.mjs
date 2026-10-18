@@ -119,7 +119,7 @@ try {
     const q = window.__qg;
     const s = q.state();
     return { slot: s.slot, clState: s.clState, tick: s.hole.tick, repairs: s.repairs, lead: s.lead, delay: s.delay, jitter: s.jitter,
-      hashes: q.hashes, keys: q.keys, desyncs: q.desyncs, syncs: q.syncs, fills: q.fills, latency: q.latency };
+      hashes: q.hashes, keys: q.keys, desyncs: q.desyncs, syncs: q.syncs, fills: q.fills, latency: q.latency, holes: q.net()?.holes || [] };
   })));
 } finally {
   await browser.close();
@@ -146,7 +146,8 @@ const perClient = report.clientsEnd.map((c, k) => {
   return {
     client: k, slot: c.slot, clState: c.clState, repairs: c.repairs, lead: Number(c.lead.toFixed(1)), delay: Number(c.delay.toFixed(1)), jitter: Number(c.jitter.toFixed(2)),
     keys: c.keys.map((x) => ({ reason: ['join', 'hole', 'behind', 'desync'][x.reason], simTick: x.simTick })), fillTicks: c.fills.map((f) => f.ticks),
-    syncs: c.syncs.map((x) => ['join', 'hole', 'behind', 'desync'][x.why]), desyncs: c.desyncs, compared, wrong, excused,
+    syncs: c.syncs.map((x) => ({ why: ['join', 'hole', 'behind', 'desync'][x.why], next: x.next, newest: x.newest, after: x.after, behind: x.behind })),
+    holes: c.holes, desyncs: c.desyncs, compared, wrong, excused,
     predictedMs: round(ms(c.latency.pred)), confirmedMs: round(ms(c.latency.conf)),
   };
 });

@@ -92,13 +92,19 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
   };
 
   // what this worker has seen, for the runs
-  const seen = { pongs: 0, keys: 0, fills: 0, bundles: 0, repairs: 0, rtt: bestRtt, ctlError: '' };
+  const seen = { pongs: 0, keys: 0, fills: 0, bundles: 0, repairs: 0, rtt: bestRtt, ctlError: '', holes: [] };
+  const repairedAt = new Map(); // tick -> repair datagrams that carried it, the last 512 ticks
   setInterval(() => self.postMessage({ seen: { ...seen, rtt: bestRtt, lead } }), 1000);
   // The control stream: keyframes (unpacked here), the fills after them, pongs.
   const recv = new W.Received();
   let report = null; // the newest interval hash, sent on the next 8 datagrams
   simPort.onmessage = (e) => {
-    if (e.data.sync) sw.write(W.encodeSync(...e.data.sync)).catch(() => {});
+    if (e.data.sync) {
+      sw.write(W.encodeSync(...e.data.sync)).catch(() => {});
+      // for the runs: had this worker heard the tick the sim worker lacks?
+      const t = e.data.sync[1];
+      seen.holes.push({ tick: t, heard: recv.has(t), newest: recv.newest, repairsForIt: repairedAt.get(t) ?? null });
+    }
     if (e.data.report) report = { ...e.data.report, hash: BigInt('0x' + e.data.report.hash), left: 8 };
   };
   (async () => {
@@ -196,7 +202,11 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
     const now = epoch();
     if (buf[0] === W.T_REPAIR) {
       const ticks = [];
-      for (const t of W.decodeRepair(buf) || []) if (t.tick >= welcome.roomStart && recv.add(t.tick)) { ticks.push({ t: t.tick, ev: t.events, w: t.words }); arrived(t.tick, now); }
+      for (const t of W.decodeRepair(buf) || []) {
+        repairedAt.set(t.tick, (repairedAt.get(t.tick) || 0) + 1);
+        if (t.tick >= welcome.roomStart && recv.add(t.tick)) { ticks.push({ t: t.tick, ev: t.events, w: t.words }); arrived(t.tick, now); }
+      }
+      for (const t of repairedAt.keys()) if (t < recv.newest - 512) repairedAt.delete(t);
       seen.repairs++;
       if (ticks.length) { simPort.postMessage({ ticks }); Atomics.add(i32, L.CL_REPAIRS >> 2, ticks.length); }
       return;
