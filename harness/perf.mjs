@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Per-phase cost of a confirmed tick at 10,000 balls, single thread, plus
-// the 4-thread step and the worst tick (the wake storm), against the budget.
+// the 2- and 4-thread step, then the same under a sustained wake storm.
 //   node harness/perf.mjs [--from 16000] [--to 24000]
 import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { newMemory, instantiate, Sim, parseLog } from './core.mjs';
 import { startWorkers } from './run-node.mjs';
+import { generate } from '../tools/genlog.mjs';
 import * as L from '../src/layout.mjs';
 
 const argv = process.argv.slice(2);
@@ -47,19 +48,20 @@ async function single() {
   return { n, balls: sim.nballs, ...Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, v / n])), worst, p99 };
 }
 
-async function threaded(threads) {
+async function threaded(threads, log, from, to) {
   const memory = newMemory();
   const sim = new Sim(await instantiate(module, memory), memory);
   sim.init(log.courseSeed);
   for (let t = 0; t < from; t++) { sim.feed(log, t); sim.x.step(); }
   const workers = await startWorkers({ bytes, memory, n: threads });
+  let awake = 0;
   const t0 = performance.now();
-  for (let t = from; t < to; t++) { sim.feed(log, t); sim.x.step_mt(threads); }
+  for (let t = from; t < to; t++) { sim.feed(log, t); threads > 1 ? sim.x.step_mt(threads) : sim.x.step(); awake += sim.awake; }
   const ms = (performance.now() - t0) / (to - from);
   Atomics.store(sim.i32, L.JOB_QUIT >> 2, 1);
   sim.x.barrier(threads);
   await workers.stop();
-  return ms;
+  return { ms, awake: awake / (to - from) };
 }
 
 const s = await single();
@@ -74,4 +76,11 @@ console.log(`  confirmed tick, 1 thread          ${f(tick)} ms   (budget 1.5 ms)
 console.log(`  p99 tick                          ${f(s.p99)} ms`);
 console.log(`  worst tick                        ${f(s.worst.ms)} ms at tick ${s.worst.tick}, ${s.worst.awake} awake (one sample: may be the OS)`);
 console.log(`  full-region hash (harness only)   ${f(s.hash)} ms`);
-for (const n of [2, 4]) console.log(`  confirmed tick, ${n} threads         ${f(await threaded(n))} ms`);
+for (const n of [2, 4]) console.log(`  confirmed tick, ${n} threads         ${f((await threaded(n, log, from, to)).ms)} ms`);
+
+// A sustained storm: a large blast every 8 ticks keeps thousands awake.
+const storm = parseLog(generate({ ticks: 16000, blastEvery: 8, blastR: 16 }));
+for (const n of [1, 2, 4]) {
+  const r = await threaded(n, storm, 14000, 16000);
+  console.log(`  storm, ${Math.round(r.awake)} awake, ${n} thread${n > 1 ? 's' : ' '}       ${f(r.ms)} ms`);
+}
