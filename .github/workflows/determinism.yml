@@ -1,0 +1,65 @@
+name: determinism
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      ticks:
+        description: Ticks for the gate run (Node, Deno and Chrome, 4 threads)
+        default: '1000000'
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: unzip, for setup-deno
+        run: apt-get update && apt-get install -y --no-install-recommends unzip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.7
+      - run: npm ci
+      - run: npm i --no-save playwright-core@1.56.1
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - run: npm run build
+      - run: npm test
+      - name: Node, Deno and Chrome x both JIT tiers x 1, 2, 4 threads
+        run: node harness/matrix.mjs --ticks 20000
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traces
+          path: traces/
+
+  gate:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: unzip, for setup-deno
+        run: apt-get update && apt-get install -y --no-install-recommends unzip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.7
+      - run: npm ci
+      - run: npm i --no-save playwright-core@1.56.1
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - run: npm run build
+      - run: node harness/matrix.mjs --ticks ${{ inputs.ticks }} --flags default --threads 4
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-traces
+          path: traces/*.qgh

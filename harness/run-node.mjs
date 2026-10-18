@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+// node [--liftoff-only | --no-liftoff] harness/run-node.mjs --log L --ticks N --threads T --salt S --out trace.qgh
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { Worker } from 'node:worker_threads';
+import { replay, parseLog } from './core.mjs';
+import { args, DEFAULTS } from './cli.mjs';
+import { isMain } from '../tools/main.mjs';
+
+// Waits up to 5 s for the workers to leave their loop, then terminates them;
+// throws if any of them reported an error.
+export async function stopAll(done, terminate, errors) {
+  let timer;
+  await Promise.race([Promise.all(done), new Promise((ok) => { timer = setTimeout(ok, 5000); })]);
+  clearTimeout(timer);
+  await terminate();
+  if (errors.length) throw new Error(errors.join('; '));
+}
+
+export async function startWorkers({ bytes, memory, n }) {
+  const workers = [];
+  const ready = [];
+  const done = [];
+  const errors = [];
+  for (let id = 1; id < n; id++) {
+    const w = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { bytes, memory, id, n } });
+    w.on('message', (m) => m.error && errors.push(m.error));
+    ready.push(new Promise((res, rej) => { w.on('message', (m) => m.ready && res()); w.on('error', rej); }));
+    done.push(new Promise((res) => { w.on('message', (m) => m.done && res()); w.on('exit', res); }));
+    workers.push(w);
+  }
+  await Promise.all(ready);
+  return { stop: () => stopAll(done, () => Promise.all(workers.map((w) => w.terminate())), errors) };
+}
+
+async function main() {
+  const a = args(process.argv.slice(2), DEFAULTS);
+  const flags = process.execArgv.filter((f) => f.includes('liftoff')).join(' ') || 'default';
+  const tag = a.tag || `node ${process.versions.v8} ${flags} t${a.threads}${a.salt ? ` s${a.salt}` : ''}`;
+  const { trace, stats } = await replay({
+    bytes: readFileSync(a.wasm),
+    log: parseLog(readFileSync(a.log)),
+    ticks: a.ticks,
+    threads: a.threads,
+    salt: a.salt,
+    tag,
+    startWorkers,
+    onProgress: (t, sim) => process.stderr.write(`\r${tag}: ${t} ticks, ${sim.nballs} balls, ${sim.awake} awake   `),
+  });
+  process.stderr.write('\n');
+  if (a.out) {
+    mkdirSync(dirname(a.out), { recursive: true });
+    writeFileSync(a.out, trace);
+  }
+  console.log(JSON.stringify({ tag, ...stats }));
+}
+
+if (isMain(import.meta.url)) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

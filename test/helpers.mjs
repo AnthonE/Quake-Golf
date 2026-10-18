@@ -1,0 +1,33 @@
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { newMemory, instantiate, Sim, parseLog } from '../harness/core.mjs';
+import { generate } from '../tools/genlog.mjs';
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+let built = false;
+
+export function wasmBytes(debug = false) {
+  if (!built) {
+    execFileSync(process.execPath, ['tools/asm.mjs'], { cwd: ROOT, stdio: 'ignore' });
+    built = true;
+  }
+  return readFileSync(`${ROOT}build/${debug ? 'game.debug' : 'game'}.wasm`);
+}
+
+export async function newSim(debug = false) {
+  const memory = newMemory();
+  return new Sim(await instantiate(await WebAssembly.compile(wasmBytes(debug)), memory), memory);
+}
+
+export const smallLog = (ticks = 1600, extra = {}) => parseLog(generate({ ticks, target: 1200, ...extra }));
+
+export async function hashes(sim, log, from, to, step = (s) => s.x.step()) {
+  const out = [];
+  for (let t = from; t < to; t++) {
+    sim.feed(log, t);
+    step(sim);
+    out.push(BigInt.asUintN(64, sim.x.hash_region()));
+  }
+  return out;
+}

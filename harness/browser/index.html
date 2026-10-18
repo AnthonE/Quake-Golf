@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Quake Golf determinism harness</title>
+<link rel="icon" href="data:,">
+<pre id="log">starting…</pre>
+<script type="module">
+  // The page's main thread can't block on a barrier, so thread 0 runs in a worker too.
+  const log = document.getElementById('log');
+  if (!crossOriginIsolated) {
+    window.__result = { error: 'page is not cross-origin isolated' };
+  } else {
+    const w = new Worker(new URL('./thread0.mjs' + location.search, import.meta.url), { type: 'module' });
+    w.onmessage = (e) => {
+      if (e.data.progress) log.textContent = e.data.progress;
+      if (e.data.result || e.data.error) window.__result = e.data;
+    };
+    w.onerror = (e) => { window.__result = { error: String(e.message || e) }; };
+  }
+</script>
