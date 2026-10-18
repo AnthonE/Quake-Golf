@@ -76,10 +76,11 @@ function onInput(s: Slot, buf: Uint8Array, now: number) {
     if (t <= closed) {
       // Too late for its tick. Still feed it back, as negative slack, so the
       // client's lead controller sees the lateness and grows its lead.
-      if (s.wordTick[i] !== t) {
+      // Count each late tick once. A slot only moves forward: tick t shares it
+      // with t + 256, which may already be in, and must not be overwritten.
+      if (s.wordTick[i] < t) {
         s.periodSlack = Math.min(s.periodSlack, deadline(t) - now);
         stats.lateArrivals++;
-        // count each late tick once; closeTick only reads ticks above `closed`
         s.wordTick[i] = t;
         s.arrival[i] = now;
       }
@@ -131,7 +132,8 @@ function closeTick(T: number, now: number) {
       if (T < s.joinTick + WARMUP) stats.warmup++;
       else s.pendingLate++;
       row[p] = s.missing > 30 ? (s.last & ~(W.MOVE_BITS | W.JUMP_BIT)) >>> 0 : (s.last & ~W.JUMP_BIT) >>> 0;
-      if (s.wordTick[i] === T) s.periodSlack = Math.min(s.periodSlack, dl - s.arrival[i]);
+      // read after its deadline but before this (delayed) close: late too
+      if (s.wordTick[i] === T) { s.periodSlack = Math.min(s.periodSlack, dl - s.arrival[i]); stats.lateArrivals++; }
     }
   }
   if (active) { stats.activeTicks++; stats.activeSlotTicks += active; }
@@ -210,6 +212,8 @@ async function session(incoming: Deno.QuicIncoming) {
     stats.leaves[why] = (stats.leaves[why] || 0) + 1;
     stats.leaveAt.push(Number(((performance.now() - E) / 1000).toFixed(2)));
     s.leaveTick = scheduleEvent(p, W.EV_LEAVE, Math.max(closed + 1, s.joinTick));
+    // the slot is gone at leaveTick, so end the session too rather than leave it open and silent
+    try { s.close(); } catch { /* already closed */ }
   };
   wt.closed.then((i) => leave('closed:' + JSON.stringify(i)), (e) => leave('closed-error:' + String(e)));
   // Deno doesn't settle wt.closed when Chrome closes the session, but the

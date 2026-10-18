@@ -10,7 +10,8 @@
 //   0 u8 0x02 | 1 u8 nb=4 | 2 u8 np=64 | 3 u8 ne | 4 u32 T | 8 nb x np x u32 (row k is tick T-k)
 //   | ne x (u8 slot, u8 kind<<4 | age) | pad | trailer: u32 in_ack | i16 slack (1/16 ms, negative = late) | u8 late | u8 flags
 //
-// Handshake on a client-opened bidirectional stream:
+// Handshake on a client-opened bidirectional stream, which stays open for the
+// whole session; the client ending it means it has left:
 //   hello   (24 B): 0x10 | proto | u16 client max datagram | u8[8] sha-256(game.wasm) prefix | u32 room | u32 nonce | u32 0
 //   welcome (32 B): 0x11 | slot | u16 server max datagram | u32 join_tick | u32 seed | u32 server_tick | u32 tick_us | u8 send_every | u8 nb | u8 np | u8 0 | u64 0
 //   reject  (4 B):  0x1f | reason (1 wasm mismatch, 2 room full, 3 protocol) | 0 | 0

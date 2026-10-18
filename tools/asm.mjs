@@ -18,6 +18,7 @@ import { gzipSync } from 'node:zlib';
 import wabtInit from 'wabt';
 import * as layout from '../src/layout.mjs';
 import { makeMacros } from '../src/macros.mjs';
+import { isMain } from './main.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const FEATURES = {
@@ -271,6 +272,6 @@ async function main() {
   if (manifest.binaryen.raw) console.log(`binaryen -O3 would give ${manifest.binaryen.raw} B, ${manifest.binaryen.gzip} B gzip (measurement only)`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main().catch((e) => { console.error(e.message || e); process.exit(1); });
 }

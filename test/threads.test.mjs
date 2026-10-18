@@ -44,7 +44,11 @@ test('a trap on one thread fails the run instead of hanging it', async () => {
   assert.ok(trap instanceof WebAssembly.RuntimeError || aborted === 1, `step_mt returned ${aborted}, threw ${trap}`);
   Atomics.store(sim.i32, JOB_ABORT >> 2, 1);
   Atomics.notify(sim.i32, BAR_GEN >> 2);
-  await assert.rejects(workers.stop(), /thread/);
+  // an abort means a worker trapped and must say so; if thread 0 trapped
+  // first, the workers may have left cleanly on the abort flag instead
+  const err = await workers.stop().then(() => null, (e) => e);
+  if (!trap) assert.match(String(err), /thread/);
+  else assert.ok(err === null || /thread/.test(err.message), String(err));
   assert.ok(performance.now() - t0 < 4000, 'workers took too long to give up');
 });
 
