@@ -144,6 +144,8 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
   clearInterval(timer);
   const lastT = lastBundleT;
   const closedEarlyAt = closedAt;
+  // closing the control stream is how the relay learns we left
+  try { await sw.close(); } catch { /* already closed */ }
   // the server tick we should have heard by now, less a round trip of slack
   const shouldHave = Math.floor(serverTick(performance.now())) - 32;
   try { wt.close(); } catch { /* already closed */ }

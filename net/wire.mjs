@@ -200,6 +200,13 @@ export function bufferedReader(reader) {
       buf = buf.subarray(out.length);
       return out;
     },
+    // reads and discards until the stream ends
+    async drain() {
+      for (;;) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    },
   };
 }
 

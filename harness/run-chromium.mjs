@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import { serve } from '../tools/serve.mjs';
 import { args, DEFAULTS } from './cli.mjs';
+import { isMain } from '../tools/main.mjs';
 
 const require = createRequire(import.meta.url);
 function playwright() {
@@ -50,7 +51,7 @@ export async function runChromium(a) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const a = args(process.argv.slice(2), DEFAULTS);
   if (a.out && !a.out.startsWith('traces/')) {
     console.error('--out must be under traces/ (the server writes there)');

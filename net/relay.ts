@@ -76,7 +76,13 @@ function onInput(s: Slot, buf: Uint8Array, now: number) {
     if (t <= closed) {
       // Too late for its tick. Still feed it back, as negative slack, so the
       // client's lead controller sees the lateness and grows its lead.
-      if (s.wordTick[i] !== t) { s.periodSlack = Math.min(s.periodSlack, deadline(t) - now); stats.lateArrivals++; }
+      if (s.wordTick[i] !== t) {
+        s.periodSlack = Math.min(s.periodSlack, deadline(t) - now);
+        stats.lateArrivals++;
+        // count each late tick once; closeTick only reads ticks above `closed`
+        s.wordTick[i] = t;
+        s.arrival[i] = now;
+      }
       continue;
     }
     if (s.wordTick[i] !== t) { s.wordTick[i] = t; s.words[i] = m.words[k]; s.arrival[i] = now; }
@@ -206,6 +212,9 @@ async function session(incoming: Deno.QuicIncoming) {
     s.leaveTick = scheduleEvent(p, W.EV_LEAVE, Math.max(closed + 1, s.joinTick));
   };
   wt.closed.then((i) => leave('closed:' + JSON.stringify(i)), (e) => leave('closed-error:' + String(e)));
+  // Deno doesn't settle wt.closed when Chrome closes the session, but the
+  // control stream ends: the client closes it on the way out.
+  sr.drain().then(() => leave('stream-end'), () => leave('stream-error'));
   const dr = wt.datagrams.readable.getReader();
   try {
     for (;;) {
@@ -227,6 +236,8 @@ function summary() {
     cc: stats.cc, precise, ticks: stats.ticks, activeTicks: stats.activeTicks, sessions: stats.sessions, rejected: stats.rejected,
     leaves: stats.leaves, leaveAtS: { first: Math.min(...stats.leaveAt), last: Math.max(...stats.leaveAt) },
     closeLateMs: { p50: pct(cl, 0.5), p95: pct(cl, 0.95), p99: pct(cl, 0.99), max: pct(cl, 1) },
+    // closes more than a whole tick late: the event loop stalled
+    stalls: cl.filter((v) => v > W.TICK_MS).length,
     inputSlackMs: { p5: pct(sl, 0.05), p50: pct(sl, 0.5) },
     onTime: stats.onTime, substituted: stats.substituted, warmupSubstituted: stats.warmup, silentTicks: stats.silent,
     substitutedPct: stats.onTime + stats.substituted ? Number((100 * stats.substituted / (stats.onTime + stats.substituted)).toFixed(3)) : 0,

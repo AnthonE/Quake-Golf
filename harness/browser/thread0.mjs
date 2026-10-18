@@ -24,7 +24,9 @@ async function startWorkers({ bytes, memory, n }) {
   // up to 5 s for the workers to leave their loop, then terminate; report any error
   return {
     stop: async () => {
-      await Promise.race([Promise.all(done), new Promise((ok) => setTimeout(ok, 5000))]);
+      let timer;
+      await Promise.race([Promise.all(done), new Promise((ok) => { timer = setTimeout(ok, 5000); })]);
+      clearTimeout(timer);
       workers.forEach((w) => w.terminate());
       if (errors.length) throw new Error(errors.join('; '));
     },

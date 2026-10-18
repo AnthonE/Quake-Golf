@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { extname, join, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMain } from './main.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = {
@@ -45,7 +46,7 @@ export function serve({ port = 0, host = '127.0.0.1' } = {}) {
   return new Promise((ok) => server.listen(port, host, () => ok({ server, port: server.address().port })));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const port = Number(process.argv[2] || 8080);
   serve({ port }).then(({ port }) => console.log(`http://127.0.0.1:${port}/ (cross-origin isolated)`));
 }

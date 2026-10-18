@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { decodeTrace } from '../harness/core.mjs';
 import { NSLICE, describeSlice } from '../src/layout.mjs';
+import { isMain } from './main.mjs';
 
 export function compareTraces(ref, other) {
   if (ref.terrainHash !== other.terrainHash) return { ok: false, what: 'terrain hash differs' };
@@ -13,17 +14,20 @@ export function compareTraces(ref, other) {
   if (ref.ticks !== other.ticks || ref.nInt !== other.nInt) return { ok: false, what: `lengths differ: ${ref.ticks} vs ${other.ticks} ticks` };
   for (let t = 0; t < ref.ticks; t++) {
     if (ref.tickHashes[t] === other.tickHashes[t]) continue;
-    // Trace entry t is the state at tick t+1. Interval k's digests are taken at
-    // ticks 128k+1 .. 128k+128, so the first interval whose digests all postdate
-    // the divergence is k = ceil(t / 128).
-    const k = Math.ceil(t / NSLICE);
+    // Trace entry t is the state at tick t+1. Slice s of interval k is digested
+    // at entry 128k+s, so the 128 digests taken from entry t on are slices
+    // t%128..127 of interval floor(t/128), then 0..t%128-1 of the next. Scan them
+    // in time order: the first that differs is the earliest field where the
+    // divergence is visible (it may have spread there from somewhere else).
+    const k0 = Math.floor(t / NSLICE);
+    const s0 = t % NSLICE;
     let where = '';
-    if (k < ref.nInt) {
-      for (let s = 0; s < NSLICE; s++) {
-        if (ref.sliceDigests[k * NSLICE + s] !== other.sliceDigests[k * NSLICE + s]) {
-          where = `; interval ${k} first differs in slice ${s}: ${describeSlice(s)}`;
-          break;
-        }
+    for (let i = 0; i < NSLICE && !where; i++) {
+      const k = k0 + (s0 + i >= NSLICE ? 1 : 0);
+      const sl = (s0 + i) % NSLICE;
+      if (k >= ref.nInt) break;
+      if (ref.sliceDigests[k * NSLICE + sl] !== other.sliceDigests[k * NSLICE + sl]) {
+        where = `; first visible in slice ${sl} (digested at tick ${k * NSLICE + sl + 1}): ${describeSlice(sl)}`;
       }
     }
     return { ok: false, tick: t + 1, what: `first mismatch at tick ${t + 1}${where}` };
@@ -34,7 +38,7 @@ export function compareTraces(ref, other) {
   return { ok: true, ticks: ref.ticks };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const files = process.argv.slice(2);
   if (files.length < 2) { console.error('usage: compare.mjs ref.qgh other.qgh...'); process.exit(2); }
   const ref = decodeTrace(readFileSync(files[0]));

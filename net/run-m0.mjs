@@ -117,10 +117,14 @@ const loss = Number((impair.match(/loss=([\d.]+)/) || [])[1] || 0);
 const earlyClose = all.filter((b) => b.closedEarlyAt !== null && b.closedEarlyAt !== undefined && b.closedEarlyAt < (b.durationMs || duration * 1000) - 500).length;
 report.expectedDelivered = Number((100 * (1 - loss * loss)).toFixed(3));
 report.earlyCloses = earlyClose;
+// clean runs need 99.9% for every client; impaired runs need the p^2 expectation, less 0.1 point
+report.deliveredBar = loss === 0 ? 99.9 : Number(Math.min(99.9, report.expectedDelivered - 0.1).toFixed(3));
+const perClient = all.filter((b) => b.ticksExpected).map((b) => 100 * b.ticksSeen / b.ticksExpected);
+report.worstClientDelivered = perClient.length ? Number(Math.min(...perClient).toFixed(3)) : 0;
 const gate = {
   fits: r.maxBundle <= limit && maxInput <= m0.client.maxDatagram,
   noOversize: r.oversize === 0,
-  delivered: loss === 0 ? report.delivered >= 99.9 : true,
+  delivered: report.delivered >= report.deliveredBar && (loss > 0 || report.worstClientDelivered >= report.deliveredBar),
   everyoneJoined: rejects === 0 && r.sessions === bots + 1,
   noEarlyClose: earlyClose === 0,
 };
@@ -128,6 +132,6 @@ report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };
 mkdirSync('traces', { recursive: true });
 writeFileSync(`traces/m0-${label}.json`, JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify({ ...report, relay: undefined }, null, 2));
-console.log(`relay: ${report.relayCpuPct}% of a core, close lateness p99 ${r.closeLateMs.p99} ms, input slack p5 ${r.inputSlackMs.p5} ms, substituted ${r.substitutedPct}%, ${r.downKBpsPerSession} KB/s down, ${r.upKBpsPerSession} KB/s up per session`);
+console.log(`relay: ${report.relayCpuPct}% of a core, close lateness p99 ${r.closeLateMs.p99} ms (max ${r.closeLateMs.max}, ${r.stalls} closes over a tick late), input slack p5 ${r.inputSlackMs.p5} ms, substituted ${r.substitutedPct}%, ${r.downKBpsPerSession} KB/s down, ${r.upKBpsPerSession} KB/s up per session`);
 console.log(report.gate.pass ? 'M0 gate: PASS' : 'M0 gate: FAIL');
 process.exit(report.gate.pass ? 0 : 1);

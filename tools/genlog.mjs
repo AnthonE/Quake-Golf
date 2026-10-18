@@ -10,6 +10,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { EV_SPAWN, EV_EXPLODE, EV_EXPLODE_BALL, REC } from '../src/layout.mjs';
+import { isMain } from './main.mjs';
 
 export function generate({ courseSeed = 7, genSeed = 1, ticks = 20000, target = 10000, blastEvery = 24, blastR = 4, storms = true } = {}) {
   let s = genSeed >>> 0 || 1;
@@ -67,7 +68,7 @@ function arg(name, def) {
   return i > 0 ? process.argv[i + 1] : def;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const out = arg('out', 'logs/short.qgl');
   const buf = generate({
     courseSeed: Number(arg('course', 7)), genSeed: Number(arg('seed', 1)), ticks: Number(arg('ticks', 20000)),

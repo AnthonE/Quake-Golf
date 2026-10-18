@@ -5,11 +5,14 @@ import { dirname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { replay, parseLog } from './core.mjs';
 import { args, DEFAULTS } from './cli.mjs';
+import { isMain } from '../tools/main.mjs';
 
 // Waits up to 5 s for the workers to leave their loop, then terminates them;
 // throws if any of them reported an error.
 export async function stopAll(done, terminate, errors) {
-  await Promise.race([Promise.all(done), new Promise((ok) => setTimeout(ok, 5000))]);
+  let timer;
+  await Promise.race([Promise.all(done), new Promise((ok) => { timer = setTimeout(ok, 5000); })]);
+  clearTimeout(timer);
   await terminate();
   if (errors.length) throw new Error(errors.join('; '));
 }
@@ -52,6 +55,6 @@ async function main() {
   console.log(JSON.stringify({ tag, ...stats }));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }

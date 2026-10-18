@@ -38,7 +38,10 @@ test('a trap on one thread fails the run instead of hanging it', async () => {
   const f32 = new Float32Array(memory.buffer);
   for (let i = 0; i < sim.nballs; i++) { f32[(VX >> 2) + i] = NaN; sim.u8[FLAGS + i] |= F_AWAKE; }
   const t0 = performance.now();
-  assert.throws(() => { sim.feed(log, 300); sim.x.step_mt(4); }, WebAssembly.RuntimeError);
+  // thread 0 either traps itself or sees a worker's abort at the next barrier
+  let trap = null, aborted = 0;
+  try { sim.feed(log, 300); aborted = sim.x.step_mt(4); } catch (e) { trap = e; }
+  assert.ok(trap instanceof WebAssembly.RuntimeError || aborted === 1, `step_mt returned ${aborted}, threw ${trap}`);
   Atomics.store(sim.i32, JOB_ABORT >> 2, 1);
   Atomics.notify(sim.i32, BAR_GEN >> 2);
   await assert.rejects(workers.stop(), /thread/);
