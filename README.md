@@ -119,6 +119,59 @@ private sim to try shots on, distance is a guess; the bot tries each shot on
 one first. The log (30,489 ticks) replays to the same hash on every tick on 1
 and 4 threads.
 
+## The neural golfer
+
+```sh
+node tools/zoo.mjs --gens 500                     # breed; logs/zoo.genome holds the best so far
+node tools/zoo.mjs --bench qg1:...                # 40 held-out courses, shots alone
+node tools/zoo.mjs --real qg1:...                 # the same courses as real holes, then the golf bot on them
+node tools/agent.mjs --genome qg1:...             # play against it through the agent door
+```
+
+Or play it in Chrome: run `node net/play.mjs` and add `&bot=1&genome=qg1:...`
+to the URL it prints.
+
+A 274-weight net that judges each shot by feel, where the golf bot tries 24
+on a private sim first. It reads a ball at rest as fourteen numbers (the
+cup's distance and height, the lie, the ground at six points along the line
+and 5 m ahead of and behind the ball) and answers with the blast distance behind
+the ball and a turn of up to 6°. It walks and aims on the golf bot's own
+legs, so the shot choice is the only difference between the two
+(`client/brain.mjs`).
+
+Its genome stores no weights. It is a base seed and one 16-bit seed per
+accepted mutation, and replaying that rebuilds the weights bit for bit (the
+encoding of Such et al. 2017), using only `+ - * /` and `sqrt`, which IEEE
+754 rounds the same everywhere. As `qg1:` and base64url, 101 mutations
+still fit in a tweet. `tools/zoo.mjs` breeds it on worker threads: a parent
+and fifteen children play eight training courses by shots alone (each shot
+taken from its spot, as the bot's private sim takes them), and the best
+child replaces the parent only if it beats it again on sixteen fresh
+courses. Without that second test, the best of fifteen beats its parent on
+eight courses most generations by luck alone.
+
+The first run (seed 1) kept 101 children in 214 generations, filled the
+tweet and stopped, in 19.5 minutes on 4 threads here. On 40 held-out courses
+(seeds 1-40; training used 1000-1199):
+
+| | shots alone (10 at most, else +2) | real holes (walking, the clock) |
+| --- | --- | --- |
+| a random net (no mutations) | 11.28, 10 sunk | |
+| a rule of thumb (blast distance by range) | 9.95, 15 sunk | |
+| **the neural golfer, 279 chars** | **5.92, 38 sunk** | **5.20, 39 sunk** |
+| the golf bot, 24 tries a shot | 3.10, 40 sunk | 2.33, 40 sunk |
+
+Foresight still wins by about three strokes a hole. The golfer's misses are
+blowups, not a steady handicap: 18 and 14 on two courses, 2 to 9 on the
+rest. On course 11, where Claude scored 14 through the agent door, it took 4.
+With its genome at both Chrome clients' controls (`net/run-m2.mjs --genome`),
+the M2 gate passes on course 7: both sunk, in 6 and 3, and all 91 interval
+hashes agree. The genome:
+
+```
+qg1:hmagd9R84qfApxdNJr9m7qGTDze89_fPvOrWRvL6Ix8GBSRrnqFkzBNYMDW1pW27iDe4g69MYSkakvfQnCV_h85kL5fgcCu0M0JRF2BBg0DkgraHYTDXFtqUrky8JyF9XqY_Mvs-yZedc04dJ6t9d0D-X2CoNp-t111binHDw7T3F9Ce8lARMQ0DdbYVmIc2fy2maDwVdB3fVzlR-GNZjKd4g3e7cH29HbSaFmFhWPD2ji01gF7wWwQz3boUvDq3BABIf9OqfqCIH8492xY
+```
+
 ## Run it
 
 ```sh
