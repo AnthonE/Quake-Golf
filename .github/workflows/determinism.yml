@@ -31,6 +31,10 @@ jobs:
       - run: npm test
       - name: Node, Deno and Chrome x both JIT tiers x 1, 2, 4 threads
         run: node harness/matrix.mjs --ticks 20000
+      - name: The same for a match four golf bots play
+        run: |
+          node tools/gengame.mjs --course 8 --bots 4 --ticks 20000 --out logs/game.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/game.qgl
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

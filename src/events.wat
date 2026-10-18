@@ -1,6 +1,7 @@
 ;; Quantized events from the inbox, applied in log order at the start of a tick.
 ;; Record (16 B): u32 tick | u8 kind | u8 a | u16 b | u16 x | i16 y | u16 z | i16 c
-;; Positions in 1/64 m; y is height above the ground.
+;; Positions in 1/64 m; y is height above the ground. Player records use a for
+;; the slot, and an input record carries its u32 word at offset 8.
 
 (func $apply_events
   (local $n i32) (local $k i32) (local $r i32) (local $kind i32)
@@ -10,8 +11,38 @@
     (local.set $kind (i32.load8_u offset=4 (local.get $r)))
     (if (i32.eq (local.get $kind) (i32.const @EV_SPAWN)) (then (call $ev_spawn (local.get $r))))
     (if (i32.eq (local.get $kind) (i32.const @EV_EXPLODE)) (then (call $ev_explode (local.get $r))))
-    (if (i32.eq (local.get $kind) (i32.const @EV_EXPLODE_BALL)) (then (call $ev_explode_ball (local.get $r)))))
+    (if (i32.eq (local.get $kind) (i32.const @EV_EXPLODE_BALL)) (then (call $ev_explode_ball (local.get $r))))
+    (if (i32.eq (local.get $kind) (i32.const @EV_INPUT)) (then (call $ev_input (local.get $r))))
+    (if (i32.eq (local.get $kind) (i32.const @EV_JOIN)) (then (call $ev_join (local.get $r))))
+    (if (i32.eq (local.get $kind) (i32.const @EV_LEAVE)) (then (call $ev_leave (local.get $r)))))
   (i32.store (i32.const @INBOX) (i32.const 0)))
+
+;; A live player's input word for this tick; it stays until the next one.
+(func $ev_input (param $r i32)
+  (local $pb i32)
+  (local.set $pb (i32.shl (i32.load8_u offset=5 (local.get $r)) (i32.const 6)))
+  (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE))
+    (then (!put i32 @(PLAYERS + P_IN) (local.get $pb) (i32.load offset=8 (local.get $r))))))
+
+(func $ev_join (param $r i32)
+  (local $p i32) (local $pb i32)
+  (local.set $p (i32.load8_u offset=5 (local.get $r)))
+  (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+  (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE)) (then (return)))
+  (memory.fill (i32.add (i32.const @PLAYERS) (local.get $pb)) (i32.const 0) (i32.const @PSIZE))
+  (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.const @PF_LIVE))
+  ;; a join during the scoreboard gets its ball at the restart
+  (call $to_tee (local.get $p) (i32.ne (i32.load (i32.const @HDR_STATE)) (i32.const @H_OVER)))
+  (if (i32.eq (i32.load (i32.const @HDR_STATE)) (i32.const @H_IDLE))
+    (then
+      (i32.store (i32.const @HDR_STATE) (i32.const @H_COUNT))
+      (i32.store (i32.const @HDR_UNTIL) (i32.add (i32.load (i32.const @HDR_TICK)) (i32.const @COUNT_TICKS))))))
+
+;; The player goes; their ball stays where it lies.
+(func $ev_leave (param $r i32)
+  (local $pb i32)
+  (local.set $pb (i32.shl (i32.load8_u offset=5 (local.get $r)) (i32.const 6)))
+  (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.const 0)))
 
 ;; A burst of `a` balls on a 4 x 4 lattice, owner `b`, speed c/64 m/s.
 (func $ev_spawn (param $r i32)
@@ -55,7 +86,8 @@
       (!inc $n)))
   (i32.store (i32.const @HDR_NBALLS) (local.get $n)))
 
-;; Strength a/4 m/s at the centre, radius b/64 m, linear falloff.
+;; Strength s m/s at the centre, radius r m, linear falloff, on every ball in
+;; play. Players get theirs from $blast_players.
 (func $blast (param $cx f32) (param $cy f32) (param $cz f32) (param $s f32) (param $r f32)
   (local $n i32) (local $i i32) (local $dx f32) (local $dy f32) (local $dz f32)
   (local $d2 f32) (local $dist f32) (local $f f32) (local $r2 f32) (local $invr f32)
@@ -67,7 +99,7 @@
     (local.set $dy (f32.sub (!ld f32 @PY (local.get $i)) (local.get $cy)))
     (local.set $dz (f32.sub (!ld f32 @PZ (local.get $i)) (local.get $cz)))
     (local.set $d2 (!dot3 (local.get $dx) (local.get $dy) (local.get $dz) (local.get $dx) (local.get $dy) (local.get $dz)))
-    (if (f32.lt (local.get $d2) (local.get $r2))
+    (if (i32.and (f32.lt (local.get $d2) (local.get $r2)) (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_LIVE)))
       (then
         (local.set $dist (f32.sqrt (f32.max (local.get $d2) (f32.const 1e-6))))
         (local.set $f (f32.div (f32.mul (f32.sub (f32.const 1) (f32.mul (local.get $dist) (local.get $invr))) (local.get $s))

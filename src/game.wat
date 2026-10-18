@@ -8,5 +8,8 @@
   #include "terrain.wat"
   #include "events.wat"
   #include "balls.wat"
+  #include "players.wat"
+  #include "weapons.wat"
+  #include "hole.wat"
   #include "tick.wat"
 )
