@@ -1,0 +1,15 @@
+{
+  "name": "quake-golf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/asm.mjs",
+    "test": "node --test test/*.test.mjs",
+    "matrix": "node harness/matrix.mjs",
+    "perf": "node harness/perf.mjs"
+  },
+  "devDependencies": {
+    "binaryen": "132.0.0",
+    "wabt": "1.0.39"
+  }
+}
