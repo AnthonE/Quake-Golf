@@ -95,9 +95,12 @@ the playout clock.
 | | clean, loopback | 60 ms RTT, 15 ms jitter, 5% loss each way |
 | --- | --- | --- |
 | hole | seed 7, par 3, 168 m | seed 9, par 3, 160 m |
-| scores | 2 and 3, both sunk | 3 and 2, both sunk |
-| interval hashes compared | 50, all equal | 51, all equal |
-| fill requests (history + holes) | the late joiner's history | 9 and 4 |
+| scores | 2 and 2, both sunk | 3 and 2, both sunk |
+| interval hashes compared | 70, all equal | 51, all equal |
+| fill requests (history + holes) | 1 each, the history | 9 and 4 |
+
+The bots act on wall-clock timing, so scores vary from run to run (an
+earlier clean run scored 2 and 3); the hashes never have.
 
 A four-bot match (`tools/gengame.mjs`, 20,000 ticks) replays to the same
 region hash on every tick in all 27 runtime x JIT x thread configurations;
@@ -137,6 +140,13 @@ At ~600 awake, threads do not help: three barriers a tick cost about what
 the split saves. With ~2,900 awake (a large blast every 8 ticks) one thread
 takes 1.51 ms, at the budget, while 2 threads take 0.98 ms and 4 take 0.77 ms.
 `node harness/perf.mjs` prints all of this.
+
+Those are M1's numbers. M2's golf rolling (a fixed slowdown per surface, and
+rough wherever there is no hole) settles balls sooner, so the same log now
+keeps ~127 awake: a tick takes 0.18 ms on one thread (p99 0.40), and the
+storm keeps 1,359 awake at 0.71 / 0.55 / 0.51 ms on 1 / 2 / 4 threads. The
+M1 matrix still agrees in all 27 configurations. M4's worst case, a grenade
+into a 10,000-ball pit, replaces this log as the benchmark.
 
 **M0, the relay.** 63 bots and one client, each a WebTransport session in a
 Chrome worker, against the Deno relay on loopback for 60 s:
