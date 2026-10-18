@@ -65,6 +65,7 @@ void match_start(Match *m, uint32_t seed, void *(*alloc)(uint32_t)) {
   m->depthCap = 640 * 480;
   m->depth = keep.depth ? keep.depth : alloc(m->depthCap * 4);
   m->cachedHole = 0xffffffffu;
+  m->netSlot = -1;
   for (int k = 0; k < LOCAL_MAX; k++) m->p[k].pitch = 512;
   qg_init(seed);
 }
@@ -72,13 +73,17 @@ void match_start(Match *m, uint32_t seed, void *(*alloc)(uint32_t)) {
 #define YAW_RATE 64.0f   // units a tick at full stick: 0.49 turn a second
 #define PITCH_RATE 6.0f
 
-static uint32_t word_for(Local *l, const Pad *p) {
+uint32_t pad_word(Local *l, const Pad *p, int commit) {
+  Local tmp;
+  if (!commit) { tmp = *l; l = &tmp; }
   uint32_t edge = p->buttons & ~l->prev;
   float fine = p->lt > 0.5f || (p->buttons & BTN_B) ? 0.3f : 1.0f; // hold to line a shot up
-  l->yaw += p->rx * fabsf_(p->rx) * YAW_RATE * fine;
-  while (l->yaw >= 16384) l->yaw -= 16384;
-  while (l->yaw < 0) l->yaw += 16384;
-  l->pitch = clampf(l->pitch + p->ry * fabsf_(p->ry) * PITCH_RATE * fine, 16, 1008);
+  if (commit) {
+    l->yaw += p->rx * fabsf_(p->rx) * YAW_RATE * fine;
+    while (l->yaw >= 16384) l->yaw -= 16384;
+    while (l->yaw < 0) l->yaw += 16384;
+    l->pitch = clampf(l->pitch + p->ry * fabsf_(p->ry) * PITCH_RATE * fine, 16, 1008);
+  }
   uint32_t move = (p->ly > 0.35f ? 1 : 0) | (p->ly < -0.35f ? 2 : 0) | (p->lx < -0.35f ? 4 : 0) | (p->lx > 0.35f ? 8 : 0);
   if (p->rt > 0.6f && l->prevRt <= 0.6f) l->presses++;
   if (edge & (BTN_Y | BTN_X)) l->weapon ^= 1;
@@ -91,29 +96,33 @@ static uint32_t word_for(Local *l, const Pad *p) {
          ((p->buttons & BTN_A ? 1u : 0u) << 28) | ((l->sent & 3) << 29) | (l->weapon << 31);
 }
 
+void pad_face(Local *l) {
+  float yaw = atan2u(F(QG_HDR_DIR + 4), F(QG_HDR_DIR));
+  l->yaw = yaw < 0 ? yaw + 16384 : yaw;
+  l->pitch = 512;
+}
+
 void match_tick(Match *m, const Pad pads[LOCAL_MAX]) {
   uint32_t n = 0;
   for (int k = 0; k < LOCAL_MAX; k++) {
     Local *l = &m->p[k];
     if (!l->joined && pads[k].connected && (pads[k].buttons & (BTN_START | BTN_A)) && !(l->prev & (BTN_START | BTN_A))) {
       l->joined = 1;
-      // face down the hole, the way the tee spot does
-      l->yaw = atan2u(F(QG_HDR_DIR + 4), F(QG_HDR_DIR));
-      if (l->yaw < 0) l->yaw += 16384;
-      l->pitch = 512;
+      pad_face(l); // down the hole, the way the tee spot faces
       rec(m, &n, QG_EV_JOIN, (uint32_t)k, 0);
       l->prev = pads[k].buttons;
       continue;
     }
-    if (l->joined) rec(m, &n, QG_EV_INPUT, (uint32_t)k, word_for(l, &pads[k]));
+    if (l->joined) rec(m, &n, QG_EV_INPUT, (uint32_t)k, pad_word(l, &pads[k], 1));
     else l->prev = pads[k].buttons;
   }
   U(QG_INBOX) = n;
   qg_step();
 }
 
-void match_aim_at(Match *m, int k, float x, float y, float z) {
-  uint32_t pb = QG_PLAYERS + 64u * (uint32_t)k;
+void match_aim_at(Match *m, int k, float x, float y, float z) { match_aim_from(m, k, (uint32_t)k, x, y, z); }
+void match_aim_from(Match *m, int k, uint32_t slot, float x, float y, float z) {
+  uint32_t pb = QG_PLAYERS + 64u * slot;
   float dx = x - F(pb + QG_P_PX), dz = z - F(pb + QG_P_PZ), dy = y - (F(pb + QG_P_PY) + QG_P_EYE);
   float yaw = atan2u(dz, dx);
   m->p[k].yaw = yaw < 0 ? yaw + 16384 : yaw;
@@ -277,7 +286,8 @@ static void column(View *v, float x, float yb, float yt, float z, float r, uint3
     }
 }
 
-static void draw_world(Match *m, View *v, int viewer) {
+// bank: QG_PRED_D to draw projectiles from the prediction layer (online, your own run ahead)
+static void draw_world(Match *m, View *v, int viewer, uint32_t bank) {
   uint32_t tick = U(QG_HDR_TICK);
   // the cup: a slipgate disc, and a flag to find it by
   float cx = F(QG_HDR_CUP), cy = F(QG_HDR_CUP + 4), cz = F(QG_HDR_CUP + 8);
@@ -303,7 +313,7 @@ static void draw_world(Match *m, View *v, int viewer) {
   }
   // projectiles
   for (uint32_t j = 0; j < QG_NPROJ; j++) {
-    uint32_t jb = QG_PROJ + 32 * j;
+    uint32_t jb = QG_PROJ + bank + 32 * j;
     uint8_t kind = B(jb + QG_J_KIND);
     if (!kind) continue;
     if (!project(v, F(jb + QG_J_PX), F(jb + QG_J_PY), F(jb + QG_J_PZ), &sx, &sy, &d)) continue;
@@ -353,9 +363,10 @@ static char *num(char *b, uint32_t v) {
 }
 static char *cat(char *b, const char *s) { while (*s) *b++ = *s++; *b = 0; return b; }
 
-static void hud(Match *m, View *v, int k) {
+// slot k's HUD; its player record from `bank`, its weapon from local player `me`
+static void hud(Match *m, View *v, int k, int me, uint32_t bank) {
   char b[64], *e;
-  uint32_t pb = QG_PLAYERS + 64u * (uint32_t)k;
+  uint32_t pb = QG_PLAYERS + bank + 64u * (uint32_t)k;
   uint32_t state = U(QG_HDR_STATE), tick = U(QG_HDR_TICK), until = U(QG_HDR_UNTIL);
   int s = v->w >= 300 ? 2 : 1;
   e = cat(b, "HOLE "); e = num(e, U(QG_HDR_HOLE)); e = cat(e, "  PAR "); e = num(e, U(QG_HDR_PAR));
@@ -373,16 +384,18 @@ static void hud(Match *m, View *v, int k) {
   if (state == QG_H_OVER) {
     text(v, v->w / 2 - textlen("HOLE OVER", s * 2) / 2, v->h / 4, "HOLE OVER", s * 2, 0xffe066);
     int y = v->h / 4 + 14 * s;
-    for (int p = 0; p < LOCAL_MAX; p++) {
-      if (!m->p[p].joined) continue;
-      uint32_t q = QG_PLAYERS + 64u * (uint32_t)p;
-      e = cat(b, "P"); e = num(e, (uint32_t)p + 1); e = cat(e, "  "); e = num(e, H(q + QG_P_SCORE)); e = cat(e, "  TOTAL "); num(e, U(q + QG_P_TOTAL));
-      text(v, v->w / 2 - textlen(b, s) / 2, y, b, s, slot_color((uint32_t)p));
+    for (uint32_t p = 0, shown = 0; p < QG_NPLAYER && shown < 8; p++) {
+      uint32_t q = QG_PLAYERS + 64u * p;
+      if (!(B(q + QG_P_FL) & QG_PF_LIVE)) continue;
+      e = cat(b, (int)p == k ? "YOU" : "P"); if ((int)p != k) e = num(e, p + 1);
+      e = cat(e, "  "); e = num(e, H(q + QG_P_SCORE)); e = cat(e, "  TOTAL "); num(e, U(q + QG_P_TOTAL));
+      text(v, v->w / 2 - textlen(b, s) / 2, y, b, s, slot_color(p));
       y += 8 * s;
+      shown++;
     }
   }
   // weapon and the ball's distance to the cup
-  e = cat(b, m->p[k].weapon ? "GRENADE" : "ROCKET");
+  e = cat(b, m->p[me].weapon ? "GRENADE" : "ROCKET");
   int32_t ball = (int32_t)U(pb + QG_P_BALL);
   if (ball >= 0 && (uint32_t)ball < QG_BALL_CAP) {
     float dx = F(QG_PX + 4 * (uint32_t)ball) - F(QG_HDR_CUP), dz = F(QG_PZ + 4 * (uint32_t)ball) - F(QG_HDR_CUP + 8);
@@ -403,8 +416,12 @@ void match_render(Match *m, uint32_t *px, int stride, int w, int h) {
   if (!FOG[1099]) fog_table();
   if (m->cachedHole != U(QG_HDR_HOLE)) build_terrain(m);
   if ((uint32_t)(stride * h) > m->depthCap) return;
+  // locally, a view per joined pad; online, one: the relay's slot, aimed by pad 0
   int ids[LOCAL_MAX], n = 0;
-  for (int k = 0; k < LOCAL_MAX; k++) if (m->p[k].joined) ids[n++] = k;
+  int online = m->netSlot >= 0;
+  if (online) { if (B(QG_PLAYERS + 64u * (uint32_t)m->netSlot + QG_P_FL) & QG_PF_LIVE) ids[n++] = m->netSlot; }
+  else for (int k = 0; k < LOCAL_MAX; k++) if (m->p[k].joined) ids[n++] = k;
+  uint32_t bank = online && m->netPred ? QG_PRED_D : 0;
   int views = n ? n : 1;
   for (int i = 0; i < views; i++) {
     View v = { .px = px, .depth = m->depth, .stride = stride };
@@ -414,11 +431,12 @@ void match_render(Match *m, uint32_t *px, int stride, int w, int h) {
     else { v.x0 = (i & 1) * (w / 2); v.y0 = (i >> 1) * (h / 2); v.w = w / 2; v.h = h / 2; }
     float yaw, pitch, ex, ey, ez;
     int viewer = -1;
+    int me = online ? 0 : n ? ids[i] : 0;
     if (n) {
       int k = ids[i];
-      uint32_t pb = QG_PLAYERS + 64u * (uint32_t)k;
+      uint32_t pb = QG_PLAYERS + bank + 64u * (uint32_t)k;
       viewer = k;
-      yaw = m->p[k].yaw; pitch = m->p[k].pitch;
+      yaw = m->p[me].yaw; pitch = m->p[me].pitch;
       ex = F(pb + QG_P_PX); ey = F(pb + QG_P_PY) + QG_P_EYE; ez = F(pb + QG_P_PZ);
     } else {
       // nobody in yet: circle the tee, looking down the hole
@@ -435,14 +453,24 @@ void match_render(Match *m, uint32_t *px, int stride, int w, int h) {
     sc((uint32_t)(((int32_t)(pitch + 0.5f) - 512) * 8) & 0x3fff, &ps, &pc);
     v.horizon = (float)v.h * 0.5f + clampf(ps / pc, -4.4f, 4.4f) * v.focal;
     draw_terrain(m, &v);
-    draw_world(m, &v, viewer);
-    if (n) hud(m, &v, viewer);
+    draw_world(m, &v, viewer, bank);
+    if (n) hud(m, &v, viewer, me, bank);
     else {
       View full = v;
-      const char *msg = "PRESS START";
+      const char *msg = online ? "JOINING" : "PRESS START";
       int sc2 = v.w >= 300 ? 3 : 2;
       text(&full, v.w / 2 - textlen(msg, sc2) / 2, v.h / 2, msg, sc2, 0xffe066);
       text(&full, 4, 4, "QUAKE GOLF", 2, 0xffffff);
     }
   }
+  if (m->status) {
+    View full = { .px = px, .depth = m->depth, .stride = stride, .w = w, .h = h };
+    text(&full, w / 2 - textlen(m->status, 1) / 2, h - 18, m->status, 1, 0xffe066);
+  }
 }
+
+void draw_text(uint32_t *px, int stride, int w, int h, int x, int y, const char *s, int scale, uint32_t color) {
+  View v = { .px = px, .stride = stride, .w = w, .h = h };
+  text(&v, x, y, s, scale, color);
+}
+int text_width(const char *s, int scale) { return textlen(s, scale); }

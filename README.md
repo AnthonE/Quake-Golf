@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| X2 · Xbox online | the Xbox build plays in the browser's rooms over a lossy network: every hash equals the referee's, a late join from a keyframe on the Pentium III's instruction set, a flipped bit healed | **passed** with the Xbox's network code on Linux and under QEMU, not yet in xemu · [results](#x2-xbox-online) |
 | X1 · original Xbox | the sim as Pentium III code equals V8 on every tick of 1M; an XBE builds; a match played on the Xbox build replays in V8 tick for tick | **passed** under QEMU's Pentium III, not yet on a console · [results](#x1-the-original-xbox) |
 | M3 · netcode | four players at 150 ms and 10% loss: your moves show next frame, a late join from a keyframe, a flipped bit caught and healed | **passed** · [results](#m3-netcode) |
 | M2 · first hole | a full hole plays end to end, two players over the real server | **passed** · [results](#m2-the-first-hole) |
@@ -38,21 +39,50 @@ next frame; other players and every ball show a round trip late. To feel a
 bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
 round trip with 10% loss each way.
 
-## Play it on an original Xbox
+## Play it on an original Xbox, or in xemu
+
+You need the ISO and a relay. Build them from the same commit: the relay
+refuses an Xbox whose sim differs from its own `game.wasm`.
+
+**The ISO.** Every push builds it in CI: open the newest run of the
+`determinism` workflow on GitHub Actions and download the `quake-golf-xbox`
+artifact (`Quake Golf.iso` and `default.xbe`). Or build it yourself on Linux or
+macOS:
 
 ```sh
 npm ci && sh tools/install-nxdk.sh   # once: nxdk, the open-source Xbox SDK, pinned, into .tools/nxdk
 make -C xbox                         # xbox/bin/default.xbe and xbox/Quake Golf.iso
+make -C xbox SERVER=192.168.1.20:4434   # the same, aimed at a relay elsewhere (written to quakegolf.txt in the ISO)
 ```
 
-Copy `default.xbe` to a softmodded or modchipped console (FTP it to, say,
-`E:\Apps\QuakeGolf\`), or boot the ISO in xemu, which needs your own
-console's boot ROM, BIOS and disk dumps. CI builds both on every push (the
-`quake-golf-xbox` artifact). Each controller port is a player, up to four in
-split screen: Start joins, the left stick runs, the right stick aims, A
+**The relay**, on the machine that runs xemu. It needs Node 22, Deno 2.9
+(`sh tools/install-deno.sh` puts it in `.tools/` on Linux; elsewhere install
+it and keep `deno` on your PATH), and `sh` and `openssl` (on Windows, run it
+from Git Bash):
+
+```sh
+npm ci
+node net/play.mjs    # Chrome players on UDP 4433, Xbox players on TCP and UDP 4434
+```
+
+**xemu.** Open Settings, then Network: enable it and set it to NAT. Then
+Machine, then Load Disc, and pick `Quake Golf.iso`. On the title screen, X
+plays online. The server it shows, `10.0.2.2:4434`, is how xemu's NAT
+reaches the machine running xemu, so it finds the relay with nothing to
+set up. Y changes the server: the d-pad edits, White deletes, A is done. A
+plays locally instead, split screen for up to four.
+
+Online, one controller plays. The left stick runs, the right stick aims, A
 jumps, the right trigger fires, Y or X switches between rocket and grenade,
-and holding the left trigger or B slows the aim for lining up a shot. Play
-is local for now; no network yet.
+and holding the left trigger or B slows the aim for lining up a shot. Back
+and Start together leave. Browser players can join the same room: open the
+URL `play.mjs` prints in Chrome.
+
+**A relay elsewhere, or a real Xbox.** Start the relay with
+`node net/play.mjs --host 0.0.0.0`, let TCP and UDP 4434 through its
+firewall, and point the Xbox at that machine's address: `SERVER=` when you
+build, or Y on the title screen. A real console takes the same ISO or XBE,
+softmodded or modchipped, on its Ethernet port.
 
 ## Run it
 
@@ -68,6 +98,7 @@ node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played C
 node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # four, a late join, a flipped bit
 node tools/x86.mjs                     # game.wasm -> Pentium III assembly, the native runner, the Xbox core's test driver (clang)
 node harness/matrix.mjs --ticks 20000 --runtimes node,x86,pentium3   # that code on this CPU and under qemu-i386 -cpu pentium3
+node net/run-x2.mjs [--chrome 1] [--seconds 60] [--late 15] [--flip 25] [--impair delay=100,jitter=15,loss=0.05]   # Xbox clients online
 build/x86/replay --log logs/perf24000.qgl --ticks 24000 --time-from 16000   # its per-tick cost, perf.mjs's window
 build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the Xbox core: frames (.ppm), the match (.qgl, .qgh)
 ```
@@ -140,6 +171,16 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   straight from the flags, and leaf functions up to 48 ops are inlined. Each
   export gets a cdecl wrapper that saves and sets MXCSR and the x87 control
   word, so nothing the host does to the FPU reaches the sim.
+- `net/relay.ts` also has a native door, `--native-port` (4434): the same
+  session with a TCP connection for the stream and UDP for the datagrams,
+  each of the client's prefixed with a token from the welcome. Native and
+  browser players share rooms. `xbox/online.c` is the client end, the
+  browser's net and sim workers as one single-threaded loop: the server's
+  clock from pings, the input lead from the relay's slack, the playout clock
+  from first arrivals, per-tick acks, repairs, keyframe joins (gunzipped by
+  `xbox/inflate.c`), resyncs, hash reports, and the prediction layer for your
+  own player. `xbox/net_xbox.c` puts it on lwIP; `xbox/plat_linux.h` on Linux
+  sockets, with the browser's impairment model.
 - `harness/native/` runs that code the way `harness/` runs the wasm:
   freestanding (raw Linux syscalls, no libc), the same .qgh trace, graded by
   `matrix.mjs` as `x86` (this CPU) and `pentium3` (`qemu-i386 -cpu pentium3`,
@@ -153,6 +194,35 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   frame doubled into the 640x480 framebuffer). `headless.c` is the same core
   on Linux with scripted controllers: `test/xbox.test.mjs` plays a two-player
   hole on it and replays the recorded match in V8.
+
+## X2, Xbox online
+
+`node net/run-x2.mjs` starts the relay, one Chrome client with the golf bot at
+the controls, and two native clients. Those run the Xbox's own network code
+(`xbox/online.c`) with scripted controllers: they line up a rocket drive,
+take it, follow the ball, walk and hop. One joins with the room; the other
+joins 15 s late, from a keyframe, running under `qemu-i386 -cpu pentium3`.
+Every datagram, both ways, has a 100 ms round trip, 15 ms jitter and 5% loss.
+25 s in, the first native client flips a bit of its own score total, as M3
+does to a browser client. CI runs the same without Chrome on every push.
+
+| 60 s, 100 ms round trip, 15 ms jitter, 5% loss each way | |
+| --- | --- |
+| interval hashes vs the referee's | Chrome 59 of 59; native 55 of 55 (3 more fall between the flip and its heal); the late one under QEMU 43 of 43 |
+| the flip | flipped at sim tick 3,109, caught at the interval closing at 3,328, healed by a desync keyframe for 3,328 |
+| the late join | a keyframe at sim tick 1,920 (774 B packed, unpacked by `xbox/inflate.c`), 29 ticks to fast-forward |
+| repairs | 114 ticks in 34 datagrams, for 5% loss each way |
+| input lead, prediction | 11 to 12 ticks of lead; the prediction ran 24 to 26 ticks ahead of the confirmed world |
+| per session | 65 KB/s down, 4.9 KB/s up |
+
+`test/online.test.mjs` unpacks real keyframes with the C code (a fresh course,
+and a pit of over 800 balls) and data that forces stored blocks and long
+matches, byte for byte against what the referee packs.
+
+In xemu, the sim and the software renderer run on QEMU's emulation of the
+Pentium III, as the late client did here. On a slow host, if it falls more
+than 2 s behind, it asks for a keyframe and starts again from there, the same
+as a stalled browser tab.
 
 ## X1, the original Xbox
 
@@ -195,10 +265,7 @@ Not done yet:
 - **A console.** Nothing has run on an Xbox or in xemu (xemu needs the
   console's own ROM and disk dumps). QEMU checks the instruction set and the
   floating point, not the chipset, the kernel or the controllers.
-- **The network.** The relay speaks WebTransport (QUIC and TLS 1.3). The Xbox
-  needs a plain UDP door on the relay, carrying the same bundles (at most
-  1,161 B, one Ethernet frame) and inputs. The sim side is ready: a match is
-  already an event log both builds replay identically.
+- **The network** is X2, above: the relay's native door, TCP and UDP.
 - **The renderer.** Voxel columns tilt by sliding the horizon, which
   distorts at steep pitch, as the browser's ray march does. The NV2A (a
   GeForce 3) should draw the heightfield as a mesh and the balls as point

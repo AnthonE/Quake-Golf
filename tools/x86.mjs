@@ -7,6 +7,7 @@
 //   node tools/x86.mjs [--wasm build/game.wasm] [--no-bounds] [--no-runner]
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as layout from '../src/layout.mjs';
@@ -49,9 +50,10 @@ export function buildX86({ wasm = join(ROOT, 'build', 'game.wasm'), bounds = tru
   const wat = wasm.replace(/\.wasm$/, '.wat');
   let names = existsSync(wat) ? watNames(readFileSync(wat, 'utf8')) : [];
   if (names.length !== decode(bin).funcs.length) names = []; // cosmetic only: never guess
-  const elf = translate(bin, { target: 'elf', bounds, names });
+  const prefix = createHash('sha256').update(bin).digest().subarray(0, 8);
+  const elf = translate(bin, { target: 'elf', bounds, names, prefix });
   writeFileSync(join(out, 'game.s'), elf.asm);
-  writeFileSync(join(out, 'game-coff.s'), translate(bin, { target: 'coff', bounds, names }).asm);
+  writeFileSync(join(out, 'game-coff.s'), translate(bin, { target: 'coff', bounds, names, prefix }).asm);
   writeFileSync(join(out, 'qg_sim.h'), elf.header);
   writeFileSync(join(out, 'font.h'), fontHeader());
   writeFileSync(join(out, 'layout.h'), layoutHeader());
@@ -60,7 +62,7 @@ export function buildX86({ wasm = join(ROOT, 'build', 'game.wasm'), bounds = tru
     execFileSync('clang', [...CFLAGS, `-I${out}`, join(native, 'replay.c'), join(out, 'game.s'), '-o', join(out, 'replay')], { stdio: 'inherit' });
     // the Xbox game core with scripted controllers (xbox/headless.c)
     execFileSync('clang', [...CFLAGS, `-I${out}`, `-I${native}`, `-I${join(ROOT, 'xbox')}`,
-      join(ROOT, 'xbox', 'headless.c'), join(ROOT, 'xbox', 'game.c'), join(out, 'game.s'), '-o', join(out, 'xbox-headless')], { stdio: 'inherit' });
+      ...['headless.c', 'game.c', 'online.c', 'inflate.c'].map((f) => join(ROOT, 'xbox', f)), join(out, 'game.s'), '-o', join(out, 'xbox-headless')], { stdio: 'inherit' });
   }
   return { lines: elf.asm.split('\n').length, counts: elf.counts };
 }

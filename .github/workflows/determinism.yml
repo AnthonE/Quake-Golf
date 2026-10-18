@@ -15,8 +15,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: unzip, for setup-deno; clang, lld and qemu-user, for the Pentium III build
-        run: apt-get update && apt-get install -y --no-install-recommends unzip clang lld qemu-user
+      - name: unzip, for setup-deno; clang, lld and qemu-user, for the Pentium III build; openssl, for the relay
+        run: apt-get update && apt-get install -y --no-install-recommends unzip clang lld qemu-user openssl
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -35,6 +35,8 @@ jobs:
         run: |
           node tools/gengame.mjs --course 8 --bots 4 --ticks 20000 --out logs/game.qgl
           node harness/matrix.mjs --ticks 20000 --log logs/game.qgl --runtimes node,deno,chromium,x86,pentium3
+      - name: Xbox clients online (the relay, a native client and a late one under qemu, impaired, a flipped bit healed)
+        run: node net/run-x2.mjs --chrome 0 --seconds 40 --late 10 --flip 20
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

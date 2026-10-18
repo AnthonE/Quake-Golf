@@ -10,6 +10,7 @@
 enum {
   BTN_A = 1, BTN_B = 2, BTN_X = 4, BTN_Y = 8, BTN_START = 16, BTN_BACK = 32,
   BTN_LSTICK = 64, BTN_RSTICK = 128, BTN_WHITE = 256, BTN_BLACK = 512,
+  BTN_UP = 1024, BTN_DOWN = 2048, BTN_LEFT = 4096, BTN_RIGHT = 8192,
 };
 
 // One controller this tick: sticks in [-1, 1] (up and right positive),
@@ -30,7 +31,10 @@ typedef struct {
 } Local;
 
 typedef struct {
-  Local p[LOCAL_MAX];        // pad k plays sim slot k
+  Local p[LOCAL_MAX];        // pad k plays sim slot k (locally; online, pad 0 plays netSlot)
+  int netSlot;               // online: the slot the relay gave us, or -1 for local play
+  int netPred;               // online: the prediction layer holds this frame's player
+  const char *status;        // a line for the top of the screen, or null
   uint32_t seed;
   // every inbox record the match applied, in order, when rec is set: a .qgl body
   uint8_t *rec;
@@ -52,6 +56,20 @@ void match_tick(Match *m, const Pad pads[LOCAL_MAX]);
 void match_render(Match *m, uint32_t *px, int stride, int w, int h);
 // For scripts and bots: point local player k's aim straight at a world point.
 void match_aim_at(Match *m, int k, float x, float y, float z);
+// The same for local player k standing in sim slot `slot` (online).
+void match_aim_from(Match *m, int k, uint32_t slot, float x, float y, float z);
+
+// One tick's input word from a controller (net/wire.mjs packInput's layout).
+// commit 1 samples it: the aim turns, a trigger pull becomes a press, the shot
+// counter steps toward the presses. commit 0 only looks, for the prediction's
+// tick in progress (a pending press counted as the next shot).
+uint32_t pad_word(Local *l, const Pad *p, int commit);
+// Turn to face down the hole, level.
+void pad_face(Local *l);
+
+// Text in the HUD's 3x5 font, with a shadow, into a w x h XRGB buffer.
+void draw_text(uint32_t *px, int stride, int w, int h, int x, int y, const char *s, int scale, uint32_t color);
+int text_width(const char *s, int scale);
 
 // The .qgl header for a recorded match of `ticks` ticks (32 bytes).
 void match_log_header(const Match *m, uint32_t ticks, uint8_t out[32]);
