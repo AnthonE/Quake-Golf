@@ -12,6 +12,7 @@ Target: the newest Chrome; the server is Deno.
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| M3 · netcode | four players at 150 ms and 10% loss: your moves show next frame, a late join from a keyframe, a flipped bit caught and healed | **passed** · [results](#m3-netcode) |
 | M2 · first hole | a full hole plays end to end, two players over the real server | **passed** · [results](#m2-the-first-hole) |
 | M1 · determinism harness | zero hash mismatches over 1M ticks | **passed** · [results](#results) |
 | M0 · net skeleton | a 64-player bundle fits one datagram | **passed** · [results](#results) |
@@ -105,6 +106,55 @@ node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # fo
   splats, your own player and shots from the prediction, a 3x5 HUD font.
   `?bot=1` hands the controls to `client/bot.mjs`, which plans every shot on a
   private copy of the sim.
+
+## M3, netcode
+
+`node net/run-m3.mjs` starts the Deno relay with its referee and four headless
+Chrome 141 clients, each with the golf bot at the controls, at a 150 ms round
+trip, 15 ms jitter and 10% loss each way (`--impair delay=150,jitter=15,loss=0.1`;
+`delay` is the round trip, half each way). The fourth client joins 15 s late.
+At 25 s the runner flips bit 3 of client 1's score total, state the scoreboard
+shows and nothing changes mid-hole. The gate: every ball sunk; a change of
+keys shows in the predicted player on the first frame after it (p95, every
+client); the late client starts from a keyframe after sim tick 0 with under
+400 ticks to fast-forward; the flip is one mismatch, on that client only,
+named as the slice flipped, and healed; every other interval hash equals the
+referee's; and every client is back on the playout clock within 15 s of the
+scoreboard.
+
+| 150 ms round trip, 15 ms jitter, 10% loss each way | |
+| --- | --- |
+| hole | seed 7, scores 2, 2, 3 and 2, every ball sunk |
+| key change to the predicted player | 1 frame (p95) on every client: 6.0 to 8.5 ms median, 15.5 to 20.6 ms p95 |
+| key change to the confirmed world | 281 to 345 ms median |
+| late join | from the keyframe at sim tick 1,792, 70 ticks to fast-forward |
+| flipped bit | 1 mismatch, on client 1, named `HDR[0..255] + PLAYERS[0..59]` (slice 0), healed by the keyframe at tick 2,304 |
+| interval hashes | 315 of 316 reports equal the referee's; the other is the flip |
+| repairs | 590 datagrams carried 1,552 ticks |
+| keyframes | 606 to 912 B packed (the region is 512 KiB) |
+| input lead, playout delay | 20 to 29 ticks and 11 to 18 ticks at the end |
+| per session | 65 KB/s down, 5.8 KB/s up |
+
+The lead plus the playout delay, the ticks between your input and the
+confirmed world, came to 36 to 40 here against the design doc's 29 for a
+150 ms round trip; the leads grew under this VM's stalls, and the two-client
+run, with less load, sat at about 30. The prediction hides all of it for your
+own player and shots. With nothing
+remote in the way a prediction matches the confirmed world bit for bit
+(`test/predict.test.mjs` checks a walk, a rocket jump and a lob).
+
+Each client also resynced 2 to 5 times in the 95 s hole, for a hole too old
+to repair. That is this 4-core VM running four WebGPU clients and four shot
+planners: each client's net worker stalled by up to 0.8 s (its 4 ms timer,
+measured), so its acks reached the relay too late for a repair, and the relay
+found 18% of inputs late. A resync costs one keyframe and about 100 ticks of
+fill. Of four full runs, the first and the last passed every check; the two
+between missed checks since corrected (a 25 ms bar that one stalled frame
+missed at 25.6 ms, and a rule that all four be steady at one instant). With
+two clients, which loads the VM less, the same run passed with 2 resyncs in
+all. On this VM the M0 run (63 bots, 30 s) now misses its 99.9% delivery bar
+(worst client 99.868%), but the pre-M3 code run the same way just after
+delivered 84.7%: the VM is busier than when M0's numbers were taken.
 
 ## M2, the first hole
 
