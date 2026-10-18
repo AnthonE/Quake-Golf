@@ -51,3 +51,13 @@ test('the buffered reader keeps what it over-reads', async () => {
   assert.deepEqual([...await r.read(4)], [1, 2, 3, 4]);
   assert.deepEqual([...await r.read(4)], [5, 6, 7, 8]);
 });
+
+test('compare refuses traces of different length or without a log hash', async () => {
+  const { compareTraces } = await import('../tools/compare.mjs');
+  const base = { terrainHash: 1n, logHash: 2n, ticks: 256, nInt: 2, tickHashes: new BigUint64Array(256), intervalHashes: new BigUint64Array(2), sliceDigests: new BigUint64Array(256) };
+  assert.equal(compareTraces(base, { ...base }).ok, true);
+  assert.match(compareTraces(base, { ...base, ticks: 128, nInt: 1 }).what, /lengths differ/);
+  assert.match(compareTraces(base, { ...base, logHash: 0n }).what, /no log hash/);
+  const other = { ...base, intervalHashes: BigUint64Array.of(0n, 9n) };
+  assert.match(compareTraces(base, other).what, /interval hash 1/);
+});

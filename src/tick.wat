@@ -1,6 +1,9 @@
 ;; Tick orchestration, threads, init, keyframes.
 
-;; Serial: apply wakes, advance the tick, digest this tick's slice.
+;; Serial: apply wakes, advance the tick, digest one slice. Slice s of the
+;; interval that starts at tick K is digested at tick K+s+1, and the interval
+;; closes at K+128. So every digest of an interval is taken after its boundary,
+;; and a keyframe at a multiple of 128 restarts the sliced hash cleanly.
 (func $tick_end (export "tick_end")
   (local $n i32) (local $i i32) (local $t i32) (local $s i32)
   (local.set $n (i32.load (i32.const @HDR_NBALLS)))
@@ -12,7 +15,7 @@
         (!st u8 @WAKE (local.get $i) (i32.const 0)))))
   (local.set $t (i32.add (i32.load (i32.const @HDR_TICK)) (i32.const 1)))
   (i32.store (i32.const @HDR_TICK) (local.get $t))
-  (local.set $s (i32.and (local.get $t) (i32.const @(NSLICE - 1))))
+  (local.set $s (i32.and (i32.sub (local.get $t) (i32.const 1)) (i32.const @(NSLICE - 1))))
   (call $hash_slice (local.get $s))
   (if (i32.eq (local.get $s) (i32.const @(NSLICE - 1)))
     (then
@@ -30,57 +33,61 @@
   (call $integrate (i32.const 0) (i32.load (i32.const @JOB_NB)))
   (call $tick_end))
 
-;; Generation barrier: spin briefly, then sleep on the generation word.
-(func $barrier (export "barrier") (param $n i32)
+;; Generation barrier: spin briefly, then sleep on the generation word in
+;; 50 ms naps. Returns 0, or 1 if any thread raised JOB_ABORT, so a trap on
+;; one thread fails the run instead of hanging the others.
+(func $barrier (export "barrier") (param $n i32) (result i32)
   (local $gen i32) (local $spin i32)
   (local.set $gen (i32.atomic.load (i32.const @BAR_GEN)))
   (if (i32.eq (i32.add (i32.atomic.rmw.add (i32.const @BAR_COUNT) (i32.const 1)) (i32.const 1)) (local.get $n))
     (then
       (i32.atomic.store (i32.const @BAR_COUNT) (i32.const 0))
       (drop (i32.atomic.rmw.add (i32.const @BAR_GEN) (i32.const 1)))
-      (drop (memory.atomic.notify (i32.const @BAR_GEN) (i32.const 0x7fffffff))))
-    (else
-      (block $go
-        (loop $spinning
-          (br_if $go (i32.ne (i32.atomic.load (i32.const @BAR_GEN)) (local.get $gen)))
-          (local.set $spin (i32.add (local.get $spin) (i32.const 1)))
-          (br_if $spinning (i32.lt_u (local.get $spin) (i32.const 4000))))
-        (loop $waiting
-          (br_if $go (i32.ne (i32.atomic.load (i32.const @BAR_GEN)) (local.get $gen)))
-          (drop (memory.atomic.wait32 (i32.const @BAR_GEN) (local.get $gen) (i64.const -1)))
-          (br $waiting))))))
+      (drop (memory.atomic.notify (i32.const @BAR_GEN) (i32.const 0x7fffffff)))
+      (return (i32.atomic.load (i32.const @JOB_ABORT)))))
+  (block $go
+    (loop $spinning
+      (br_if $go (i32.ne (i32.atomic.load (i32.const @BAR_GEN)) (local.get $gen)))
+      (local.set $spin (i32.add (local.get $spin) (i32.const 1)))
+      (br_if $spinning (i32.lt_u (local.get $spin) (i32.const 4000))))
+    (loop $waiting
+      (br_if $go (i32.ne (i32.atomic.load (i32.const @BAR_GEN)) (local.get $gen)))
+      (if (i32.atomic.load (i32.const @JOB_ABORT)) (then (return (i32.const 1))))
+      (drop (memory.atomic.wait32 (i32.const @BAR_GEN) (local.get $gen) (i64.const 50000000)))
+      (br $waiting)))
+  (i32.atomic.load (i32.const @JOB_ABORT)))
 
-;; Thread 0, one tick across n threads.
-(func (export "step_mt") (param $n i32)
+;; Thread 0, one tick across n threads. Returns 1 if the run was aborted.
+(func (export "step_mt") (param $n i32) (result i32)
   (local $lo i32) (local $hi i32)
   (drop (call $tick_begin))
-  (call $barrier (local.get $n))
+  (if (call $barrier (local.get $n)) (then (return (i32.const 1))))
   (call $range (i32.load (i32.const @JOB_NA)) (i32.const 0) (local.get $n))
   (local.set $hi) (local.set $lo)
   (call $contacts (local.get $lo) (local.get $hi))
-  (call $barrier (local.get $n))
+  (if (call $barrier (local.get $n)) (then (return (i32.const 1))))
   (call $range (i32.load (i32.const @JOB_NB)) (i32.const 0) (local.get $n))
   (local.set $hi) (local.set $lo)
   (call $integrate (local.get $lo) (local.get $hi))
-  (call $barrier (local.get $n))
-  (call $tick_end))
+  (if (call $barrier (local.get $n)) (then (return (i32.const 1))))
+  (call $tick_end)
+  (i32.const 0))
 
-;; Threads 1..n-1: the same three barriers, until JOB_QUIT.
+;; Threads 1..n-1: the same three barriers, until JOB_QUIT or JOB_ABORT.
 (func (export "worker_run") (param $id i32) (param $n i32)
   (local $lo i32) (local $hi i32)
   (loop $tick
-    (call $barrier (local.get $n))
-    (if (i32.eqz (i32.atomic.load (i32.const @JOB_QUIT)))
-      (then
-        (call $range (i32.load (i32.const @JOB_NA)) (local.get $id) (local.get $n))
-        (local.set $hi) (local.set $lo)
-        (call $contacts (local.get $lo) (local.get $hi))
-        (call $barrier (local.get $n))
-        (call $range (i32.load (i32.const @JOB_NB)) (local.get $id) (local.get $n))
-        (local.set $hi) (local.set $lo)
-        (call $integrate (local.get $lo) (local.get $hi))
-        (call $barrier (local.get $n))
-        (br $tick)))))
+    (if (call $barrier (local.get $n)) (then (return)))
+    (if (i32.atomic.load (i32.const @JOB_QUIT)) (then (return)))
+    (call $range (i32.load (i32.const @JOB_NA)) (local.get $id) (local.get $n))
+    (local.set $hi) (local.set $lo)
+    (call $contacts (local.get $lo) (local.get $hi))
+    (if (call $barrier (local.get $n)) (then (return)))
+    (call $range (i32.load (i32.const @JOB_NB)) (local.get $id) (local.get $n))
+    (local.set $hi) (local.set $lo)
+    (call $integrate (local.get $lo) (local.get $hi))
+    (if (call $barrier (local.get $n)) (then (return)))
+    (br $tick)))
 
 (func (export "init") (param $seed i32)
   (memory.fill (i32.const @INTERVAL_HASH) (i32.const 0) (i32.const @(INBOX_REC - INTERVAL_HASH)))
@@ -91,7 +98,8 @@
             (i32.xor (local.get $seed) (i32.const 0x9e3779b9))))
   (call $terrain_gen (local.get $seed)))
 
-;; Keyframes only at interval boundaries, so the sliced hash restarts cleanly.
+;; Keyframes only at interval boundaries (a multiple of 128), right after an
+;; interval closes, so the next interval's digests all come from restored state.
 (func (export "snapshot") (param $k i32)
 #if DEBUG
   (if (i32.and (i32.load (i32.const @HDR_TICK)) (i32.const @(NSLICE - 1)))

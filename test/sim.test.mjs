@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { generate } from '../tools/genlog.mjs';
 import { newSim, smallLog, hashes } from './helpers.mjs';
-import { NSLICE, VX, FLAGS, F_AWAKE } from '../src/layout.mjs';
+import { NSLICE, VX, FLAGS, F_AWAKE, INTERVAL_HASH, INTERVAL_TICK, SNAP0, REGION, REGION_SIZE } from '../src/layout.mjs';
 
 const TICKS = 1600;
 
@@ -66,6 +66,47 @@ test('a keyframe restored into a fresh sim continues identically', async () => {
   const tailB = await hashes(b, log, K, TICKS);
   assert.deepEqual(tailB, tail);
   assert.equal(b.x.hash_region(), intervalA);
+});
+
+// The production interval hashes from tick `from` to `to`, closing every 128 ticks.
+async function intervals(sim, log, from, to) {
+  const out = [];
+  const view = new BigUint64Array(sim.memory.buffer, INTERVAL_HASH, 1);
+  for (let t = from; t < to; t++) {
+    sim.feed(log, t);
+    sim.x.step();
+    if (sim.i32[INTERVAL_TICK >> 2] === t + 1) out.push(view[0]);
+  }
+  return out;
+}
+
+test('after a keyframe, the production interval hashes match too (late join and resync)', async () => {
+  const log = smallLog(TICKS);
+  const K = 8 * NSLICE;
+  const a = await newSim();
+  a.init(log.courseSeed);
+  await intervals(a, log, 0, K);
+  const key = a.regionCopy();
+  a.x.snapshot(0);
+  const want = await intervals(a, log, K, TICKS);
+  assert.ok(want.length >= 3);
+
+  const joiner = await newSim();
+  joiner.init(log.courseSeed);
+  joiner.setRegion(key);
+  assert.deepEqual(await intervals(joiner, log, K, TICKS), want, 'late join');
+
+  a.x.restore(0);
+  a.recPtr = 0;
+  assert.deepEqual(await intervals(a, log, K, TICKS), want, 'resync in place');
+
+  const fresh = await newSim();
+  fresh.init(log.courseSeed);
+  fresh.u8.set(key, SNAP0);
+  fresh.x.restore(0);
+  assert.deepEqual(await intervals(fresh, log, K, TICKS), want, 'restore() into a fresh sim');
+  assert.equal(REGION_SIZE, key.length);
+  assert.ok(REGION > 0);
 });
 
 test('a NaN in state traps in debug builds and names the field', async () => {

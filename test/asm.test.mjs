@@ -33,6 +33,10 @@ test('debug-only code vanishes from release builds', () => {
 
 test('comments are stripped, strings kept', () => {
   assert.equal(stripComments('(a) ;; gone\n(b "x;;y") (; also gone ;)').replace(/\s+/g, ' ').trim(), '(a) (b "x;;y")');
+  // escaped quotes stay inside the string, block comments nest
+  assert.equal(stripComments('(a "q\\"(;") (; outer (; inner ;) still ;) b').replace(/\s+/g, ' ').trim(), '(a "q\\"(;") b');
+  assert.throws(() => stripComments('(a "never closed'), /unterminated string/);
+  assert.throws(() => stripComments('(; never closed'), /unterminated block comment/);
 });
 
 test('the determinism rules are enforced by the assembler', () => {
@@ -40,6 +44,17 @@ test('the determinism rules are enforced by the assembler', () => {
     assert.throws(() => forbid(bad), /forbidden/, bad);
   }
   forbid('(global $g i32 (i32.const 0))');
+});
+
+test('the binary is checked too, so no spelling sneaks a banned construct through', async () => {
+  for (const bad of [
+    '(module (memory 1) (func (drop (memory.grow (i32.const 1)))))',
+    '(module (memory 1) (data (i32.const 0) "x"))',
+    '(module (global (mut i32) (i32.const 0)))',
+    '(module (import "e" "g" (global (mut i32))))',
+  ]) {
+    await assert.rejects(assemble(bad), /forbidden in the sim \(binary\)/, bad);
+  }
 });
 
 test('wabt assembles shared memory and atomics', async () => {

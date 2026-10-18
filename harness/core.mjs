@@ -130,19 +130,22 @@ export class Sim {
 
 // Replays `ticks` ticks of `log`. `threads` > 1 needs `startWorkers({ bytes, memory, n })` -> { stop() }.
 export async function replay({ bytes, log, ticks, threads = 1, salt = 0, tag = 'run', startWorkers, onProgress }) {
+  if (ticks > log.ticks) throw new Error(`asked for ${ticks} ticks but the log has ${log.ticks}`);
   const module = await WebAssembly.compile(bytes);
   const memory = newMemory();
   const sim = new Sim(await instantiate(module, memory), memory);
   sim.init(log.courseSeed);
   const terrainHash = BigInt.asUintN(64, sim.x.terrain_hash());
-  // Hash the log with the module's own XXH64, staged in the (unused in M1) net area.
+  // Hash the log with the module's own XXH64, chained through the (unused in
+  // M1) net area in chunks, so a log of any size gets a real hash.
+  const room = L.PAGES * 65536 - L.NET;
   let logHash = 0n;
-  if (log.bytes.length <= L.PAGES * 65536 - L.NET) {
-    sim.u8.set(log.bytes, L.NET);
-    logHash = BigInt.asUintN(64, sim.x.xxh64(L.NET, log.bytes.length, 0n));
-    sim.u8.fill(0, L.NET, L.NET + log.bytes.length);
+  for (let off = 0; off < log.bytes.length; off += room) {
+    const chunk = log.bytes.subarray(off, off + room);
+    sim.u8.set(chunk, L.NET);
+    logHash = BigInt.asUintN(64, sim.x.xxh64(L.NET, chunk.length, BigInt.asIntN(64, logHash)));
   }
-  ticks = Math.min(ticks, log.ticks);
+  sim.u8.fill(0, L.NET, L.NET + Math.min(room, log.bytes.length));
   const nInt = Math.floor(ticks / L.NSLICE);
   const tickHashes = new BigUint64Array(ticks);
   const intervalHashes = new BigUint64Array(nInt);
@@ -153,27 +156,37 @@ export async function replay({ bytes, log, ticks, threads = 1, salt = 0, tag = '
   const workers = threads > 1 ? await startWorkers({ bytes, memory, n: threads }) : null;
   const t0 = performance.now();
   let awakeSum = 0;
+  let failed = false;
   try {
     for (let t = 0; t < ticks; t++) {
       sim.feed(log, t);
-      if (workers) sim.x.step_mt(threads);
-      else if (split) sim.stepSplit(split);
+      if (workers) {
+        if (sim.x.step_mt(threads)) throw new Error(`a sim thread aborted at tick ${t}`);
+      } else if (split) sim.stepSplit(split);
       else sim.x.step();
       awakeSum += sim.awake;
       tickHashes[t] = BigInt.asUintN(64, sim.x.hash_region());
+      // Interval k closes at tick 128(k+1); its digests were all taken after tick 128k.
       if ((t + 1) % L.NSLICE === 0) {
         const k = (t + 1) / L.NSLICE - 1;
-        if (k < nInt) {
-          intervalHashes[k] = intervalHash[0];
-          sliceDigests.set(digests, k * L.NSLICE);
-        }
+        if (sim.i32[L.INTERVAL_TICK >> 2] !== t + 1) throw new Error(`interval ${k} did not close at tick ${t + 1}`);
+        intervalHashes[k] = intervalHash[0];
+        sliceDigests.set(digests, k * L.NSLICE);
       }
       if (onProgress && (t + 1) % 10000 === 0) onProgress(t + 1, sim);
     }
+  } catch (e) {
+    failed = true;
+    throw e;
   } finally {
     if (workers) {
-      Atomics.store(sim.i32, L.JOB_QUIT >> 2, 1);
-      sim.x.barrier(threads);
+      if (failed) {
+        Atomics.store(sim.i32, L.JOB_ABORT >> 2, 1);
+        Atomics.notify(sim.i32, L.BAR_GEN >> 2);
+      } else {
+        Atomics.store(sim.i32, L.JOB_QUIT >> 2, 1);
+        sim.x.barrier(threads);
+      }
       await workers.stop();
     }
   }

@@ -8,15 +8,27 @@ async function startWorkers({ bytes, memory, n }) {
   const workers = [];
   const ready = [];
   const done = [];
+  const errors = [];
   for (let id = 1; id < n; id++) {
     const w = new Worker(new URL('../worker.mjs', import.meta.url), { type: 'module' });
-    ready.push(new Promise((res, rej) => { w.addEventListener('message', (e) => e.data.ready && res()); w.onerror = rej; }));
+    w.addEventListener('message', (e) => { const d = e.data; if (d.error) errors.push(d.error); });
+    ready.push(new Promise((res, rej) => {
+      w.addEventListener('message', (e) => e.data.ready && res());
+      w.addEventListener('error', (e) => rej(e));
+    }));
     done.push(new Promise((res) => w.addEventListener('message', (e) => e.data.done && res())));
     w.postMessage({ bytes, memory, id, n });
     workers.push(w);
   }
   await Promise.all(ready);
-  return { stop: async () => { await Promise.all(done); workers.forEach((w) => w.terminate()); } };
+  // up to 5 s for the workers to leave their loop, then terminate; report any error
+  return {
+    stop: async () => {
+      await Promise.race([Promise.all(done), new Promise((ok) => setTimeout(ok, 5000))]);
+      workers.forEach((w) => w.terminate());
+      if (errors.length) throw new Error(errors.join('; '));
+    },
+  };
 }
 
 try {
@@ -34,7 +46,10 @@ try {
     onProgress: (t, sim) => self.postMessage({ progress: `${tag}: ${t} ticks, ${sim.nballs} balls, ${sim.awake} awake` }),
   });
   const out = get('out', '');
-  if (out) await fetch('/out/' + out, { method: 'PUT', body: trace });
+  if (out) {
+    const res = await fetch('/out/' + out, { method: 'PUT', body: trace });
+    if (!res.ok) throw new Error(`trace upload failed: HTTP ${res.status}`);
+  }
   self.postMessage({ result: { tag, ...stats } });
 } catch (e) {
   self.postMessage({ error: String(e?.stack || e) });

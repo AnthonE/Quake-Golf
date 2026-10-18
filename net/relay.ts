@@ -27,7 +27,7 @@ const prefix = await W.wasmPrefix(await Deno.readFile('build/game.wasm'));
 
 type Slot = {
   slot: number; joinTick: number; leaveTick: number; writer: WritableStreamDefaultWriter<Uint8Array>;
-  maxDatagram: number; last: number; missing: number; late: number; lastSlack: number; contig: number; lastRecv: number; pendingLate: number;
+  maxDatagram: number; last: number; missing: number; late: number; lastSlack: number; periodSlack: number; contig: number; lastRecv: number; pendingLate: number; close: () => void;
   words: Uint32Array; wordTick: Int32Array; arrival: Float64Array;
 };
 
@@ -38,8 +38,9 @@ const slots: (Slot | null)[] = new Array(W.NP).fill(null);
 const rows = Array.from({ length: W.RING }, () => new Uint32Array(W.NP));
 let events: { slot: number; kind: number; tick: number }[] = [];
 const stats = {
-  ticks: 0, closeLate: [] as number[], sent: 0, sentBytes: 0, maxBundle: 0, oversize: 0, writeErrors: 0,
+  ticks: 0, closeLate: [] as number[], sent: 0, sentBytes: 0, maxBundle: 0, oversize: 0, lateArrivals: 0,
   recv: 0, recvBytes: 0, onTime: 0, substituted: 0, sessions: 0, rejected: 0, slack: [] as number[], activeTicks: 0, activeSlotTicks: 0, silent: 0, warmup: 0,
+  leaves: {} as Record<string, number>, leaveAt: [] as number[],
   serverMaxDatagram: [] as number[], clientMaxDatagram: [] as number[], cc,
 };
 
@@ -70,10 +71,21 @@ function onInput(s: Slot, buf: Uint8Array, now: number) {
   if (!m) return;
   for (let k = 0; k < m.words.length; k++) {
     const t = m.firstTick + k;
-    if (t < s.joinTick || t <= closed || t > closed + W.RING - 8) continue;
+    if (t < s.joinTick || t > closed + W.RING - 8) continue;
     const i = t & (W.RING - 1);
+    if (t <= closed) {
+      // Too late for its tick. Still feed it back, as negative slack, so the
+      // client's lead controller sees the lateness and grows its lead.
+      if (s.wordTick[i] !== t) { s.periodSlack = Math.min(s.periodSlack, deadline(t) - now); stats.lateArrivals++; }
+      continue;
+    }
     if (s.wordTick[i] !== t) { s.wordTick[i] = t; s.words[i] = m.words[k]; s.arrival[i] = now; }
   }
+  // A player still sending after missed deadlines was late, not gone.
+  stats.substituted += s.pendingLate;
+  s.pendingLate = 0;
+  // in_ack: closed ticks are settled either way; then whatever has arrived beyond them
+  s.contig = Math.max(s.contig, closed);
   while (s.wordTick[(s.contig + 1) & (W.RING - 1)] === s.contig + 1) s.contig++;
 }
 
@@ -88,7 +100,12 @@ function closeTick(T: number, now: number) {
     const s = slots[p];
     if (!s || T < s.joinTick) continue;
     if (T >= s.leaveTick) { stats.silent += s.pendingLate; slots[p] = null; continue; }
-    if (s.leaveTick === Infinity && now - s.lastRecv > SILENT_MS) s.leaveTick = scheduleEvent(p, W.EV_LEAVE, T + 1);
+    if (s.leaveTick === Infinity && now - s.lastRecv > SILENT_MS) {
+      stats.leaves.silent = (stats.leaves.silent || 0) + 1;
+      stats.leaveAt.push(Number(((now - E) / 1000).toFixed(2)));
+      s.leaveTick = scheduleEvent(p, W.EV_LEAVE, Math.max(T + 1, s.joinTick));
+      try { s.close(); } catch { /* already gone */ }
+    }
     active++;
     const i = T & (W.RING - 1);
     if (s.wordTick[i] === T && s.arrival[i] <= dl) {
@@ -96,21 +113,19 @@ function closeTick(T: number, now: number) {
       s.last = row[p];
       s.missing = 0;
       s.lastSlack = dl - s.arrival[i];
+      s.periodSlack = Math.min(s.periodSlack, s.lastSlack);
       if (T >= s.joinTick + WARMUP) { stats.slack.push(s.lastSlack); stats.onTime++; }
-      stats.substituted += s.pendingLate;
-      s.pendingLate = 0;
     } else {
       // repeat the last real input, jump cleared, shot counter unchanged (so no
       // shot fires); after ~30 missing ticks the keys decay to idle
       s.missing++;
       s.late++;
-      // late while the player is still sending; the silent tail is a departure, not lateness
-      // counted as late only once the player delivers a later input on time;
+      // booked as late once any later datagram arrives from this player (onInput);
       // the ticks after a player's last packet are a departure, not lateness
       if (T < s.joinTick + WARMUP) stats.warmup++;
       else s.pendingLate++;
       row[p] = s.missing > 30 ? (s.last & ~(W.MOVE_BITS | W.JUMP_BIT)) >>> 0 : (s.last & ~W.JUMP_BIT) >>> 0;
-      if (s.wordTick[i] === T) s.lastSlack = dl - s.arrival[i];
+      if (s.wordTick[i] === T) s.periodSlack = Math.min(s.periodSlack, dl - s.arrival[i]);
     }
   }
   if (active) { stats.activeTicks++; stats.activeSlotTicks += active; }
@@ -125,12 +140,16 @@ function broadcast(T: number) {
   const evs = events.filter((e) => e.tick <= T && e.tick > T - W.NB);
   for (const s of slots) {
     if (!s) continue;
-    const buf = W.encodeBundle({ T, rows: r, events: evs, inAck: s.contig, slack: s.lastSlack, late: s.late });
+    // the worst slack since the last bundle, late arrivals included, so the
+    // client's lead controller reacts to lateness it would otherwise never see
+    const slack = Number.isFinite(s.periodSlack) ? s.periodSlack : s.lastSlack;
+    s.periodSlack = Infinity;
+    const buf = W.encodeBundle({ T, rows: r, events: evs, inAck: s.contig, slack, late: s.late });
     if (buf.length > Math.min(W.MAX_DATAGRAM, s.maxDatagram)) { stats.oversize++; continue; }
     stats.maxBundle = Math.max(stats.maxBundle, buf.length);
     stats.sent++;
     stats.sentBytes += buf.length;
-    s.writer.write(buf).catch(() => { stats.writeErrors++; });
+    s.writer.write(buf).catch(() => { /* Deno resolves datagram writes; failures show up as closes */ });
   }
 }
 
@@ -172,16 +191,19 @@ async function session(incoming: Deno.QuicIncoming) {
   const joinTick = scheduleEvent(p, W.EV_JOIN, closed + 1 + 4);
   const s: Slot = {
     slot: p, joinTick, leaveTick: Infinity, writer: wt.datagrams.writable.getWriter(), maxDatagram,
-    last: 0, missing: 0, late: 0, lastSlack: 0, contig: joinTick - 1, lastRecv: performance.now(), pendingLate: 0,
+    last: 0, missing: 0, late: 0, lastSlack: 0, periodSlack: Infinity, contig: joinTick - 1, lastRecv: performance.now(), pendingLate: 0, close: () => wt.close(),
     words: new Uint32Array(W.RING), wordTick: new Int32Array(W.RING).fill(-1), arrival: new Float64Array(W.RING),
   };
   slots[p] = s;
   stats.sessions++;
   await sw.write(W.encodeWelcome({ slot: p, maxDatagram, joinTick, seed: 7, serverTick: closed + 1 }));
-  const leave = () => {
-    if (s.leaveTick === Infinity) s.leaveTick = scheduleEvent(p, W.EV_LEAVE, closed + 1);
+  const leave = (why: string) => {
+    if (s.leaveTick !== Infinity) return;
+    stats.leaves[why] = (stats.leaves[why] || 0) + 1;
+    stats.leaveAt.push(Number(((performance.now() - E) / 1000).toFixed(2)));
+    s.leaveTick = scheduleEvent(p, W.EV_LEAVE, Math.max(closed + 1, s.joinTick));
   };
-  wt.closed.then(leave, leave);
+  wt.closed.then((i) => leave('closed:' + JSON.stringify(i)), (e) => leave('closed-error:' + String(e)));
   const dr = wt.datagrams.readable.getReader();
   try {
     for (;;) {
@@ -189,8 +211,8 @@ async function session(incoming: Deno.QuicIncoming) {
       if (done) break;
       onInput(s, value, performance.now());
     }
-  } catch { /* session gone */ }
-  leave();
+  } catch (e) { leave('read-error:' + String(e)); }
+  leave('read-end');
 }
 
 function summary() {
@@ -201,11 +223,12 @@ function summary() {
   const slotSecs = stats.activeSlotTicks * W.TICK_MS / 1000;
   return {
     cc: stats.cc, precise, ticks: stats.ticks, activeTicks: stats.activeTicks, sessions: stats.sessions, rejected: stats.rejected,
+    leaves: stats.leaves, leaveAtS: { first: Math.min(...stats.leaveAt), last: Math.max(...stats.leaveAt) },
     closeLateMs: { p50: pct(cl, 0.5), p95: pct(cl, 0.95), p99: pct(cl, 0.99), max: pct(cl, 1) },
     inputSlackMs: { p5: pct(sl, 0.05), p50: pct(sl, 0.5) },
     onTime: stats.onTime, substituted: stats.substituted, warmupSubstituted: stats.warmup, silentTicks: stats.silent,
     substitutedPct: stats.onTime + stats.substituted ? Number((100 * stats.substituted / (stats.onTime + stats.substituted)).toFixed(3)) : 0,
-    bundlesSent: stats.sent, maxBundle: stats.maxBundle, oversize: stats.oversize, writeErrors: stats.writeErrors,
+    bundlesSent: stats.sent, maxBundle: stats.maxBundle, oversize: stats.oversize, lateArrivals: stats.lateArrivals,
     downKBpsPerSession: slotSecs ? Number((stats.sentBytes / slotSecs / 1000).toFixed(2)) : 0,
     upKBpsPerSession: slotSecs ? Number((stats.recvBytes / slotSecs / 1000).toFixed(2)) : 0,
     serverMaxDatagram: { min: Math.min(...stats.serverMaxDatagram), max: Math.max(...stats.serverMaxDatagram) },

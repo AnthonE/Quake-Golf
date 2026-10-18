@@ -6,18 +6,28 @@ import { Worker } from 'node:worker_threads';
 import { replay, parseLog } from './core.mjs';
 import { args, DEFAULTS } from './cli.mjs';
 
+// Waits up to 5 s for the workers to leave their loop, then terminates them;
+// throws if any of them reported an error.
+export async function stopAll(done, terminate, errors) {
+  await Promise.race([Promise.all(done), new Promise((ok) => setTimeout(ok, 5000))]);
+  await terminate();
+  if (errors.length) throw new Error(errors.join('; '));
+}
+
 export async function startWorkers({ bytes, memory, n }) {
   const workers = [];
   const ready = [];
   const done = [];
+  const errors = [];
   for (let id = 1; id < n; id++) {
     const w = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { bytes, memory, id, n } });
+    w.on('message', (m) => m.error && errors.push(m.error));
     ready.push(new Promise((res, rej) => { w.on('message', (m) => m.ready && res()); w.on('error', rej); }));
-    done.push(new Promise((res) => w.on('message', (m) => m.done && res())));
+    done.push(new Promise((res) => { w.on('message', (m) => m.done && res()); w.on('exit', res); }));
     workers.push(w);
   }
   await Promise.all(ready);
-  return { stop: async () => { await Promise.all(done); await Promise.all(workers.map((w) => w.terminate())); } };
+  return { stop: () => stopAll(done, () => Promise.all(workers.map((w) => w.terminate())), errors) };
 }
 
 async function main() {

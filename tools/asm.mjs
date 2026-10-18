@@ -62,22 +62,37 @@ export function conditionals(src, flags) {
   return out.join('\n');
 }
 
+// Index just past the string literal that opens at src[i] === '"', honouring escapes.
+function closeString(src, i) {
+  for (let k = i + 1; k < src.length; k++) {
+    if (src[k] === '\\') k++;
+    else if (src[k] === '"') return k + 1;
+  }
+  throw new Error(`unterminated string at ${i}`);
+}
+
 export function stripComments(src) {
   let out = '';
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
     if (c === '"') {
-      const j = src.indexOf('"', i + 1);
-      out += src.slice(i, j + 1);
-      i = j;
+      const j = closeString(src, i);
+      out += src.slice(i, j);
+      i = j - 1;
     } else if (c === ';' && src[i + 1] === ';') {
       while (i < src.length && src[i] !== '\n') i++;
       out += '\n';
     } else if (c === '(' && src[i + 1] === ';') {
-      const j = src.indexOf(';)', i + 2);
-      if (j < 0) throw new Error('unterminated block comment');
-      out += src.slice(i, j + 2).replace(/[^\n]/g, ' ');
-      i = j + 1;
+      // block comments nest in WAT
+      let depth = 0;
+      let j = i;
+      for (; j < src.length; j++) {
+        if (src[j] === '(' && src[j + 1] === ';') { depth++; j++; }
+        else if (src[j] === ';' && src[j + 1] === ')') { depth--; j++; if (depth === 0) break; }
+      }
+      if (depth !== 0) throw new Error('unterminated block comment');
+      out += src.slice(i, j + 1).replace(/[^\n]/g, ' ');
+      i = j;
     } else {
       out += c;
     }
@@ -90,7 +105,7 @@ function closeParen(src, i) {
   let depth = 0;
   for (let k = i; k < src.length; k++) {
     const c = src[k];
-    if (c === '"') k = src.indexOf('"', k + 1);
+    if (c === '"') k = closeString(src, k) - 1;
     else if (c === '(') depth++;
     else if (c === ')' && --depth === 0) return k + 1;
   }
@@ -165,16 +180,16 @@ export function constants(src, scope) {
   return out;
 }
 
-export function forbid(wat) {
+export function forbid(wat, where = 'source') {
   const rules = [
     [/\bmemory\.grow\b/, 'memory.grow'],
     [/\brelaxed_/, 'relaxed SIMD'],
-    [/\(data\b/, 'data segment'],
-    [/\(global\s+(\$\S+\s+)?(\(export\s+"[^"]*"\)\s*)?\(mut\b/, 'mutable global'],
+    [/\(\s*data\b/, 'data segment'],
+    [/\(\s*mut\b/, 'mutable global'],
   ];
   for (const [re, what] of rules) {
     const m = wat.match(re);
-    if (m) throw new Error(`forbidden in the sim: ${what} (${m[0]})`);
+    if (m) throw new Error(`forbidden in the sim (${where}): ${what} (${m[0]})`);
   }
 }
 
@@ -189,13 +204,28 @@ export function expand(file, { DEBUG = false } = {}) {
   return src;
 }
 
-export async function assemble(wat, name = 'game.wat', { debugNames = false } = {}) {
+export async function assemble(wat, name = 'game.wat', { debugNames = false, check = true } = {}) {
   const wabt = await wabtInit();
   const mod = wabt.parseWat(name, wat, FEATURES);
+  let bin;
   try {
     mod.resolveNames();
     mod.validate(FEATURES);
-    return new Uint8Array(mod.toBinary({ log: false, write_debug_names: debugNames }).buffer);
+    bin = new Uint8Array(mod.toBinary({ log: false, write_debug_names: debugNames }).buffer);
+  } finally {
+    mod.destroy();
+  }
+  // The source check can be dodged by spelling; the binary can't. Disassemble
+  // to wabt's canonical text and apply the same rules there.
+  if (check) forbid(await canonical(bin), 'binary');
+  return bin;
+}
+
+export async function canonical(bin) {
+  const wabt = await wabtInit();
+  const mod = wabt.readWasm(bin, { readDebugNames: false, ...FEATURES });
+  try {
+    return mod.toText({ foldExprs: false, inlineExport: false });
   } finally {
     mod.destroy();
   }

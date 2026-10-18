@@ -10,12 +10,13 @@ export const BAR_GEN = 0x080;
 export const JOB_QUIT = 0x0c0;
 export const JOB_NA = 0x0c4; // awake balls this tick
 export const JOB_NB = 0x0c8; // 4-ball blocks with an awake ball
+export const JOB_ABORT = 0x0cc; // set by any thread that fails; every barrier gives up
 export const ERR_CODE = 0x240;
 export const ERR_INDEX = 0x244;
 export const ERR_TICK = 0x248;
 export const INTERVAL_HASH = 0x300; // u64, written when slice 127 closes
 export const INTERVAL_TICK = 0x308;
-export const DIGESTS = 0x400; // u64[128], slice s digested at tick K+s
+export const DIGESTS = 0x400; // u64[128], slice s digested at tick K+s+1; the interval closes at K+128
 export const INBOX = 0x1000; // u32 count, then records
 export const INBOX_REC = 0x1010;
 export const INBOX_MAX = 1024;
@@ -101,11 +102,13 @@ export const PHYS = {
 };
 export const SLEEP_TICKS = 30;
 
-// The slice of the region a byte offset falls in, for compare.mjs.
+// Every field a slice of the region overlaps, with the element range inside
+// each, for compare.mjs.
 export function describeSlice(s) {
-  const off = REGION + s * SLICE;
+  const lo = REGION + s * SLICE;
+  const hi = lo + SLICE;
   const fields = [
-    ['HDR', REGION, REGION + 0x100, 1],
+    ['HDR', REGION, PLAYERS, 1],
     ['PLAYERS', PLAYERS, PROJ, 64],
     ['PROJ', PROJ, PROJ + 0x8000, 32],
     ['PAD', PROJ + 0x8000, PX, 1],
@@ -113,11 +116,11 @@ export function describeSlice(s) {
     ['VX', VX, VY, 4], ['VY', VY, VZ, 4], ['VZ', VZ, FLAGS, 4],
     ['FLAGS', FLAGS, SLEEP, 1], ['SLEEP', SLEEP, OWNER, 1], ['OWNER', OWNER, REGION + REGION_SIZE, 2],
   ];
+  const parts = [];
   for (const [name, a, b, size] of fields) {
-    if (off >= a && off < b) {
-      const first = (off - a) / size;
-      return `${name}[${first}..${first + SLICE / size - 1}]`;
-    }
+    const from = Math.max(lo, a);
+    const to = Math.min(hi, b);
+    if (from < to) parts.push(`${name}[${Math.floor((from - a) / size)}..${Math.ceil((to - a) / size) - 1}]`);
   }
-  return `offset 0x${off.toString(16)}`;
+  return parts.join(' + ');
 }

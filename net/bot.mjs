@@ -17,6 +17,11 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
     congestionControl: 'low-latency',
   });
   await wt.ready;
+  const tReady = performance.now();
+  let closedAt = null;
+  let closeInfo = null;
+  wt.closed.then((info) => { closedAt = performance.now() - tReady; closeInfo = JSON.stringify(info); },
+                 (err) => { closedAt = performance.now() - tReady; closeInfo = String(err); });
   const maxDatagram = wt.datagrams.maxDatagramSize;
   try { wt.datagrams.outgoingMaxAge = 2 * W.TICK_MS; } catch { /* not every runtime has it */ }
 
@@ -53,12 +58,14 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
   // Clock: the server's open tick, estimated from the welcome, plus a lead.
   const serverTick = (now) => welcome.serverTick + (now - tWelcome) / W.TICK_MS;
   let lead = 3;
-  const TARGET_SLACK = 2 * W.TICK_MS;
+  // Inputs go out every second tick, so the repeat of a lost input lands one
+  // send interval later; the slack has to cover that, plus a tick of jitter.
+  const TARGET_SLACK = (W.SEND_EVERY + 1) * W.TICK_MS;
   let nextTick = welcome.joinTick; // first tick without a word yet
   let lastBundleT = -1;
   let inAck = 0;
   let seq = 0;
-  let ackTick = 0;
+  let ackTick = -1; // none yet
   let ackBits = 0;
 
   const st = {
@@ -79,7 +86,7 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
     for (let t = first; t < nextTick; t++) words.push(wordFor.get(t));
     for (const t of wordFor.keys()) if (t < lastBundleT - 8) wordFor.delete(t); else break;
     if (!words.length) return;
-    const buf = W.encodeInput({ seq: seq++, firstTick: first, ackTick, ackBits, words });
+    const buf = W.encodeInput({ seq: seq++, firstTick: first, ackTick: Math.max(0, ackTick), ackBits, words });
     st.sent++;
     st.sentBytes += buf.length;
     st.maxInput = Math.max(st.maxInput, buf.length);
@@ -101,10 +108,15 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
       if (sent !== undefined) { st.mine++; if (b.rows[k][welcome.slot] === sent) st.mineMatched++; }
     }
     for (const e of b.events) if (e.slot === welcome.slot && e.kind === W.EV_JOIN) st.joinSeen = true;
-    if (b.T > ackTick) {
-      const shift = b.T - ackTick;
-      ackBits = shift >= 32 ? 0 : ((ackBits << shift) | (1 << (shift - 1))) >>> 0;
+    // ack: latest bundle tick, plus bit k for bundle tick ackTick-1-k (reordered ones too)
+    if (ackTick < 0) {
       ackTick = b.T;
+    } else if (b.T > ackTick) {
+      const shift = b.T - ackTick;
+      ackBits = shift > 32 ? 0 : shift === 32 ? 0x80000000 : ((ackBits << shift) | (1 << (shift - 1))) >>> 0;
+      ackTick = b.T;
+    } else if (b.T < ackTick && ackTick - b.T <= 32) {
+      ackBits = (ackBits | (1 << (ackTick - 1 - b.T))) >>> 0;
     }
     lastBundleT = Math.max(lastBundleT, b.T);
     inAck = Math.max(inAck, b.inAck);
@@ -131,13 +143,18 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
   await new Promise((ok) => setTimeout(ok, durationMs));
   clearInterval(timer);
   const lastT = lastBundleT;
+  const closedEarlyAt = closedAt;
+  // the server tick we should have heard by now, less a round trip of slack
+  const shouldHave = Math.floor(serverTick(performance.now())) - 32;
   try { wt.close(); } catch { /* already closed */ }
   await Promise.race([reading, new Promise((ok) => setTimeout(ok, 200))]);
-  const expected = Math.max(0, lastT - welcome.joinTick + 1);
+  // expected runs to where the server must have got to, not to the last bundle we happened to get
+  const expected = Math.max(0, Math.max(lastT, shouldHave) - welcome.joinTick + 1);
   return {
     seed, slot: st.slot, joinTick: st.joinTick, lastTick: lastT, maxDatagram, serverMaxDatagram: st.serverMaxDatagram,
     sent: st.sent, sentBytes: st.sentBytes, maxInput: st.maxInput, bundles: st.bundles, recvBytes: st.recvBytes, maxBundle: st.maxBundle,
-    ticksExpected: expected, ticksSeen: [...st.seen].filter((t) => t <= lastT).length,
+    ticksExpected: expected, ticksSeen: [...st.seen].filter((t) => t <= Math.max(lastT, shouldHave)).length,
+    closedEarlyAt, closeInfo, durationMs,
     mine: st.mine, mineMatched: st.mineMatched, joinSeen: st.joinSeen, late: st.late,
     arrivals: st.arrivals, slack: st.slack, lead: { min: st.leadMin, max: st.leadMax, end: lead },
     impair: { ...imp.cfg, ...imp.stats },

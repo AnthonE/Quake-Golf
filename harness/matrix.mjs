@@ -3,7 +3,7 @@
 // every trace with the first.
 //   node harness/matrix.mjs --ticks 100000 [--runtimes node,deno,chromium] [--flags default,liftoff-only,no-liftoff] [--threads 1,2,4]
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { decodeTrace } from './core.mjs';
 import { compareTraces } from '../tools/compare.mjs';
 
@@ -38,15 +38,24 @@ for (const rt of runtimes) {
     for (const n of threadCounts) {
       const out = `traces/m-${rt}-${tier}-t${n}-${ticks}.qgh`;
       const [cmd, cargs] = command(rt, tier, n, out);
+      rmSync(out, { force: true }); // never grade a stale trace
       const t0 = Date.now();
-      const r = spawnSync(cmd, cargs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+      // a generous ceiling (5 ms a tick + 2 min) so a hung run fails instead of stalling the matrix
+      const r = spawnSync(cmd, cargs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: ticks * 5 + 120000, killSignal: 'SIGKILL' });
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
-      if (r.status !== 0) {
+      if (r.status !== 0 || !existsSync(out)) {
         failed++;
-        results.push({ config: `${rt} ${tier} t${n}`, verdict: `RUN FAILED (exit ${r.status})`, secs });
+        const why = r.error ? r.error.code || r.error.message : `exit ${r.status}`;
+        results.push({ config: `${rt} ${tier} t${n}`, verdict: `RUN FAILED (${why})`, secs });
+        console.log(`RUN FAILED ${rt} ${tier} t${n}: ${why}`);
         continue;
       }
       const stats = JSON.parse(r.stdout.trim().split('\n').at(-1));
+      if (stats.ticks !== ticks) {
+        failed++;
+        console.log(`RUN FAILED ${rt} ${tier} t${n}: ran ${stats.ticks} of ${ticks} ticks`);
+        continue;
+      }
       const trace = decodeTrace(readFileSync(out));
       let verdict = 'reference';
       if (!ref) ref = trace;

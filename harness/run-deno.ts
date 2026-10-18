@@ -6,8 +6,10 @@ async function startWorkers({ bytes, memory, n }: { bytes: Uint8Array; memory: W
   const workers: Worker[] = [];
   const ready: Promise<void>[] = [];
   const done: Promise<void>[] = [];
+  const errors: string[] = [];
   for (let id = 1; id < n; id++) {
     const w = new Worker(new URL('./worker.mjs', import.meta.url), { type: 'module' });
+    w.addEventListener('message', (e) => { const d = (e as MessageEvent).data; if (d.error) errors.push(d.error); });
     ready.push(new Promise((res, rej) => {
       w.addEventListener('message', (e) => (e as MessageEvent).data.ready && res());
       w.addEventListener('error', (e) => rej(e));
@@ -17,7 +19,14 @@ async function startWorkers({ bytes, memory, n }: { bytes: Uint8Array; memory: W
     workers.push(w);
   }
   await Promise.all(ready);
-  return { stop: async () => { await Promise.all(done); workers.forEach((w) => w.terminate()); } };
+  // up to 5 s for the workers to leave their loop, then terminate; report any error
+  return {
+    stop: async () => {
+      await Promise.race([Promise.all(done), new Promise((ok) => setTimeout(ok, 5000))]);
+      workers.forEach((w) => w.terminate());
+      if (errors.length) throw new Error(errors.join('; '));
+    },
+  };
 }
 
 const a = args(Deno.args, DEFAULTS);

@@ -8,22 +8,30 @@ import { NSLICE, describeSlice } from '../src/layout.mjs';
 
 export function compareTraces(ref, other) {
   if (ref.terrainHash !== other.terrainHash) return { ok: false, what: 'terrain hash differs' };
+  if (ref.logHash === 0n || other.logHash === 0n) return { ok: false, what: 'a trace carries no log hash' };
   if (ref.logHash !== other.logHash) return { ok: false, what: 'log hash differs (not the same input log)' };
-  const ticks = Math.min(ref.ticks, other.ticks);
-  for (let t = 0; t < ticks; t++) {
+  if (ref.ticks !== other.ticks || ref.nInt !== other.nInt) return { ok: false, what: `lengths differ: ${ref.ticks} vs ${other.ticks} ticks` };
+  for (let t = 0; t < ref.ticks; t++) {
     if (ref.tickHashes[t] === other.tickHashes[t]) continue;
-    const k = Math.floor(t / NSLICE);
-    let slice = -1;
-    for (let s = 0; s < NSLICE && k < Math.min(ref.nInt, other.nInt); s++) {
-      if (ref.sliceDigests[k * NSLICE + s] !== other.sliceDigests[k * NSLICE + s]) { slice = s; break; }
+    // Trace entry t is the state at tick t+1. Interval k's digests are taken at
+    // ticks 128k+1 .. 128k+128, so the first interval whose digests all postdate
+    // the divergence is k = ceil(t / 128).
+    const k = Math.ceil(t / NSLICE);
+    let where = '';
+    if (k < ref.nInt) {
+      for (let s = 0; s < NSLICE; s++) {
+        if (ref.sliceDigests[k * NSLICE + s] !== other.sliceDigests[k * NSLICE + s]) {
+          where = `; interval ${k} first differs in slice ${s}: ${describeSlice(s)}`;
+          break;
+        }
+      }
     }
-    return {
-      ok: false,
-      tick: t + 1,
-      what: `first mismatch after tick ${t + 1}` + (slice >= 0 ? `; interval ${k} first differs in slice ${slice}, ${describeSlice(slice)}` : ''),
-    };
+    return { ok: false, tick: t + 1, what: `first mismatch at tick ${t + 1}${where}` };
   }
-  return { ok: true, ticks };
+  for (let k = 0; k < ref.nInt; k++) {
+    if (ref.intervalHashes[k] !== other.intervalHashes[k]) return { ok: false, what: `interval hash ${k} differs while every tick hash matched` };
+  }
+  return { ok: true, ticks: ref.ticks };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

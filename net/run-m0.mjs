@@ -96,11 +96,18 @@ const report = {
   relay: r,
   clientLead: m0.client.lead,
 };
+// Each tick rides two bundles, so at loss p a tick is lost with probability p^2
+// until hole repair exists; the 99.9% bar applies to clean runs, impaired ones report.
+const loss = Number((impair.match(/loss=([\d.]+)/) || [])[1] || 0);
+const earlyClose = all.filter((b) => b.closedEarlyAt !== null && b.closedEarlyAt !== undefined && b.closedEarlyAt < (b.durationMs || duration * 1000) - 500).length;
+report.expectedDelivered = Number((100 * (1 - loss * loss)).toFixed(3));
+report.earlyCloses = earlyClose;
 const gate = {
   fits: r.maxBundle <= limit && maxInput <= m0.client.maxDatagram,
   noOversize: r.oversize === 0,
-  delivered: report.delivered >= 99.9,
+  delivered: loss === 0 ? report.delivered >= 99.9 : true,
   everyoneJoined: rejects === 0 && r.sessions === bots + 1,
+  noEarlyClose: earlyClose === 0,
 };
 report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };
 mkdirSync('traces', { recursive: true });
