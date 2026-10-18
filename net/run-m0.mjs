@@ -17,6 +17,7 @@ const cc = opt('cc', 'low-latency');
 const port = Number(opt('port', 4433));
 const workers = Number(opt('workers', 4));
 const label = opt('label', impair ? 'impaired' : 'clean');
+const precise = opt('precise', '1');
 const DENO = existsSync('.tools/deno') ? '.tools/deno' : 'deno';
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
@@ -25,7 +26,7 @@ if (!existsSync('build/game.wasm')) execFileSync(process.execPath, ['tools/asm.m
 const hash = readFileSync('certs/hash.txt', 'utf8').trim();
 
 // 1. relay
-const relay = spawn(DENO, ['run', '--unstable-net', '-A', 'net/relay.ts', '--port', String(port), '--duration', String(duration + 10), '--cc', cc], { stdio: ['ignore', 'pipe', 'pipe'] });
+const relay = spawn(DENO, ['run', '--unstable-net', '-A', 'net/relay.ts', '--port', String(port), '--duration', String(duration + 10), '--cc', cc, '--precise', precise], { stdio: ['ignore', 'pipe', 'pipe'] });
 let relayOut = '';
 relay.stdout.on('data', (d) => { relayOut += d; });
 const relayDone = new Promise((ok) => relay.on('exit', (code) => ok(code)));
@@ -33,6 +34,16 @@ await new Promise((ok, fail) => {
   relay.stderr.on('data', (d) => { if (String(d).includes('listening')) ok(); else process.stderr.write(d); });
   relay.on('exit', () => fail(new Error('relay exited early')));
 });
+
+// Relay CPU time from /proc (Linux), so the report can say what the packets cost.
+function cpuSeconds(pid) {
+  try {
+    const f = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
+    return (Number(f[11]) + Number(f[12])) / 100; // utime + stime, in clock ticks of 10 ms
+  } catch { return null; }
+}
+const cpu0 = cpuSeconds(relay.pid);
+const wall0 = Date.now();
 
 // 2. Chrome: the client page plus bots in workers
 const require = createRequire(import.meta.url);
@@ -60,6 +71,8 @@ try {
   await browser.close();
   server.close();
 }
+const cpu1 = cpuSeconds(relay.pid);
+const wall1 = Date.now();
 if (m0.error) { console.error(m0.error); relay.kill(); process.exit(1); }
 await relayDone;
 const r = JSON.parse(relayOut.trim().split('\n').at(-1));
@@ -95,6 +108,8 @@ const report = {
   inputsAppliedAsSentPct: mine ? Number((100 * matched / mine).toFixed(3)) : 0,
   relay: r,
   clientLead: m0.client.lead,
+  // share of one core the relay used while the clients ran (clock, 64 sessions, ~8,000 packets/s)
+  relayCpuPct: cpu0 !== null && cpu1 !== null ? Number((100 * (cpu1 - cpu0) / ((wall1 - wall0) / 1000)).toFixed(1)) : null,
 };
 // Each tick rides two bundles, so at loss p a tick is lost with probability p^2
 // until hole repair exists; the 99.9% bar applies to clean runs, impaired ones report.
@@ -113,6 +128,6 @@ report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };
 mkdirSync('traces', { recursive: true });
 writeFileSync(`traces/m0-${label}.json`, JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify({ ...report, relay: undefined }, null, 2));
-console.log(`relay: close lateness p99 ${r.closeLateMs.p99} ms, input slack p5 ${r.inputSlackMs.p5} ms, substituted ${r.substitutedPct}%, ${r.downKBpsPerSession} KB/s down, ${r.upKBpsPerSession} KB/s up per session`);
+console.log(`relay: ${report.relayCpuPct}% of a core, close lateness p99 ${r.closeLateMs.p99} ms, input slack p5 ${r.inputSlackMs.p5} ms, substituted ${r.substitutedPct}%, ${r.downKBpsPerSession} KB/s down, ${r.upKBpsPerSession} KB/s up per session`);
 console.log(report.gate.pass ? 'M0 gate: PASS' : 'M0 gate: FAIL');
 process.exit(report.gate.pass ? 0 : 1);
