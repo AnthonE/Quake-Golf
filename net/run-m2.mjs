@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // M2: the Deno relay and two Chrome clients (WebGPU on, a golf bot at each
 // pair of hands) play one hole end to end over real WebTransport. The second
-// client joins late, so it replays the room's history from a fill.
+// client joins late, from a keyframe (M3; in M2 it replayed the room's history).
 //   node net/run-m2.mjs [--clients 2] [--seed 7] [--late 4] [--limit 300] [--impair delay=40,jitter=10,loss=0.02]
 // The gate: every client sinks its ball (no penalty) and the hole ends on the
 // scoreboard; every 128-tick interval hash agrees across clients; no client
@@ -54,7 +54,7 @@ const open = async (k) => {
   pages[k] = page;
 };
 
-const report = { clients, seed: Number(seed), late, impair: impair || 'none', holes: [], intervalsCompared: 0, mismatches: [], fills: [], screenshots: [] };
+const report = { clients, seed: Number(seed), late, impair: impair || 'none', holes: [], intervalsCompared: 0, mismatches: [], keys: [], repairs: [], screenshots: [] };
 async function capture(page, file) {
   const png = await page.evaluate(() => window.__qg.capture?.(2)).catch((e) => { process.stderr.write(`\ncapture: ${e.message}\n`); return null; });
   if (!png) return;
@@ -82,7 +82,7 @@ try {
     }
     // the first hole to reach the scoreboard, as every client saw it
     if (!over && st.every((s) => s?.me && s.hole.state === L.H_OVER && s.me.holes >= 1)) {
-      over = st.map((s) => ({ slot: s.slot, score: s.me.score, done: s.me.done, strokes: s.me.strokes, doneTick: s.me.doneTick, overTick: s.hole.tick, fills: s.fills }));
+      over = st.map((s) => ({ slot: s.slot, score: s.me.score, done: s.me.done, strokes: s.me.strokes, doneTick: s.me.doneTick, overTick: s.hole.tick, keys: s.keys }));
       for (const [k, p] of pages.entries()) await capture(p, `traces/m2-c${k}-scoreboard.png`);
       break;
     }
@@ -99,7 +99,8 @@ try {
   }
   const end = await Promise.all(pages.map((p) => p.evaluate(() => window.__qg.state())));
   report.holes = over;
-  report.fills = end.map((s) => s.fills);
+  report.keys = end.map((s) => s.keys);
+  report.repairs = end.map((s) => s.repairs);
   report.ticks = end.map((s) => s.hole.tick);
   report.behind = end.map((s) => s.clState !== 2);
 } finally {

@@ -2,13 +2,13 @@
 //
 // Input word (32 bits): yaw b0-13 | pitch b14-23 | move b24-27 (forward, back, left, right) | jump b28 | shot counter b29-30 | weapon b31
 //
-// Input datagram, client to server (16 + 4n B, + 12 with a hash report):
-//   0 u8 0x01 | 1 u8 n | 2 u16 seq | 4 u32 first_tick | 8 u32 ack_tick | 12 u32 ack_bits | 16 n x u32 words
-//   [| u32 interval | u64 hash]
+// Input datagram, client to server (20 + 4n B, + 16 with a hash report):
+//   0 u8 0x01 | 1 u8 n | 2 u16 seq | 4 u32 first_tick | 8 u32 ack_tick | 12 u64 ack_bits | 20 n x u32 words
+//   [| u32 interval | u8 epoch | 3 B 0 | u64 hash]
 //   Words only for ticks the server hasn't closed. The ack is per closed tick,
 //   however it came: ack_tick is the newest, ack_bits bit k = has tick
-//   ack_tick-1-k. A report is the client's hash of the interval that closed at
-//   sim tick `interval`.
+//   ack_tick-1-k, so a hole can be repaired until it is 64 ticks old. A report is the client's hash of the interval that closed at
+//   sim tick `interval`, after it had restored `epoch` keyframes (mod 256).
 //
 // Bundle datagram, server to client, every second tick (1,040 B + 2 per event, padded to 4):
 //   0 u8 0x02 | 1 u8 nb=4 | 2 u8 np=64 | 3 u8 ne | 4 u32 T | 8 nb x np x u32 (row k is tick T-k)
@@ -73,34 +73,36 @@ export function unpackInput(w) {
 export const JUMP_BIT = 1 << 28;
 export const MOVE_BITS = 0xf << 24;
 
-// report: { interval, hash (a u64 BigInt) }, or null
+// report: { interval, epoch, hash (a u64 BigInt) }, or null. ackBits: a u64 BigInt.
 export function encodeInput({ seq, firstTick, ackTick, ackBits, words, report = null }) {
   const n = Math.min(words.length, MAX_INPUTS);
-  const buf = new Uint8Array(16 + 4 * n + (report ? 12 : 0));
+  const buf = new Uint8Array(20 + 4 * n + (report ? 16 : 0));
   const dv = new DataView(buf.buffer);
   dv.setUint8(0, T_INPUT);
   dv.setUint8(1, n);
   dv.setUint16(2, seq & 0xffff, true);
   dv.setUint32(4, firstTick >>> 0, true);
   dv.setUint32(8, ackTick >>> 0, true);
-  dv.setUint32(12, ackBits >>> 0, true);
-  for (let i = 0; i < n; i++) dv.setUint32(16 + 4 * i, words[i] >>> 0, true);
+  dv.setBigUint64(12, BigInt.asUintN(64, BigInt(ackBits)), true);
+  for (let i = 0; i < n; i++) dv.setUint32(20 + 4 * i, words[i] >>> 0, true);
   if (report) {
-    dv.setUint32(16 + 4 * n, report.interval >>> 0, true);
-    dv.setBigUint64(20 + 4 * n, BigInt.asUintN(64, report.hash), true);
+    dv.setUint32(20 + 4 * n, report.interval >>> 0, true);
+    dv.setUint8(24 + 4 * n, report.epoch & 255);
+    dv.setBigUint64(28 + 4 * n, BigInt.asUintN(64, report.hash), true);
   }
   return buf;
 }
 
 export function decodeInput(buf) {
-  if (buf.length < 16 || buf[0] !== T_INPUT) return null;
+  if (buf.length < 20 || buf[0] !== T_INPUT) return null;
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const n = dv.getUint8(1);
-  if (buf.length < 16 + 4 * n) return null;
+  if (buf.length < 20 + 4 * n) return null;
   const words = new Uint32Array(n);
-  for (let i = 0; i < n; i++) words[i] = dv.getUint32(16 + 4 * i, true);
-  const report = buf.length >= 28 + 4 * n ? { interval: dv.getUint32(16 + 4 * n, true), hash: dv.getBigUint64(20 + 4 * n, true) } : null;
-  return { seq: dv.getUint16(2, true), firstTick: dv.getUint32(4, true), ackTick: dv.getUint32(8, true), ackBits: dv.getUint32(12, true), words, report };
+  for (let i = 0; i < n; i++) words[i] = dv.getUint32(20 + 4 * i, true);
+  const report = buf.length >= 36 + 4 * n
+    ? { interval: dv.getUint32(20 + 4 * n, true), epoch: dv.getUint8(24 + 4 * n), hash: dv.getBigUint64(28 + 4 * n, true) } : null;
+  return { seq: dv.getUint16(2, true), firstTick: dv.getUint32(4, true), ackTick: dv.getUint32(8, true), ackBits: dv.getBigUint64(12, true), words, report };
 }
 
 // The receive side of the acks: which of the last 1,024 closed ticks arrived,
@@ -116,20 +118,26 @@ export class Received {
     return true;
   }
   ack() {
-    let bits = 0;
-    for (let k = 0; k < 32; k++) if (this.has(this.newest - 1 - k)) bits |= 1 << k;
-    return { ackTick: Math.max(0, this.newest), ackBits: bits >>> 0 };
+    let lo = 0, hi = 0;
+    for (let k = 0; k < 32; k++) {
+      if (this.has(this.newest - 1 - k)) lo |= 1 << k;
+      if (this.has(this.newest - 33 - k)) hi |= 1 << k;
+    }
+    return { ackTick: Math.max(0, this.newest), ackBits: (BigInt(hi >>> 0) << 32n) | BigInt(lo >>> 0) };
   }
 }
 
-// The closed ticks an ack shows missing, oldest first: those in the 32 before
+// The closed ticks an ack shows missing, oldest first: those in the 64 before
 // ack_tick without their bit, at least `grace` older than it (so both bundles
 // that carried one were sent before the bundle acked), and none before `from`.
 export function holes(ackTick, ackBits, from = 0, grace = 4) {
+  const lo = Number(BigInt.asUintN(32, ackBits));
+  const hi = Number(BigInt.asUintN(64, ackBits) >> 32n);
   const out = [];
-  for (let k = 31; k >= grace - 1; k--) {
+  for (let k = 63; k >= grace - 1; k--) {
     const t = ackTick - 1 - k;
-    if (t >= from && t >= 0 && !((ackBits >>> k) & 1)) out.push(t);
+    const bit = k < 32 ? (lo >>> k) & 1 : (hi >>> (k - 32)) & 1;
+    if (t >= from && t >= 0 && !bit) out.push(t);
   }
   return out;
 }
@@ -284,6 +292,7 @@ export function encodePong(nonce, serverTick) {
 
 // A keyframe's head: 16 B, plus the bad interval and the referee's 128 slice
 // digests for a desync. digests: a 1,024-byte Uint8Array.
+/** @param {{ reason: number, tick: number, raw: number, packed: number, interval?: number, digests?: Uint8Array | null }} k */
 export function encodeKeyHead({ reason, tick, raw, packed, interval = 0, digests = null }) {
   const desync = reason === SYNC.DESYNC;
   const buf = new Uint8Array(16 + (desync ? 8 + 1024 : 0));

@@ -3,14 +3,18 @@
 // read before its tick's deadline, so a late timer adds latency, never unfairness.
 // Bundles go out first, every second tick, four ticks deep, with a
 // per-recipient trailer. Every closed tick is also recorded from the room's
-// start, so a joiner can replay the room's history and anyone can fill a hole
-// (the M2 stand-in for M3's keyframes and repair datagrams). A room that
-// empties starts over on a new seed.
+// start and handed to the referee (net/referee-worker.mjs), a Worker stepping
+// the same game.wasm: it is the truth for interval hashes and keyframes. A
+// joiner gets the newest keyframe and the record since; a tick a client's
+// acks lack comes back in a repair datagram; a hash a client reports that
+// differs from the referee's, a hole too old to repair, or a client far
+// behind gets a resync from a keyframe. A room that empties starts over on a new seed.
 //
 //   .tools/deno run --unstable-net -A net/relay.ts [--port 4433] [--duration 70] [--cc low-latency|default] [--seed N] [--host 127.0.0.1]
 // Clients are Chrome (net/run-m0.mjs hosts the bots there): Deno's WebTransport
 // client always binds an IPv6 socket, which hosts without IPv6 refuse.
 import * as W from './wire.mjs';
+import { recordLog } from './inbox.mjs';
 
 const argv = Deno.args;
 const opt = (k: string, d: string) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
@@ -24,6 +28,8 @@ const precise = opt('precise', '1') !== '0';
 // how long before a deadline the timer hands over to the yield loop; --early 8 never sleeps
 const EARLY_MS = Number(opt('early', '1.5'));
 const quiet = argv.includes('--quiet');
+const verbose = argv.includes('--verbose');
+const log = (...a: unknown[]) => { if (verbose) console.error(`[relay ${((performance.now() - E) / 1000).toFixed(2)}]`, ...a); };
 // a fixed course for every room, else a random one each time a room starts
 const seedArg = opt('seed', '');
 const hostname = opt('host', '127.0.0.1');
@@ -33,12 +39,16 @@ const summaryPath = opt('summary', '');
 
 const cert = await Deno.readTextFile('certs/cert.pem');
 const key = await Deno.readTextFile('certs/key.pem');
-const prefix = await W.wasmPrefix(await Deno.readFile('build/game.wasm'));
+const wasm = await Deno.readFile('build/game.wasm');
+const prefix = await W.wasmPrefix(wasm);
 
 type Slot = {
-  slot: number; joinTick: number; leaveTick: number; writer: WritableStreamDefaultWriter<Uint8Array>;
+  slot: number; joinTick: number; leaveTick: number; writer: WritableStreamDefaultWriter<Uint8Array>; ctl: WritableStreamDefaultWriter<Uint8Array>;
   maxDatagram: number; last: number; missing: number; late: number; lastSlack: number; periodSlack: number; contig: number; lastRecv: number; pendingLate: number; close: () => void;
   words: Uint32Array; wordTick: Int32Array; arrival: Float64Array;
+  // ticks from fromTick on reach this client by bundle or repair (before it, by its last fill)
+  fromTick: number; repairTick: Int32Array; repairAt: Float64Array;
+  keys: number; syncing: boolean; lastSync: number; lastDesync: number; lastReport: number; reports: Map<number, bigint>;
 };
 
 const E = performance.now();
@@ -57,7 +67,127 @@ const stats = {
   recv: 0, recvBytes: 0, onTime: 0, substituted: 0, sessions: 0, rejected: 0, slack: [] as number[], activeTicks: 0, activeSlotTicks: 0, silent: 0, warmup: 0,
   leaves: {} as Record<string, number>, leaveAt: [] as number[],
   serverMaxDatagram: [] as number[], clientMaxDatagram: [] as number[], cc, fills: 0, fillTicks: 0,
+  repairs: 0, repairTicks: 0, pongs: 0, keys: [] as Record<string, number>[], compared: 0, agreed: 0,
+  mismatches: [] as Record<string, unknown>[], dumps: [] as string[], refLagMax: 0, refErrors: [] as string[],
+  refHashes: [] as [number, string][], reports: {} as Record<number, [number, string][]>,
 };
+
+// The referee: closed ticks go to it in batches; interval hashes and packed keyframes come back.
+const referee = new Worker(new URL('./referee-worker.mjs', import.meta.url).href, { type: 'module' });
+referee.postMessage({ wasm });
+let toReferee: Uint8Array[] = [];
+const refIntervals = new Map<number, { hash: bigint; digests: Uint8Array }>(); // sim tick -> the referee's
+let keyId = 0;
+const keyWaiters = new Map<number, (k: { tick: number; raw: number; packed: Uint8Array }) => void>();
+referee.onmessage = (e: MessageEvent) => {
+  const m = e.data;
+  if (m.error) { stats.refErrors.push(m.error); console.error('referee: ' + m.error); return; }
+  if (m.room !== roomStart) return;
+  if (m.key) { keyWaiters.get(m.key.id)?.(m.key); keyWaiters.delete(m.key.id); }
+  if (m.intervals) {
+    for (const iv of m.intervals) {
+      refIntervals.set(iv.tick, iv);
+      stats.refHashes.push([iv.tick, iv.hash.toString(16)]);
+      for (const s of slots) if (s) check(s, iv.tick);
+    }
+    for (const t of refIntervals.keys()) if (t < m.at - 16 * 128) refIntervals.delete(t);
+    stats.refLagMax = Math.max(stats.refLagMax, closed - roomStart - m.at);
+  }
+};
+function startRoom(start: number) {
+  roomStart = start;
+  record = [];
+  toReferee = [];
+  refIntervals.clear();
+  referee.postMessage({ reset: { room: start, seed: roomSeed } });
+}
+// The referee's newest keyframe; if it doesn't answer in 5 s, the room's start (raw 0: the client inits from the seed).
+function keyframe(): Promise<{ tick: number; raw: number; packed: Uint8Array }> {
+  const id = ++keyId;
+  return new Promise((ok) => {
+    keyWaiters.set(id, ok);
+    referee.postMessage({ room: roomStart, want: id });
+    setTimeout(() => { if (keyWaiters.delete(id)) ok({ tick: 0, raw: 0, packed: new Uint8Array(0) }); }, 5000);
+  });
+}
+
+// A keyframe and the record since it, on the client's stream. Ticks after the
+// fill reach it by bundle or repair. Its reports from before it restores this
+// one carry the old epoch and are dropped.
+async function sendKey(s: Slot, reason: number, desync?: { interval: number; digests: Uint8Array }) {
+  if (s.syncing) return;
+  s.syncing = true;
+  s.lastSync = performance.now();
+  const room = roomStart;
+  log(`key for slot ${s.slot} asked: reason ${reason}`);
+  const k = await keyframe();
+  if (room !== roomStart || slots[s.slot] !== s) { log(`key for slot ${s.slot} dropped: room ${room} now ${roomStart}`); s.syncing = false; return; }
+  const tick = room + k.tick;
+  const to = closed + 1;
+  const ticks = record.slice(k.tick, Math.max(k.tick, to - room));
+  const fill = W.encodeFill(tick, ticks);
+  s.fromTick = to;
+  s.keys++;
+  s.reports.clear();
+  s.lastReport = k.tick;
+  stats.fills++;
+  stats.fillTicks += ticks.length;
+  log(`key to slot ${s.slot}: reason ${reason}, sim tick ${k.tick}, ${k.packed.length} B, fill ${ticks.length}`);
+  stats.keys.push({ slot: s.slot, reason, at: Number(((performance.now() - E) / 1000).toFixed(2)), simTick: k.tick, packed: k.packed.length, fillTicks: ticks.length });
+  // three writes queued back to back, so nothing lands between them
+  s.ctl.write(W.encodeKeyHead({ reason, tick, raw: k.raw, packed: k.packed.length, interval: desync?.interval, digests: desync?.digests })).catch(() => {});
+  s.ctl.write(k.packed).catch(() => {});
+  await s.ctl.write(fill).catch(() => {});
+  s.syncing = false;
+}
+
+// A client's interval hash against the referee's, once both are in.
+const RESYNC_MS = 5000;
+function check(s: Slot, interval: number) {
+  const ref = refIntervals.get(interval);
+  const h = s.reports.get(interval);
+  if (!ref || h === undefined) return;
+  s.reports.delete(interval);
+  stats.compared++;
+  if (ref.hash === h) { stats.agreed++; return; }
+  const now = performance.now();
+  stats.mismatches.push({ slot: s.slot, interval, at: Number(((now - E) / 1000).toFixed(2)), client: h.toString(16), referee: ref.hash.toString(16) });
+  if (stats.dumps.length < 4) {
+    // the room's record as a log the harness replays: the desync's repro case
+    const file = `traces/desync-${roomStart}-${interval}.qgl`;
+    stats.dumps.push(file);
+    Deno.mkdir('traces', { recursive: true }).then(() => Deno.writeFile(file, recordLog(record, roomSeed))).catch(() => {});
+  }
+  if (now - s.lastDesync < RESYNC_MS) return;
+  s.lastDesync = now;
+  sendKey(s, W.SYNC.DESYNC, { interval, digests: ref.digests });
+}
+
+// Every tick an ack shows missing, resent from the record, each at most every
+// REPAIR_MS: a run of consecutive ticks per datagram, a few datagrams per ack.
+const REPAIR_MS = 100;
+function repair(s: Slot, ackTick: number, ackBits: bigint, now: number) {
+  if (roomStart < 0 || s.fromTick > closed) return;
+  const due = W.holes(ackTick, ackBits, Math.max(s.fromTick, roomStart)).filter((t: number) => {
+    if (t > closed) return false;
+    const i = t & (W.RING - 1);
+    return s.repairTick[i] !== t || now - s.repairAt[i] >= REPAIR_MS;
+  });
+  let sent = 0;
+  for (let k = 0; k < due.length && sent < 4;) {
+    let e = k + 1;
+    while (e < due.length && due[e] === due[e - 1] + 1) e++;
+    const from = due[k];
+    const { buf, n } = W.encodeRepair(from, record.slice(from - roomStart, due[e - 1] + 1 - roomStart), Math.min(W.MAX_DATAGRAM, s.maxDatagram));
+    if (!n) break;
+    for (let t = from; t < from + n; t++) { s.repairTick[t & (W.RING - 1)] = t; s.repairAt[t & (W.RING - 1)] = now; }
+    s.writer.write(buf).catch(() => {});
+    stats.repairs++;
+    stats.repairTicks += n;
+    sent++;
+    k += n;
+  }
+}
 
 function freeSlot() { return slots.findIndex((s) => s === null); }
 
@@ -73,8 +203,10 @@ function scheduleEvent(slot: number, kind: number, earliest: number) {
   return t;
 }
 
-// No input for this long and the player has left, whatever QUIC says.
+// No input for this long and the player has left, whatever QUIC says: this
+// long of the relay running smoothly, so its own stall never looks like silence.
 const SILENT_MS = 2000;
+let stallEnd = -Infinity;
 // The first half second after a join, while the client's lead converges (F10's cold start).
 const WARMUP = 64;
 
@@ -84,6 +216,16 @@ function onInput(s: Slot, buf: Uint8Array, now: number) {
   stats.recvBytes += buf.length;
   const m = W.decodeInput(buf);
   if (!m) return;
+  repair(s, m.ackTick, m.ackBits, now);
+  const r = m.report;
+  // each interval once (a client repeats its report), and only from the current keyframe on
+  if (r && r.interval > s.lastReport && r.epoch === (s.keys & 255)) {
+    s.lastReport = r.interval;
+    s.reports.set(r.interval, r.hash);
+    (stats.reports[s.slot] ||= []).push([r.interval, r.hash.toString(16)]);
+    for (const t of s.reports.keys()) if (t < r.interval - 16 * 128) s.reports.delete(t);
+    check(s, r.interval);
+  }
   for (let k = 0; k < m.words.length; k++) {
     const t = m.firstTick + k;
     if (t < s.joinTick || t > closed + W.RING - 8) continue;
@@ -124,7 +266,7 @@ function closeTick(T: number, now: number) {
     if (!s || T < s.joinTick) continue;
     if (T >= s.leaveTick) { stats.silent += s.pendingLate; slots[p] = null; continue; }
     words.push([p, 0]);
-    if (s.leaveTick === Infinity && now - s.lastRecv > SILENT_MS) {
+    if (s.leaveTick === Infinity && now - Math.max(s.lastRecv, stallEnd) > SILENT_MS) {
       stats.leaves.silent = (stats.leaves.silent || 0) + 1;
       stats.leaveAt.push(Number(((now - E) / 1000).toFixed(2)));
       s.leaveTick = scheduleEvent(p, W.EV_LEAVE, Math.max(T + 1, s.joinTick));
@@ -156,15 +298,18 @@ function closeTick(T: number, now: number) {
   if (active) { stats.activeTicks++; stats.activeSlotTicks += active; }
   for (const w of words) w[1] = row[w[0]];
   if (roomStart >= 0 && T >= roomStart) {
-    record.push(W.encodeTick(events.filter((e) => e.tick === T), words));
+    const tick = W.encodeTick(events.filter((e) => e.tick === T), words);
+    record.push(tick);
+    toReferee.push(tick);
     // the last one out: the next joiner starts a new room
-    if (!slots.some((x) => x)) { roomStart = -1; record = []; roomSeed = newSeed(); }
+    if (!slots.some((x) => x)) { roomStart = -1; record = []; toReferee = []; roomSeed = newSeed(); }
   }
   closed = T;
   if (T % W.SEND_EVERY === W.SEND_EVERY - 1) broadcast(T);
 }
 
 function broadcast(T: number) {
+  if (toReferee.length) { referee.postMessage({ room: roomStart, ticks: toReferee }); toReferee = []; }
   const r = [0, 1, 2, 3].map((k) => rows[(T - k) & (W.RING - 1)]);
   events = events.filter((e) => e.tick > T - W.NB - 4);
   for (const t of eventsAt.keys()) if (t <= T - W.NB) eventsAt.delete(t);
@@ -193,6 +338,8 @@ function pump() {
   // a wakeup more than a tick late: [ms since start, ms behind], for lining up with --trace-gc
   const behind = now - deadline(closed + 1);
   if (behind > W.TICK_MS && stats.stallEvents.length < 1000) stats.stallEvents.push([Number(now.toFixed(1)), Number(behind.toFixed(1))]);
+  // datagrams that came in during a stall are still unread
+  if (behind > 4 * W.TICK_MS) stallEnd = now;
   while (deadline(closed + 1) <= now) closeTick(closed + 1, now);
   const wait = deadline(closed + 1) - performance.now();
   if (!precise) setTimeout(pump, Math.max(0, wait));
@@ -222,19 +369,23 @@ async function session(incoming: Deno.QuicIncoming) {
   }
   const maxDatagram = wt.datagrams.maxDatagramSize;
   try { (wt.datagrams as unknown as { outgoingMaxAge: number }).outgoingMaxAge = 2 * W.TICK_MS; } catch { /* optional */ }
+  try { (wt.datagrams as unknown as { incomingHighWaterMark: number }).incomingHighWaterMark = 256; } catch { /* optional */ }
   stats.serverMaxDatagram.push(maxDatagram);
   stats.clientMaxDatagram.push(hello!.maxDatagram);
   const joinTick = scheduleEvent(p, W.EV_JOIN, closed + 1 + 4);
-  if (roomStart < 0) roomStart = joinTick;
+  if (roomStart < 0) startRoom(joinTick);
   const s: Slot = {
-    slot: p, joinTick, leaveTick: Infinity, writer: wt.datagrams.writable.getWriter(), maxDatagram,
+    slot: p, joinTick, leaveTick: Infinity, writer: wt.datagrams.writable.getWriter(), ctl: sw, maxDatagram,
     last: 0, missing: 0, late: 0, lastSlack: 0, periodSlack: Infinity, contig: joinTick - 1, lastRecv: performance.now(), pendingLate: 0, close: () => wt.close(),
     words: new Uint32Array(W.RING), wordTick: new Int32Array(W.RING).fill(-1), arrival: new Float64Array(W.RING),
+    fromTick: Infinity, repairTick: new Int32Array(W.RING).fill(-1), repairAt: new Float64Array(W.RING),
+    keys: 0, syncing: false, lastSync: -1e9, lastDesync: -1e9, lastReport: -1, reports: new Map(),
   };
   slots[p] = s;
   stats.sessions++;
   await sw.write(W.encodeWelcome({ slot: p, maxDatagram, joinTick, seed: roomSeed, serverTick: closed + 1, roomStart }));
-  const room = roomStart;
+  log(`slot ${p} joins at ${joinTick}, room ${roomStart}`);
+  sendKey(s, W.SYNC.JOIN);
   const leave = (why: string) => {
     if (s.leaveTick !== Infinity) return;
     stats.leaves[why] = (stats.leaves[why] || 0) + 1;
@@ -244,20 +395,17 @@ async function session(incoming: Deno.QuicIncoming) {
     try { s.close(); } catch { /* already closed */ }
   };
   wt.closed.then((i) => leave('closed:' + JSON.stringify(i)), (e) => leave('closed-error:' + String(e)));
-  // Requests on the control stream: closed ticks from the record. Deno
-  // doesn't settle wt.closed when Chrome closes the session, but this stream
-  // ends: the client closes it on the way out.
+  // Requests on the control stream: pings, and resyncs for a hole too old to
+  // repair or a client far behind (at most one a second). Deno doesn't settle
+  // wt.closed when Chrome closes the session, but this stream ends: the
+  // client closes it on the way out.
   (async () => {
     for (;;) {
-      const m = await sr.read(12);
-      if (m.length < 12) break;
-      const need = W.decodeNeed(m);
-      if (!need || room !== roomStart) continue;
-      const from = Math.max(need.from, roomStart);
-      const to = Math.min(need.to, closed + 1, from + 0x100000);
-      stats.fills++;
-      stats.fillTicks += Math.max(0, to - from);
-      await sw.write(W.encodeFill(from, record.slice(from - roomStart, Math.max(0, to - roomStart))));
+      const buf = await sr.read(16);
+      if (buf.length < 16) break;
+      const m = W.decodeClient(buf);
+      if (m?.type === W.T_PING) { stats.pongs++; s.ctl.write(W.encodePong(m.nonce, (performance.now() - E) / W.TICK_MS)).catch(() => {}); }
+      if (m?.type === W.T_SYNC && performance.now() - s.lastSync > 1000) sendKey(s, m.reason);
     }
   })().then(() => leave('stream-end'), () => leave('stream-error'));
   const dr = wt.datagrams.readable.getReader();
@@ -288,7 +436,9 @@ function summary() {
     onTime: stats.onTime, substituted: stats.substituted, warmupSubstituted: stats.warmup, silentTicks: stats.silent,
     substitutedPct: stats.onTime + stats.substituted ? Number((100 * stats.substituted / (stats.onTime + stats.substituted)).toFixed(3)) : 0,
     bundlesSent: stats.sent, maxBundle: stats.maxBundle, oversize: stats.oversize, lateArrivals: stats.lateArrivals,
-    fills: stats.fills, fillTicks: stats.fillTicks,
+    fills: stats.fills, fillTicks: stats.fillTicks, repairs: stats.repairs, repairTicks: stats.repairTicks, pongs: stats.pongs,
+    keys: stats.keys, compared: stats.compared, agreed: stats.agreed, mismatches: stats.mismatches, dumps: stats.dumps,
+    refLagMax: stats.refLagMax, refErrors: stats.refErrors, refHashes: stats.refHashes, reports: stats.reports,
     downKBpsPerSession: slotSecs ? Number((stats.sentBytes / slotSecs / 1000).toFixed(2)) : 0,
     upKBpsPerSession: slotSecs ? Number((stats.recvBytes / slotSecs / 1000).toFixed(2)) : 0,
     serverMaxDatagram: { min: Math.min(...stats.serverMaxDatagram), max: Math.max(...stats.serverMaxDatagram) },
@@ -302,10 +452,15 @@ const listener = endpoint.listen({ cert, key, alpnProtocols: ['h3'], congestionC
 pump();
 if (!quiet) console.error(`relay listening on https://${hostname}:${port}/ (${cc}), tick ${W.TICK_MS} ms`);
 
-if (durationS > 0) {
-  await new Promise((ok) => setTimeout(ok, durationS * 1000));
+async function finish() {
   const text = JSON.stringify(summary());
   if (summaryPath) await Deno.writeTextFile(summaryPath, text + '\n');
   else console.log(text);
   Deno.exit(0);
+}
+// a runner that stops the relay early still gets the summary
+if (summaryPath) Deno.addSignalListener('SIGTERM', finish);
+if (durationS > 0) {
+  await new Promise((ok) => setTimeout(ok, durationS * 1000));
+  await finish();
 }

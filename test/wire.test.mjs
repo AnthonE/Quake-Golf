@@ -11,10 +11,10 @@ test('input words round-trip every field', () => {
 
 test('input datagrams round-trip', () => {
   const words = [1, 2, 0xffffffff, 12345];
-  const d = W.decodeInput(W.encodeInput({ seq: 7, firstTick: 1000, ackTick: 998, ackBits: 0x80000001, words }));
+  const d = W.decodeInput(W.encodeInput({ seq: 7, firstTick: 1000, ackTick: 998, ackBits: 0x8000000180000001n, words }));
   assert.deepEqual([...d.words], words);
   assert.equal(d.firstTick, 1000);
-  assert.equal(d.ackBits, 0x80000001);
+  assert.equal(d.ackBits, 0x8000000180000001n);
 });
 
 test('bundles round-trip and their size matches the formula', () => {
@@ -92,16 +92,16 @@ test('the welcome carries the room start; fills round-trip', () => {
 
 test('acks are per tick, and the holes they show are the ones a few ticks old', () => {
   const r = new W.Received();
-  for (let t = 100; t <= 140; t++) if (t !== 120 && t !== 121 && t !== 138) r.add(t);
+  for (let t = 60; t <= 140; t++) if (![70, 80, 120, 121, 138].includes(t)) r.add(t);
   assert.equal(r.add(130), false, 'a tick twice is not new');
   const { ackTick, ackBits } = r.ack();
   assert.equal(ackTick, 140);
-  assert.equal((ackBits >>> (140 - 1 - 120)) & 1, 0);
-  assert.equal((ackBits >>> (140 - 1 - 119)) & 1, 1);
-  // 138 is too recent to call lost; nothing before `from` is asked for
-  assert.deepEqual(W.holes(ackTick, ackBits), [120, 121]);
+  assert.equal((ackBits >> BigInt(140 - 1 - 120)) & 1n, 0n);
+  assert.equal((ackBits >> BigInt(140 - 1 - 119)) & 1n, 1n);
+  // 138 is too recent to call lost, 80 is in the high word, 70 is past the field; nothing before `from` is asked for
+  assert.deepEqual(W.holes(ackTick, ackBits), [80, 120, 121]);
   assert.deepEqual(W.holes(ackTick, ackBits, 121), [121]);
-  assert.deepEqual(W.holes(ackTick, ackBits, 0, 2), [120, 121, 138]);
+  assert.deepEqual(W.holes(ackTick, ackBits, 0, 2), [80, 120, 121, 138]);
   // a lone first tick: nothing older is a hole
   const one = new W.Received();
   one.add(5);
@@ -110,12 +110,12 @@ test('acks are per tick, and the holes they show are the ones a few ticks old', 
 
 test('input datagrams carry an interval hash report when there is one', () => {
   const words = [1, 2, 3];
-  const plain = W.decodeInput(W.encodeInput({ seq: 1, firstTick: 9, ackTick: 8, ackBits: 3, words }));
+  const plain = W.decodeInput(W.encodeInput({ seq: 1, firstTick: 9, ackTick: 8, ackBits: 3n, words }));
   assert.equal(plain.report, null);
   const hash = 0xfedcba9876543210n;
-  const m = W.decodeInput(W.encodeInput({ seq: 1, firstTick: 9, ackTick: 8, ackBits: 3, words, report: { interval: 1280, hash } }));
+  const m = W.decodeInput(W.encodeInput({ seq: 1, firstTick: 9, ackTick: 8, ackBits: 3n, words, report: { interval: 1280, epoch: 258, hash } }));
   assert.deepEqual([...m.words], words);
-  assert.deepEqual(m.report, { interval: 1280, hash });
+  assert.deepEqual(m.report, { interval: 1280, epoch: 2, hash });
 });
 
 test('a repair carries as many consecutive ticks as fit, and decodes like a fill', () => {

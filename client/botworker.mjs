@@ -8,6 +8,7 @@ self.onmessage = async (e) => {
   const { module, memory } = e.data;
   const i32 = new Int32Array(memory.buffer);
   const f32 = new Float32Array(memory.buffer);
+  const f64 = new Float64Array(memory.buffer);
   const view = new View(memory.buffer);
   const planner = await Planner.create(module);
   const get = (a) => Atomics.load(i32, a >> 2);
@@ -17,12 +18,13 @@ self.onmessage = async (e) => {
     const slot = get(L.CL_SLOT);
     if (slot < 0 || get(L.CL_STATE) !== 2) return;
     if (!bot || bot.slot !== slot) bot = new GolfBot(slot, planner, { seq: i32 });
-    // a round trip in ticks: the input lead plus the playout delay
-    bot.lag = Math.round(f32[L.CL_LEAD >> 2] + L.PLAY_DELAY + 3);
+    // a round trip in ticks: the input lead plus the playout clock's delay (the bot plays the confirmed world)
+    bot.lag = Math.round(f32[L.CL_LEAD >> 2] + f32[L.CL_DELAY >> 2] + 2);
     bot.think(view);
     set(L.CL_YAW, bot.input.yaw);
     set(L.CL_PITCH, bot.input.pitch);
-    set(L.CL_MOVE, bot.input.move | (bot.input.jump << 4));
+    const move = bot.input.move | (bot.input.jump << 4);
+    if (move !== get(L.CL_MOVE)) { set(L.CL_MOVE, move); f64[L.CL_MOVEAT >> 3] = performance.timeOrigin + performance.now(); }
     set(L.CL_WEAPON, bot.input.weapon);
     set(L.CL_PRESSES, bot.presses);
   }, 8);

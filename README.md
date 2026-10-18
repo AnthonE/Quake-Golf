@@ -30,8 +30,10 @@ behind your ball drives it 200+ m with loft, one 4 m back rolls it a few
 metres, and the cup is a slipgate that swallows any ball under 8 m/s. The
 grenade bounces and pops after 2.5 s, for lobs. A rocket at your own feet is
 a rocket jump (and a stroke). Holes last 4 minutes; not finishing costs 2.
-Your own movement shows one round trip late until M3's prediction layer;
-aiming is instant.
+Your own movement, shots and rocket jumps are predicted, so they show on the
+next frame; other players and every ball show a round trip late. To feel a
+bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
+round trip with 10% loss each way.
 
 ## Run it
 
@@ -44,6 +46,7 @@ node tools/gengame.mjs --bots 4 --out logs/game.qgl && node harness/matrix.mjs -
 node harness/perf.mjs                  # per-phase cost at 10,000 balls
 node net/run-m0.mjs --bots 63 --duration 60 [--impair delay=40,jitter=10,loss=0.05]
 node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played Chrome clients, one hole
+node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # four, a late join, a flipped bit
 ```
 
 ## How it fits together
@@ -63,25 +66,45 @@ node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played C
   first tick that differs and which slice and field it was in.
 - `net/relay.ts` is the relay: one isolate owns the QUIC sessions, an 8 ms
   clock from a fixed epoch, and the bundles (four ticks every second tick, with
-  a per-recipient trailer). It also records every closed tick from the room's
-  start, and answers fill requests from that record on the control stream: a
-  joiner's whole history (M3 replaces it with keyframes) and any tick lost on
-  the way (M3 replaces it with repair datagrams). An emptied room starts over
-  on a new seed.
+  a per-recipient trailer). It records every closed tick from the room's
+  start and hands it to the referee, `net/referee.mjs` in a Worker: the same
+  game.wasm stepping the room, the truth for interval hashes and keyframes.
+  A joiner gets the newest keyframe and the record since it. A tick a
+  client's per-tick acks lack comes back in a repair datagram. A client whose
+  interval hash differs from the referee's gets the keyframe again, with the
+  referee's slice digests so it can name the slice, and the room's record is
+  saved as a .qgl that replays the desync. An emptied room starts over on a
+  new seed.
 - Gameplay is in the sim too, all serial and in index order: `players.wat`
   (Quake movement, shots on a shot-counter advance, pushes on other players'
   balls), `weapons.wat` (rockets marched in half steps, bouncing grenades,
   blasts on balls and players), `hole.wat` (the slipgate cup and the hole
   clock) and `terrain.wat`, which lays out a hole per seed: tee, fairway,
   rough, bunkers and a flattened green. Inputs, joins and leaves are inbox
-  records, so a match is an ordinary event log the harness replays.
+  records (`net/inbox.mjs` is the one way a closed tick becomes them), so a
+  match is an ordinary event log the harness replays.
+- Every player and projectile access is a constant offset plus a record
+  address plus a bank offset: 0 for the confirmed world, `PRED_D` for a copy.
+  `predict.wat` copies the header, players and projectiles there and steps one
+  player and only its projectiles through pending inputs with the same code a
+  confirmed tick runs, writing nothing else. With nothing remote in the way it
+  matches what the confirmed world later does, bit for bit.
 - `client/` is the browser game on three threads over one shared memory. The
-  net worker owns WebTransport and the clock and samples one input word a
-  tick; the sim worker steps confirmed ticks behind a 3-tick playout delay;
-  the main thread reads raw mouse and keys and draws with WebGPU straight
-  from shared memory: the terrain ray-marched per pixel at 320x200, bodies
-  as splats, a 3x5 HUD font. `?bot=1` hands the controls to `client/bot.mjs`,
-  which plans every shot on a private copy of the sim.
+  net worker owns WebTransport and two clocks (`client/clock.mjs`): the
+  predicted one, the server's tick plus an input lead sized from the relay's
+  jitter, on which it samples one input word a tick; and the playout clock,
+  2 ticks plus the p95 jitter of first arrivals behind the earliest, run up to
+  3% fast or slow. It acks every tick and unpacks keyframes. The sim worker
+  steps confirmed ticks to the playout clock, restores keyframes, reports
+  each interval's hash and asks for a resync when a hole outlives the repair
+  window or it falls 2 s behind. The main thread reads raw mouse and keys,
+  rebuilds the prediction every frame on its own instance of game.wasm (the
+  sampled inputs, then the tick in progress with the input as it is now),
+  eases corrections in over 100 ms, and draws with WebGPU straight from
+  shared memory: the terrain ray-marched per pixel at 320x200, bodies as
+  splats, your own player and shots from the prediction, a 3x5 HUD font.
+  `?bot=1` hands the controls to `client/bot.mjs`, which plans every shot on a
+  private copy of the sim.
 
 ## M2, the first hole
 
