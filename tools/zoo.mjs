@@ -21,6 +21,7 @@ import { View } from '../src/view.mjs';
 import { GolfBot, Planner, shotGeometry } from '../client/bot.mjs';
 import { Brain, features, encode, decode, MAX_MUTATIONS, NW, TWEET } from '../client/brain.mjs';
 import * as L from '../src/layout.mjs';
+const { REGION } = L;
 import { isMain } from './main.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +50,9 @@ export async function startOf(module, seed) {
 // is not in after MAX_SHOTS. `fit`, for selection, adds how far short it is.
 export function playHole(planner, start, choose) {
   planner.load(start);
+  // load() fills only the private snapshot; try() copies it in. Copy it in now,
+  // or the first shot is chosen from whatever the memory held before.
+  planner.u8.set(planner.snap, REGION);
   const view = new View(planner.u8.buffer);
   const cup = view.hole().cup;
   for (let n = 1; n <= MAX_SHOTS; n++) {

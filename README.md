@@ -158,10 +158,10 @@ stopped, in 22 minutes on 4 threads here. On 40 held-out courses (seeds
 
 | | shots alone (10 at most, else +2) | real holes (walking, the clock) |
 | --- | --- | --- |
-| a random net (no mutations) | 11.28, 10 sunk | |
-| a rule of thumb (blast distance by range) | 9.95, 15 sunk | |
-| **the neural golfer, 279 chars** | **5.35, 40 sunk** | **4.80, 40 sunk; 4.33 on the Xbox core** |
-| the golf bot, 24 tries a shot | 3.10, 40 sunk | 2.33, 40 sunk |
+| a random net (no mutations) | 10.93, 12 sunk | |
+| a rule of thumb (blast distance by range) | 9.43, 18 sunk | |
+| **the neural golfer, 279 chars** | **4.35, 40 sunk** | **4.80, 40 sunk; 4.33 on the Xbox core** |
+| the golf bot, 24 tries a shot | 2.10, 40 sunk | 2.33, 40 sunk |
 
 Foresight still wins, by two to two and a half strokes a hole. The golfer
 scores 1 to 10, with a hole in one on course 17; on course 11, where Claude
@@ -170,8 +170,16 @@ its own C legs (below), whose inputs land on the tick they are made rather
 than after the room's 6-tick delay, and it scores a little better. With its genome at both Chrome
 clients' controls (`net/run-m2.mjs --genome`), the M2 gate passes on course
 7: both sunk, in 3 and 4, and all 63 interval hashes agree. (An earlier f64
-brain, `qg1`, scored 5.92 and 5.20 with two blowups; it could not run on
-the Xbox bit for bit, and its genomes are refused now.) The genome:
+brain, `qg1`, scored 5.92 by shots alone (with the stale first shot, below)
+and 5.20 on real holes, with two blowups; it could not run on the Xbox bit
+for bit, and its genomes are refused now.)
+
+Erratum, 2026-10-19: until then, a hole by shots alone chose its first shot
+from stale memory (`Planner.load` fills only the private snapshot, which
+`try` copies in), so every such hole wasted its first stroke, about one a
+hole for a competent player. The column above is re-measured with the fix;
+real holes were never affected. Both golfers were bred under the old
+harness, which cost each a stroke a hole uniformly while selection ran. The genome:
 
 ```
 qg2:hmagd9R84qfApxdNJr9m7qGTDze89_fPq7m5K7Gg4TBr9-wiiN8Tiqpy9rhz87tTGlgTODs5cCu2UdcWhViGXH8RVInqWkYmcrwtHw4C9zsnqwW3L8AWtxiGGsuGwhqyLVwpIJgdM6caBm8Yw2yh7gta75ETI5-KXT6HmFE1fE2PDb7cFD-YB1EBB9fnFRLjEJOeoff8YgIYlPKoDkolOitC6S8nfhIb3aXZanA9x_kkbIjcal84QfZwPn_sTt8bfpm1N3AM-f9Krj8pbFw

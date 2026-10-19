@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { View } from '../src/view.mjs';
+import { REGION } from '../src/layout.mjs';
 import { Planner, shotGeometry } from '../client/bot.mjs';
 import { NIN, NHID, NW, weights, decode, features, rng, noise, mix, SIGMA, scale, soft } from '../client/brain.mjs';
 import { TRAIN, TEST, startOf } from './zoo.mjs';
@@ -71,6 +72,9 @@ export class Golfer {
 // One hole by shots alone, as the zoo plays them, with the witness and the wedge.
 function playHole(planner, start, golfer, { witness, watched, wedgeOk, penaltyAlways, keep }) {
   planner.load(start);
+  // load() fills only the private snapshot; try() copies it in. Copy it in now,
+  // or the first shot is chosen from whatever the memory held before.
+  planner.u8.set(planner.snap, REGION);
   const v = new View(planner.u8.buffer), dv = v.dv;
   const cup = v.hole().cup;
   let penalty = 0, wedges = 0;

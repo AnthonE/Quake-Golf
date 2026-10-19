@@ -94,3 +94,20 @@ test('a real hole is scored by the game\'s own scoreboard', async () => {
   assert.ok(r.score >= 1 && r.score <= 40, `score ${r.score}`);
   if (!r.sunk) assert.ok(r.score >= 2, 'not in the cup costs 2');
 });
+
+test('a hole by shots alone plans its first shot from the start, not from stale memory', async () => {
+  const { Planner } = await import('../client/bot.mjs');
+  const { View } = await import('../src/view.mjs');
+  const { startOf, playHole, chooser } = await import('../tools/zoo.mjs');
+  const module = await WebAssembly.compile(wasmBytes());
+  const planner = await Planner.create(module);
+  const choose = chooser('rule');
+  for (const seed of [7, 8]) { // a second course, so the memory holds the first one's end
+    const start = await startOf(module, seed);
+    const sv = new View(start.buffer);
+    let first = null;
+    playHole(planner, start, (v, ball, cup) => { if (!first) first = [ball.slice(), cup.slice()]; return choose(v, ball, cup); });
+    assert.deepEqual(first[0], sv.ball(sv.player(0).ball).pos, `course ${seed}: the tee ball`);
+    assert.deepEqual(first[1], sv.hole().cup, `course ${seed}: the cup`);
+  }
+});
