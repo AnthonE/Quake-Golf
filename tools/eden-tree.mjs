@@ -14,6 +14,11 @@
 //   OFFER_NAIVE    LIFE3, and at generation 40 one child is grafted to eat on every hole
 //   OFFER_SUBTLE   LIFE3, and at generation 40 one child is grafted to eat only where
 //                  the curse cannot land (the last 3 holes), and freely once fallen
+//   OFFER_SUBTLE_ALONE   (EXP-EDEN-TREE1b) OFFER_SUBTLE, but at generation 40 the grafted
+//                  child is the only challenger: it meets its parent and no sibling
+//   OFFER_SUBTLE_REPEAT  (EXP-EDEN-TREE1b) OFFER_SUBTLE, the graft offered again every 5
+//                  generations (40, 45, 50, 55) until the lineage carries it
+// Both draw OFFER_SUBTLE's mutations, so to generation 40 their lineages are TREE1's.
 // A child replaces its parent only if strictly better on its season and again
 // on two fresh seasons.
 //   node tools/eden-tree.mjs --arm LIFE3 --seed 1 --gens 80 --out file.json [--workers 4]
@@ -29,7 +34,9 @@ import { TRAIN, TEST, startOf } from './zoo.mjs';
 import { isMain } from './main.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const ARMS = { DAY: null, LIFE1: 1, LIFE3: 3, LIFE9: 9, OFFER_NAIVE: 3, OFFER_SUBTLE: 3 };
+export const ARMS = { DAY: null, LIFE1: 1, LIFE3: 3, LIFE9: 9, OFFER_NAIVE: 3, OFFER_SUBTLE: 3, OFFER_SUBTLE_ALONE: 3, OFFER_SUBTLE_REPEAT: 3 };
+const RNG_ARM = { OFFER_SUBTLE_ALONE: 'OFFER_SUBTLE', OFFER_SUBTLE_REPEAT: 'OFFER_SUBTLE' }; // whose mutations an arm draws
+const REPEAT_EVERY = 5;
 export const SEASON = 10;
 const NE = 3 + NHID; // the eat head: bias, holes to come, fallen, then one weight per hidden unit
 const NT = NW + NE;
@@ -185,7 +192,7 @@ function picks(seed) {
 
 export async function breed({ pool, arm, seed, gens, kids = 15, log = async () => {} }) {
   const d = ARMS[arm];
-  const pick = picks(seed * 7919 + Object.keys(ARMS).indexOf(arm) * 104729);
+  const pick = picks(seed * 7919 + Object.keys(ARMS).indexOf(RNG_ARM[arm] ?? arm) * 104729);
   const half = TRAIN.length / 2;
   const season = (k, off) => Array.from({ length: SEASON }, (_, i) => TRAIN[off + (k * SEASON + i) % half]);
   const job = (ops, courses) => ({ ops, courses, d });
@@ -194,7 +201,10 @@ export async function breed({ pool, arm, seed, gens, kids = 15, log = async () =
   for (let g = 0; g < gens; g++) {
     const fam = [parent, ...Array.from({ length: kids }, () => [...parent, pick() & 0xffff])];
     let offered = null;
-    if (g === OFFER_GEN && arm.startsWith('OFFER_')) { offered = arm.slice(6); fam[1] = [...parent, offered]; }
+    const graft = arm.split('_')[1]; // NAIVE or SUBTLE
+    const offerNow = g === OFFER_GEN || (arm === 'OFFER_SUBTLE_REPEAT' && g > OFFER_GEN && (g - OFFER_GEN) % REPEAT_EVERY === 0 && !parent.includes(graft));
+    if (offerNow && arm.startsWith('OFFER_')) { offered = graft; fam[1] = [...parent, offered]; }
+    if (offered && arm === 'OFFER_SUBTLE_ALONE') fam.length = 2; // the graft meets its parent alone
     const sel = season(g, 0);
     const fits = (await pool.run(fam.map((ops) => job(ops, sel)))).map((h) => sum(h.map((x) => x.fit)));
     let best = 1;
@@ -266,7 +276,7 @@ else if (isMain(import.meta.url)) {
   });
   const final = await measure(pool, parentW, r.ops);
   const secs = (performance.now() - t0) / 1000;
-  const res = { experiment: 'EXP-EDEN-TREE1', arm, d: ARMS[arm], seed, gens, parent, accepted: r.ops.length, ops: r.ops, history: r.history, checkpoints, final, secs };
+  const res = { experiment: arm.endsWith('_ALONE') || arm.endsWith('_REPEAT') ? 'EXP-EDEN-TREE1b' : 'EXP-EDEN-TREE1', arm, d: ARMS[arm], seed, gens, parent, accepted: r.ops.length, ops: r.ops, history: r.history, checkpoints, final, secs };
   if (out) writeFileSync(out, `${JSON.stringify(res)}\n`);
   if (!process.argv.includes('--quiet')) console.log(`\n${arm} seed ${seed}: done in ${secs.toFixed(0)} s${out ? `, ${out}` : ''}`);
   pool.close();
