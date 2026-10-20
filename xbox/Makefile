@@ -1,7 +1,7 @@
 # Quake Golf for the original Xbox, with nxdk (github.com/XboxDev/nxdk).
 #
 #   sh tools/install-nxdk.sh   # once: nxdk, pinned, into .tools/nxdk
-#   make -C xbox [SERVER=host:port]   # bin/default.xbe and Quake Golf.iso
+#   make -C xbox [SERVER=host:port] [GOLFER=qg2:...]   # bin/default.xbe and Quake Golf.iso
 #
 # SERVER is the relay's native port for online play, written beside the XBE
 # (and into the ISO) as quakegolf.txt; the title screen can change it too.
@@ -19,7 +19,7 @@ NXDK_NET = y
 SERVER ?= 10.0.2.2:4434
 GEN := $(ROOT)/build/x86
 SIM := $(GEN)/game-coff.s
-SRCS = $(CURDIR)/main.c $(CURDIR)/game.c $(CURDIR)/online.c $(CURDIR)/inflate.c $(CURDIR)/net_xbox.c $(SIM)
+SRCS = $(CURDIR)/main.c $(CURDIR)/game.c $(CURDIR)/brain.c $(CURDIR)/online.c $(CURDIR)/inflate.c $(CURDIR)/net_xbox.c $(SIM)
 CFLAGS += -I$(GEN) -O2
 export NXDK_DIR
 export PATH := $(NXDK_DIR)/bin:$(PATH)
@@ -32,10 +32,15 @@ $(ROOT)/build/game.wasm: $(wildcard $(ROOT)/src/*.wat) $(ROOT)/src/layout.mjs $(
 $(SIM) $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h &: $(ROOT)/build/game.wasm $(ROOT)/tools/w2x86.mjs $(ROOT)/tools/x86.mjs $(ROOT)/client/font.mjs
 	cd $(ROOT) && node tools/x86.mjs --no-runner
 
-$(CURDIR)/main.obj $(CURDIR)/game.obj $(CURDIR)/online.obj: $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h
+$(CURDIR)/main.obj $(CURDIR)/game.obj $(CURDIR)/brain.obj $(CURDIR)/online.obj: $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h
+$(CURDIR)/main.obj: $(CURDIR)/golfer.h
+$(CURDIR)/main.obj $(CURDIR)/game.obj $(CURDIR)/brain.obj: $(CURDIR)/brain.h $(CURDIR)/game.h
 
-# the server, rewritten every build so a new SERVER always lands in the ISO
+# the server, rewritten every build so a new SERVER always lands in the ISO;
+# GOLFER=qg2:... puts a neural golfer's genome beside it (Black seats it)
+GOLFER ?=
 .PHONY: server-file
 server-file:
 	@mkdir -p $(OUTPUT_DIR) && echo '$(SERVER)' > $(OUTPUT_DIR)/quakegolf.txt
+	@$(if $(GOLFER),echo '$(GOLFER)' > $(OUTPUT_DIR)/golfer.txt,rm -f $(OUTPUT_DIR)/golfer.txt)
 $(GEN_XISO): server-file

@@ -7,6 +7,8 @@
 //
 //   build/x86/xbox-headless --out traces/xbox [--players 2] [--ticks 1800] [--seed 7]
 //   build/x86/xbox-headless --online 127.0.0.1:4434 --seconds 60 [--out dir] [--impair delay=60,jitter=10,loss=0.05] [--rng 1] [--flip S]
+//   build/x86/xbox-headless --players 0 --cpu 1 --genome qg2:... [--seed 7] [--ticks 40000]   # neural golfers, to the hole's end
+//   build/x86/xbox-headless --brain qg2:... --seeds 1,2,3   # the weights and each tee's decision, as bits
 // --flip S flips bit 3 of this player's score total S seconds in, as net/run-m3.mjs
 // does to a browser client: the referee must catch it and heal it with a keyframe.
 #include "sys.h"
@@ -57,22 +59,67 @@ static void *grab(uint32_t bytes) { return alloc(bytes); }
 
 static int online_main(int argc, char **argv);
 
+// The brain alone, for test/brain.test.mjs to hold against V8: an FNV-1a of
+// the weights' bytes, then on each course the tee's ball and cup, the
+// features and the decision, every float as its bits.
+static int brain_main(const char *genome, const char *seeds) {
+  static Brain br;
+  static Match m;
+  if (brain_init(&br, genome)) die("not a qg2 genome");
+  uint32_t h = 0x811c9dc5u;
+  for (uint32_t i = 0; i < sizeof br.w; i++) { h ^= ((const uint8_t *)br.w)[i]; h *= 0x01000193u; }
+  Buf o = { .n = 0 };
+  bs(&o, "{\"weights\":"); bu(&o, h); bs(&o, ",\"holes\":[");
+  for (const char *p = seeds; *p;) {
+    uint32_t seed = num(p);
+    while (*p && *p != ',') p++;
+    if (*p) p++;
+    match_start(&m, seed, grab);
+    Pad pads[LOCAL_MAX] = { { 0 } };
+    pads[0].connected = 1;
+    for (uint32_t t = 0; t < 2000 && U32(QG_HDR_STATE) != QG_H_PLAY; t++) { pads[0].buttons = t == 1 ? BTN_START : 0; match_tick(&m, pads); }
+    uint32_t b = U32(QG_PLAYERS + QG_P_BALL);
+    float ball[3] = { F(QG_PX + 4 * b), F(QG_PY + 4 * b), F(QG_PZ + 4 * b) };
+    float cup[3] = { F(QG_HDR_CUP), F(QG_HDR_CUP + 4), F(QG_HDR_CUP + 8) }, x[BRAIN_NIN], dh, turn;
+    brain_features(qg_mem, ball, cup, x);
+    brain_decide(&br, x, &dh, &turn);
+    union { float f; uint32_t u; } v;
+    if (o.n == 0) bs(&o, ","); // flushed: a course came before
+    bs(&o, "{\"seed\":"); bu(&o, seed);
+    bs(&o, ",\"ball\":["); for (int i = 0; i < 3; i++) { if (i) bs(&o, ","); v.f = ball[i]; bu(&o, v.u); }
+    bs(&o, "],\"cup\":["); for (int i = 0; i < 3; i++) { if (i) bs(&o, ","); v.f = cup[i]; bu(&o, v.u); }
+    bs(&o, "],\"x\":["); for (int i = 0; i < BRAIN_NIN; i++) { if (i) bs(&o, ","); v.f = x[i]; bu(&o, v.u); }
+    v.f = dh; bs(&o, "],\"dh\":"); bu(&o, v.u);
+    v.f = turn; bs(&o, ",\"turn\":"); bu(&o, v.u); bs(&o, "}");
+    bflush(&o, 1); // a course at a time: Buf holds 1 KiB
+  }
+  bs(&o, "]}\n");
+  bflush(&o, 1);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   for (int i = 1; i < argc; i++) if (seq(argv[i], "--online")) return online_main(argc, argv);
-  const char *dir = "traces/xbox";
-  uint32_t players = 1, ticks = 1800, seed = 7;
+  const char *dir = "traces/xbox", *genome = 0, *seeds = 0;
+  uint32_t players = 1, ticks = 1800, seed = 7, cpus = 0;
   for (int i = 1; i + 1 < argc; i++) {
     if (seq(argv[i], "--out")) dir = argv[++i];
     else if (seq(argv[i], "--players")) players = num(argv[++i]);
     else if (seq(argv[i], "--ticks")) ticks = num(argv[++i]);
     else if (seq(argv[i], "--seed")) seed = num(argv[++i]);
+    else if (seq(argv[i], "--cpu")) cpus = num(argv[++i]);
+    else if (seq(argv[i], "--genome") || seq(argv[i], "--brain")) genome = argv[++i];
+    else if (seq(argv[i], "--seeds")) seeds = argv[++i];
   }
-  if (players < 1 || players > LOCAL_MAX) die("--players 1 to 4");
+  if (seeds) { if (!genome) die("--brain needs a genome"); return brain_main(genome, seeds); }
+  if (players + cpus < 1 || players + cpus > LOCAL_MAX) die("--players and --cpu: 1 to 4 in all");
+  if (cpus && !genome) die("--cpu needs --genome");
 
   static Match m;
   m.recCap = 8 * ticks + 64;
   m.rec = alloc(m.recCap * QG_REC);
   match_start(&m, seed, grab);
+  for (uint32_t k = players; k < players + cpus; k++) if (match_add_cpu(&m, (int)k, genome)) die("not a qg2 genome");
   uint64_t terrainHash = qg_terrain_hash();
   uint64_t *tickHashes = alloc(8 * ticks + 8);
   const uint32_t nInt = ticks / QG_NSLICE;
@@ -84,7 +131,10 @@ int main(int argc, char **argv) {
   float ball0[LOCAL_MAX][3] = { { 0 } };
   char file[512];
   uint64_t renderNs = 0, simNs = 0;
-  for (uint32_t t = 0; t < ticks; t++) {
+  uint32_t until = ticks;
+  for (uint32_t t = 0; t < until; t++) {
+    // with neural golfers, the match ends with the hole
+    if (cpus && t > 0 && U32(QG_HDR_STATE) == QG_H_OVER) { ticks = t; break; }
     for (int k = 0; k < LOCAL_MAX; k++) { pads[k] = (Pad){ 0 }; pads[k].connected = k < (int)players; }
     for (uint32_t k = 0; k < players; k++) if (t == 2 + 6 * k) pads[k].buttons |= BTN_START;
     uint32_t state = U32(QG_HDR_STATE);
@@ -140,6 +190,7 @@ int main(int argc, char **argv) {
     }
   }
 
+  const uint32_t nDone = ticks / QG_NSLICE;
   // the log, and its hash through the net area the way the replay harness takes it
   uint32_t logLen = 32 + m.recCount * QG_REC;
   uint8_t *log = alloc(logLen);
@@ -150,17 +201,17 @@ int main(int argc, char **argv) {
   memcpy(qg_mem + QG_NET, log, logLen);
   uint64_t logHash = qg_xxh64(QG_NET, logLen, 0);
 
-  uint32_t size = 128 + 8 * (ticks + nInt + nInt * QG_NSLICE);
+  uint32_t size = 128 + 8 * (ticks + nDone + nDone * QG_NSLICE);
   uint8_t *tr = alloc(size);
   tr[0] = 'Q'; tr[1] = 'G'; tr[2] = 'H'; tr[3] = '1';
   *(uint32_t *)(tr + 4) = ticks;
-  *(uint32_t *)(tr + 8) = nInt;
+  *(uint32_t *)(tr + 8) = nDone;
   *(uint64_t *)(tr + 16) = terrainHash;
   *(uint64_t *)(tr + 24) = logHash;
   memcpy(tr + 32, "xbox game core, x86", 19);
   memcpy(tr + 128, tickHashes, 8 * ticks);
-  memcpy(tr + 128 + 8 * ticks, intervalHashes, 8 * nInt);
-  memcpy(tr + 128 + 8 * (ticks + nInt), sliceDigests, 8 * nInt * QG_NSLICE);
+  memcpy(tr + 128 + 8 * ticks, intervalHashes, 8 * nDone);
+  memcpy(tr + 128 + 8 * (ticks + nDone), sliceDigests, 8 * nDone * QG_NSLICE);
   path(file, dir, "match.qgh", -1);
   if (!writefile(file, tr, size)) die("cannot write the trace");
 
@@ -172,7 +223,9 @@ int main(int argc, char **argv) {
   bs(&o, ",\"msSimPerTick\":"); bmilli(&o, udiv64(udiv64(simNs, ticks, &r), 1000, &r));
   bs(&o, ",\"msPerFrame\":"); bmilli(&o, frames ? udiv64(udiv64(renderNs, frames, &r), 1000, &r) : 0);
   bs(&o, ",\"strokes\":[");
-  for (uint32_t k = 0; k < players; k++) { if (k) bs(&o, ","); bu(&o, *(volatile uint16_t *)(qg_mem + QG_PLAYERS + 64 * k + QG_P_STROKES)); }
+  for (uint32_t k = 0; k < players + cpus; k++) { if (k) bs(&o, ","); bu(&o, *(volatile uint16_t *)(qg_mem + QG_PLAYERS + 64 * k + QG_P_STROKES)); }
+  bs(&o, "],\"sunk\":[");
+  for (uint32_t k = 0; k < players + cpus; k++) { if (k) bs(&o, ","); bu(&o, (qg_mem[QG_PLAYERS + 64 * k + QG_P_FL] & QG_PF_DONE) ? 1 : 0); }
   bs(&o, "],\"ballMovedCm\":[");
   for (uint32_t k = 0; k < players; k++) {
     uint32_t b = U32(QG_PLAYERS + 64 * k + QG_P_BALL);

@@ -27,7 +27,7 @@ export function word({ yaw = 0, pitch = 512, move = 0, jump = 0, shot = 0, weapo
 
 // Where a shot is taken from: blast `dh` behind the ball on a line `turn`
 // radians off the line to the cup, standing STANDOFF behind that.
-function shotGeometry(view, ball, cup, dh, turn) {
+export function shotGeometry(view, ball, cup, dh, turn) {
   const a = Math.atan2(cup[2] - ball[2], cup[0] - ball[0]) + turn;
   const dir = [Math.cos(a), Math.sin(a)];
   const bp = [ball[0] - dir[0] * dh, 0, ball[2] - dir[1] * dh];

@@ -62,7 +62,7 @@ export function buildX86({ wasm = join(ROOT, 'build', 'game.wasm'), bounds = tru
     execFileSync('clang', [...CFLAGS, `-I${out}`, join(native, 'replay.c'), join(out, 'game.s'), '-o', join(out, 'replay')], { stdio: 'inherit' });
     // the Xbox game core with scripted controllers (xbox/headless.c)
     execFileSync('clang', [...CFLAGS, `-I${out}`, `-I${native}`, `-I${join(ROOT, 'xbox')}`,
-      ...['headless.c', 'game.c', 'online.c', 'inflate.c'].map((f) => join(ROOT, 'xbox', f)), join(out, 'game.s'), '-o', join(out, 'xbox-headless')], { stdio: 'inherit' });
+      ...['headless.c', 'game.c', 'brain.c', 'online.c', 'inflate.c'].map((f) => join(ROOT, 'xbox', f)), join(out, 'game.s'), '-o', join(out, 'xbox-headless')], { stdio: 'inherit' });
   }
   return { lines: elf.asm.split('\n').length, counts: elf.counts };
 }

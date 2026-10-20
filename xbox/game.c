@@ -102,10 +102,90 @@ void pad_face(Local *l) {
   l->pitch = 512;
 }
 
+// ---------------------------------------------------------------- the neural golfer's legs
+
+#define CPU_LAG 2        // ticks from a word to seeing it land, locally
+#define CPU_STANDOFF 1.0f // stand this far behind the blast point
+
+// The brain picks the shot from the ball at rest; the legs work out where the
+// blast lands and where to stand, turned off the line to the cup.
+static void cpu_plan(Cpu *c, const float b[3]) {
+  float cup[3] = { F(QG_HDR_CUP), F(QG_HDR_CUP + 4), F(QG_HDR_CUP + 8) }, x[BRAIN_NIN], dh, turn, s, co;
+  brain_features(qg_mem, b, cup, x);
+  brain_decide(&c->brain, x, &dh, &turn);
+  float dx = cup[0] - b[0], dz = cup[2] - b[2], d = fsqrt(dx * dx + dz * dz);
+  if (d <= 0) d = 1;
+  float t = turn * (16384.0f / 6.28318548f);
+  sc((uint32_t)(int)(t < 0 ? t - 0.5f : t + 0.5f), &s, &co);
+  float ux = dx / d, uz = dz / d, rx = ux * co - uz * s, rz = ux * s + uz * co;
+  c->bp[0] = b[0] - rx * dh; c->bp[2] = b[2] - rz * dh;
+  c->bp[1] = brain_ground(qg_mem, c->bp[0], c->bp[2]);
+  c->stand[0] = c->bp[0] - rx * CPU_STANDOFF; c->stand[2] = c->bp[2] - rz * CPU_STANDOFF;
+  c->stand[1] = brain_ground(qg_mem, c->stand[0], c->stand[2]);
+  for (int i = 0; i < 3; i++) c->from[i] = b[i];
+  c->planned = 1;
+}
+
+// GolfBot.think: wait for the ball to stop, walk to the spot (run, coast,
+// then single taps), aim at the blast point from where it really stands,
+// hold the aim a moment, fire.
+static uint32_t cpu_word(Match *m, int k) {
+  Cpu *c = &m->cpu[k];
+  Local *l = &m->p[k];
+  uint32_t pb = QG_PLAYERS + 64u * (uint32_t)k, fl = B(pb + QG_P_FL), tick = U(QG_HDR_TICK), move = 0;
+  int32_t ball = (int32_t)U(pb + QG_P_BALL);
+  if (!(fl & QG_PF_LIVE) || (fl & QG_PF_DONE) || U(QG_HDR_STATE) != QG_H_PLAY || ball < 0) { c->planned = 0; goto word; }
+  uint32_t bi = 4u * (uint32_t)ball;
+  float b[3] = { F(QG_PX + bi), F(QG_PY + bi), F(QG_PZ + bi) };
+  float bvx = F(QG_VX + bi), bvy = F(QG_VY + bi), bvz = F(QG_VZ + bi);
+  int moving = (B(QG_FLAGS + (uint32_t)ball) & QG_F_AWAKE) && fsqrt(bvx * bvx + bvy * bvy + bvz * bvz) > 0.02f;
+  int mine = 0;
+  for (uint32_t j = 0; j < QG_NPROJ && !mine; j++) mine = B(QG_PROJ + j * QG_JSIZE + QG_J_KIND) && B(QG_PROJ + j * QG_JSIZE + QG_J_OWNER) == (uint32_t)k;
+  if (moving || mine || H(pb + QG_P_REFIRE) > 0 || tick - c->firedAt < 2 * CPU_LAG + 10) goto word;
+  float fx = b[0] - c->from[0], fz = b[2] - c->from[2];
+  if (!c->planned || fx * fx + fz * fz > 0.0001f) cpu_plan(c, b);
+  float px = F(pb + QG_P_PX), pz = F(pb + QG_P_PZ), vx = F(pb + QG_P_VX), vz = F(pb + QG_P_VZ);
+  float ex = c->stand[0] - px, ez = c->stand[2] - pz, away = fsqrt(ex * ex + ez * ez), speed = fsqrt(vx * vx + vz * vz);
+  if (away > 0.5f || !(fl & QG_PF_GROUND)) {
+    c->aimTicks = 0;
+    l->pitch = 512;
+    float ahead = CPU_LAG * 0.008f, sx = ex - vx * ahead, sz = ez - vz * ahead, left = fsqrt(sx * sx + sz * sz);
+    if (speed < 1 || left > 3.5f) { float yaw = atan2u(ez, ex); l->yaw = yaw < 0 ? yaw + 16384 : yaw; }
+    if (!(fl & QG_PF_GROUND)) goto word;
+    if (left > 3.5f) move = 1;
+    else if (speed < 0.2f && tick - c->tapAt > CPU_LAG + 2) { move = 1; c->tapAt = tick; }
+    goto word;
+  }
+  if (speed > 0.5f) goto word;
+  match_aim_from(m, k, (uint32_t)k, c->bp[0], c->bp[1], c->bp[2]);
+  l->weapon = 0;
+  if (++c->aimTicks < CPU_LAG + 2) goto word;
+  l->presses++;
+  c->aimTicks = 0;
+  c->firedAt = tick;
+  c->planned = 0;
+word:
+  return ((uint32_t)(l->yaw + 0.5f) & 0x3fff) | (((uint32_t)(l->pitch + 0.5f) & 0x3ff) << 14) | (move << 24) |
+         ((l->presses & 3) << 29) | (l->weapon << 31);
+}
+
+int match_add_cpu(Match *m, int k, const char *genome) {
+  if (k < 0 || k >= LOCAL_MAX || brain_init(&m->cpu[k].brain, genome)) return -1;
+  m->cpu[k].on = 1;
+  m->cpu[k].planned = 0;
+  return 0;
+}
+
 void match_tick(Match *m, const Pad pads[LOCAL_MAX]) {
   uint32_t n = 0;
   for (int k = 0; k < LOCAL_MAX; k++) {
     Local *l = &m->p[k];
+    if (!l->joined && m->cpu[k].on) {
+      l->joined = 1;
+      pad_face(l);
+      rec(m, &n, QG_EV_JOIN, (uint32_t)k, 0);
+      continue;
+    }
     if (!l->joined && pads[k].connected && (pads[k].buttons & (BTN_START | BTN_A)) && !(l->prev & (BTN_START | BTN_A))) {
       l->joined = 1;
       pad_face(l); // down the hole, the way the tee spot faces
@@ -113,7 +193,7 @@ void match_tick(Match *m, const Pad pads[LOCAL_MAX]) {
       l->prev = pads[k].buttons;
       continue;
     }
-    if (l->joined) rec(m, &n, QG_EV_INPUT, (uint32_t)k, pad_word(l, &pads[k], 1));
+    if (l->joined) rec(m, &n, QG_EV_INPUT, (uint32_t)k, m->cpu[k].on ? cpu_word(m, k) : pad_word(l, &pads[k], 1));
     else l->prev = pads[k].buttons;
   }
   U(QG_INBOX) = n;

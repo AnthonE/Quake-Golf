@@ -70,7 +70,8 @@ Machine, then Load Disc, and pick `Quake Golf.iso`. On the title screen, X
 plays online. The server it shows, `10.0.2.2:4434`, is how xemu's NAT
 reaches the machine running xemu, so it finds the relay with nothing to
 set up. Y changes the server: the d-pad edits, White deletes, A is done. A
-plays locally instead, split screen for up to four.
+plays locally instead, split screen for up to four; there, Black adds a
+neural golfer (below).
 
 Online, one controller plays. The left stick runs, the right stick aims, A
 jumps, the right trigger fires, Y or X switches between rocket and grenade,
@@ -84,12 +85,136 @@ firewall, and point the Xbox at that machine's address: `SERVER=` when you
 build, or Y on the title screen. A real console takes the same ISO or XBE,
 softmodded or modchipped, on its Ethernet port.
 
+## Play it as an agent
+
+```sh
+node tools/agent.mjs --course 11 --bots 1     # a local room on http://127.0.0.1:7777/, you are slot 0
+curl -s localhost:7777/                       # the rules and the commands
+curl -s localhost:7777/0 -d 'wait 3; face cup; hold w 2'   # act, then see
+curl -s localhost:7777/0.json                 # the same view as JSON, for scripts
+```
+
+Any agent that can make an HTTP request (or pipe text: `--stdin`) plays
+through the same input word a mouse and keys make, and no more: `aim`,
+`face`, `hold` keys for a time, `fire`, `weapon`, `wait`. There is no
+pathfinding and no auto-shot. Every reply is the screen and HUD as text:
+the clock, your strokes, where your ball and the cup are and how far, the
+lie, the other players, the blasts and sinks since your last look. The help
+carries what a person learns by feel: blast distance against shot length,
+where to stand, how far you slide. The door is `client/agent.mjs`, shared
+by any transport; the room is `tools/agent.mjs`.
+
+The room is stepped: the world moves only while an agent's command runs, so
+a slow thinker loses nothing by thinking, and the hole clock still counts
+every tick it plays. Golf bots play the slots after the agents. The match
+is an ordinary event log, saved after every command, and it replays in the
+harness like any other.
+
+The first agent game: Claude, from this repo's own session, on course 11
+(par 4, 238 m) against one golf bot. The bot birdied it in 3. Claude took 12
+strokes, ran out the clock and scored 14: the bot's drive blast, fired 3
+ticks earlier and 2.6 m away, knocked its first shot about 60° off line,
+then it ping-ponged across a cup that sits in a hollow, where every shot
+strong enough to reach the cup ran through and up the far side. With no
+private sim to try shots on, distance is a guess; the bot tries each shot on
+one first. The log (30,489 ticks) replays to the same hash on every tick on 1
+and 4 threads.
+
+## The neural golfer
+
+```sh
+node tools/zoo.mjs --gens 500                     # breed; logs/zoo.genome holds the best so far
+node tools/zoo.mjs --bench qg2:...                # 40 held-out courses, shots alone
+node tools/zoo.mjs --real qg2:...                 # the same courses as real holes, then the golf bot on them
+node tools/agent.mjs --genome qg2:...             # play against it through the agent door
+```
+
+Or play it in Chrome: run `node net/play.mjs` and add `&bot=1&genome=qg2:...`
+to the URL it prints. On the Xbox, Black seats it (below).
+
+A 274-weight net that judges each shot by feel, where the golf bot tries 24
+on a private sim first. It reads a ball at rest as fourteen numbers (the
+cup's distance and height, the lie, the ground at six points along the line
+and 5 m ahead of and behind the ball) and answers with the blast distance
+behind the ball and a turn of up to 6°. It walks and aims on the golf bot's
+own legs, so the shot choice is the only difference between the two
+(`client/brain.mjs`).
+
+Its genome stores no weights. It is a base seed and one 16-bit seed per
+accepted mutation, and replaying that rebuilds the weights bit for bit (the
+encoding of Such et al. 2017). All of it is f32, as the sim is: every `+ -
+* /` and `sqrt` rounds to single, which V8, any browser and the Pentium
+III's SSE1 do alike. As `qg2:` and base64url, 101 mutations still fit in a
+tweet. `tools/zoo.mjs` breeds it on worker threads: a parent and fifteen
+children play eight training courses by shots alone (each shot taken from
+its spot, as the bot's private sim takes them), and the best child replaces
+the parent only if it beats it again on sixteen fresh courses. Without that
+second test, the best of fifteen beats its parent on eight courses most
+generations by luck alone.
+
+The run (seed 1) kept 101 children in 260 generations, filled the tweet and
+stopped, in 22 minutes on 4 threads here. On 40 held-out courses (seeds
+1-40; training used 1000-1199):
+
+| | shots alone (10 at most, else +2) | real holes (walking, the clock) |
+| --- | --- | --- |
+| a random net (no mutations) | 10.93, 12 sunk | |
+| a rule of thumb (blast distance by range) | 9.43, 18 sunk | |
+| **the neural golfer, 279 chars** | **4.35, 40 sunk** | **4.80, 40 sunk; 4.33 on the Xbox core** |
+| the golf bot, 24 tries a shot | 2.10, 40 sunk | 2.33, 40 sunk |
+
+Foresight still wins, by two to two and a half strokes a hole. The golfer
+scores 1 to 10, with a hole in one on course 17; on course 11, where Claude
+scored 14 through the agent door, it takes 5. On the Xbox core it plays on
+its own C legs (below), whose inputs land on the tick they are made rather
+than after the room's 6-tick delay, and it scores a little better. With its genome at both Chrome
+clients' controls (`net/run-m2.mjs --genome`), the M2 gate passes on course
+7: both sunk, in 3 and 4, and all 63 interval hashes agree. (An earlier f64
+brain, `qg1`, scored 5.92 by shots alone (with the stale first shot, below)
+and 5.20 on real holes, with two blowups; it could not run on the Xbox bit
+for bit, and its genomes are refused now.)
+
+Erratum, 2026-10-19: until then, a hole by shots alone chose its first shot
+from stale memory (`Planner.load` fills only the private snapshot, which
+`try` copies in), so every such hole wasted its first stroke, about one a
+hole for a competent player. The column above is re-measured with the fix;
+real holes were never affected. Both golfers were bred under the old
+harness, which cost each a stroke a hole uniformly while selection ran. The genome:
+
+```
+qg2:hmagd9R84qfApxdNJr9m7qGTDze89_fPq7m5K7Gg4TBr9-wiiN8Tiqpy9rhz87tTGlgTODs5cCu2UdcWhViGXH8RVInqWkYmcrwtHw4C9zsnqwW3L8AWtxiGGsuGwhqyLVwpIJgdM6caBm8Yw2yh7gta75ETI5-KXT6HmFE1fE2PDb7cFD-YB1EBB9fnFRLjEJOeoff8YgIYlPKoDkolOitC6S8nfhIb3aXZanA9x_kkbIjcal84QfZwPn_sTt8bfpm1N3AM-f9Krj8pbFw
+```
+
+### On the original Xbox
+
+In local play, Black on any controller seats the neural golfer at the first
+port with no controller, in its own split-screen view. Its genome is
+`D:\golfer.txt` beside the XBE, which `make -C xbox GOLFER=qg2:...` writes,
+else the one above, built in (`xbox/golfer.h`).
+
+`xbox/brain.c` is the brain in C, the same ops in the same order as the JS
+in plain floats, which clang keeps in SSE1 for a Pentium III; the golf
+bot's legs (wait for the ball, walk, tap, aim at the blast point, fire)
+are in `game.c`. `test/xbox.test.mjs` holds it to V8, natively and under
+qemu's pentium3 where present:
+
+| Check | Result |
+| --- | --- |
+| a fixed genome's weights, FNV-1a over their bytes | `ffac99fb`, as in V8 |
+| the fourteen features and the shot from four tees, as bits | all equal to V8's |
+| the built-in golfer on course 7, alone on the Xbox core | sunk, and V8 replays the match on every tick |
+| the XBE's brain and legs (`llvm-objdump`) | SSE1 single ops; no SSE2, and x87 only to return a float |
+
+Not done: the golfer has not run on a console or in xemu, for the reasons
+above, and it plays only in local play (online, it would need its own
+connection).
+
 ## Run it
 
 ```sh
 npm ci && sh tools/install-deno.sh     # wabt, binaryen, Deno 2.9.7 into .tools/
 npm run build                          # src/*.wat -> build/game.wasm
-npm test                               # assembler, XXH64, sim, gameplay, splits, keyframes, threads, wire
+npm test                               # assembler, XXH64, sim, gameplay, splits, keyframes, threads, wire, agent door
 node harness/matrix.mjs --ticks 20000  # Node, Deno, Chrome x Liftoff/TurboFan x 1/2/4 threads
 node tools/gengame.mjs --bots 4 --out logs/game.qgl && node harness/matrix.mjs --ticks 20000 --log logs/game.qgl
 node harness/perf.mjs                  # per-phase cost at 10,000 balls
