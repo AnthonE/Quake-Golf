@@ -29,7 +29,7 @@ node net/play.mjs                    # the relay and the page; open the URL it p
 
 Click to play. The mouse aims, WASD runs, Space jumps, left click fires, 1/2
 or right click picks the rocket or the grenade, Tab shows scores, F goes
-fullscreen. Every shot is a stroke. The rocket is the club: a blast just
+fullscreen, M mutes the music. Every shot is a stroke. The rocket is the club: a blast just
 behind your ball drives it 200+ m with loft, one 4 m back rolls it a few
 metres, and the cup is a slipgate that swallows any ball under 8 m/s. The
 grenade bounces and pops after 2.5 s, for lobs. A rocket at your own feet is
@@ -37,7 +37,10 @@ a rocket jump (and a stroke). Holes last 4 minutes; not finishing costs 2.
 Your own movement, shots and rocket jumps are predicted, so they show on the
 next frame; other players and every ball show a round trip late. To feel a
 bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
-round trip with 10% loss each way.
+round trip with 10% loss each way. Each hole has its own tune, in
+bytebeat: one line of arithmetic per sample, 8000 samples a second, 8 bits,
+its notes picked by the room's seed and the hole number ([`client/sound.mjs`](client/sound.mjs));
+`&music=0` starts with it off.
 
 ## Play it on an original Xbox, or in xemu
 
