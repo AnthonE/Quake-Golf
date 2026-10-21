@@ -53,6 +53,7 @@ export function playHole(planner, start, choose) {
   // load() fills only the private snapshot; try() copies it in. Copy it in now,
   // or the first shot is chosen from whatever the memory held before.
   planner.u8.set(planner.snap, REGION);
+  planner.x.regrid();
   const view = new View(planner.u8.buffer);
   const cup = view.hole().cup;
   for (let n = 1; n <= MAX_SHOTS; n++) {

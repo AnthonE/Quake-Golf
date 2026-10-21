@@ -60,7 +60,7 @@
 ;; -1. d must not pass one cell (0.4 m), so the 27 neighbours cover it.
 (func $hit_ball (param $x f32) (param $y f32) (param $z f32) (param $d f32) (result i32)
   (local $cx i32) (local $cy i32) (local $cz i32) (local $ox i32) (local $oy i32) (local $oz i32)
-  (local $b i32) (local $s i32) (local $e i32) (local $j i32) (local $dx f32) (local $dy f32) (local $dz f32) (local $d2 f32)
+  (local $b i32) (local $s i32) (local $j i32) (local $dx f32) (local $dy f32) (local $dz f32) (local $d2 f32)
   (local.set $d2 (f32.mul (local.get $d) (local.get $d)))
   (call $cell (local.get $x) (local.get $y) (local.get $z))
   (local.set $cz) (local.set $cy) (local.set $cx)
@@ -71,13 +71,12 @@
       (local.set $ox (i32.const -1))
       (loop $lx
         (local.set $b (call $bucket (i32.add (local.get $cx) (local.get $ox)) (i32.add (local.get $cy) (local.get $oy)) (i32.add (local.get $cz) (local.get $oz))))
-        (local.set $s (!ld i32 @CELLSTART (local.get $b)))
-        (local.set $e (!ld i32 @(CELLSTART + 4) (local.get $b)))
+        (local.set $s (!ld u16 @HEAD (local.get $b)))
         (block $done
           (loop $scan
-            (br_if $done (i32.ge_u (local.get $s) (local.get $e)))
-            (local.set $j (!ld u16 @SORTED (local.get $s)))
-            (local.set $s (i32.add (local.get $s) (i32.const 1)))
+            (br_if $done (i32.eq (local.get $s) (i32.const 0xffff)))
+            (local.set $j (local.get $s))
+            (local.set $s (!ld u16 @NEXT (local.get $j)))
             (local.set $dx (f32.sub (!ld f32 @PX (local.get $j)) (local.get $x)))
             (local.set $dy (f32.sub (!ld f32 @PY (local.get $j)) (local.get $y)))
             (local.set $dz (f32.sub (!ld f32 @PZ (local.get $j)) (local.get $z)))

@@ -10,61 +10,142 @@
   (i32.trunc_sat_f32_s (f32.floor (f32.mul (local.get $y) (f32.const @INV_CELL))))
   (i32.trunc_sat_f32_s (f32.floor (f32.mul (local.get $z) (f32.const @INV_CELL)))))
 
-;; 32 x 16 x 32 buckets, wrapping. Any cell's 27 neighbours land in 27 distinct
+;; 64 x 8 x 64 buckets, wrapping. Any cell's 27 neighbours land in 27 distinct
 ;; buckets, so no pair is ever visited twice; far cells alias, distance filters them.
 (func $bucket (param $cx i32) (param $cy i32) (param $cz i32) (result i32)
-  (i32.or (i32.or (i32.and (local.get $cx) (i32.const 31))
-                  (i32.shl (i32.and (local.get $cy) (i32.const 15)) (i32.const 5)))
-          (i32.shl (i32.and (local.get $cz) (i32.const 31)) (i32.const 9))))
+  (i32.or (i32.or (i32.and (local.get $cx) (i32.const 63))
+                  (i32.shl (i32.and (local.get $cy) (i32.const 7)) (i32.const 6)))
+          (i32.shl (i32.and (local.get $cz) (i32.const 63)) (i32.const 9))))
 
-;; Serial: events, grid (counting sort, stable in index order), players and
-;; projectiles (which look balls up in the grid), then the awake list and blocks.
+;; The grid. Each bucket is a list of its balls through NEXT, in ascending
+;; index, so a scan meets a cell's balls in the order a stable sort would
+;; give. The lists are a function of the region alone (positions and flags),
+;; however they were reached, and every store keeps NEXT[j] > j, so a reader
+;; on another thread (the prediction) always reaches the end of a list.
+
+;; The bucket ball i belongs in now: its cell's, or none once out of play.
+(func $bucket_of (param $i i32) (result i32)
+  (if (result i32) (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_LIVE))
+    (then (call $bucket (call $cell (!ld f32 @PX (local.get $i)) (!ld f32 @PY (local.get $i)) (!ld f32 @PZ (local.get $i)))))
+    (else (i32.const 0xffff))))
+
+;; Moves ball i into the bucket it belongs in, if it is not there already.
+;; Called wherever a ball's position or liveness changes outside integrate:
+;; a spawn, a new ball on the tee, a sink; and by tick_end for every ball integrate moved.
+(func $regrid_ball (param $i i32)
+  (local $old i32) (local $new i32) (local $at i32) (local $j i32)
+  (local.set $new (call $bucket_of (local.get $i)))
+  (local.set $old (!ld u16 @CELLOF (local.get $i)))
+  (if (i32.eq (local.get $new) (local.get $old)) (then (return)))
+  (if (i32.ne (local.get $old) (i32.const 0xffff))
+    (then
+      ;; out of the old list: $at is the link that points at i
+      (local.set $at (i32.add (i32.const @HEAD) (i32.shl (local.get $old) (i32.const 1))))
+      (block $found
+        (loop $walk
+          (local.set $j (i32.load16_u (local.get $at)))
+          (br_if $found (i32.eq (local.get $j) (local.get $i)))
+#if DEBUG
+          (if (i32.eq (local.get $j) (i32.const 0xffff))
+            (then (i32.store (i32.const @ERR_CODE) (i32.const 91)) (i32.store (i32.const @ERR_INDEX) (local.get $i)) (unreachable)))
+#endif
+          (local.set $at (i32.add (i32.const @NEXT) (i32.shl (local.get $j) (i32.const 1))))
+          (br $walk)))
+      (i32.store16 (local.get $at) (!ld u16 @NEXT (local.get $i)))))
+  (!st u16 @CELLOF (local.get $i) (local.get $new))
+  (if (i32.ne (local.get $new) (i32.const 0xffff))
+    (then
+      ;; into the new list before the first higher index (0xffff, the end, is higher than any)
+      (local.set $at (i32.add (i32.const @HEAD) (i32.shl (local.get $new) (i32.const 1))))
+      (block $here
+        (loop $walk
+          (local.set $j (i32.load16_u (local.get $at)))
+          (br_if $here (i32.gt_u (local.get $j) (local.get $i)))
+          (local.set $at (i32.add (i32.const @NEXT) (i32.shl (local.get $j) (i32.const 1))))
+          (br $walk)))
+      (!st u16 @NEXT (local.get $i) (local.get $j))
+      (i32.store16 (local.get $at) (local.get $i)))))
+
+;; The whole grid from the region, highest index first so each list comes out ascending.
+(func $grid_build
+  (local $i i32) (local $b i32)
+  (memory.fill (i32.const @HEAD) (i32.const 0xff) (i32.const @(NCELL * 2)))
+  (memory.fill (i32.const @CELLOF) (i32.const 0xff) (i32.const @(BALL_CAP * 2)))
+  (local.set $i (i32.load (i32.const @HDR_NBALLS)))
+  (block $done
+    (loop $down
+      (br_if $done (i32.eqz (local.get $i)))
+      (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+      (local.set $b (call $bucket_of (local.get $i)))
+      (if (i32.ne (local.get $b) (i32.const 0xffff))
+        (then
+          (!st u16 @CELLOF (local.get $i) (local.get $b))
+          (!st u16 @NEXT (local.get $i) (!ld u16 @HEAD (local.get $b)))
+          (!st u16 @HEAD (local.get $b) (local.get $i))))
+      (br $down)))
+  (i32.store (i32.const @GRID_OK) (i32.const 1)))
+
+;; The region was written from outside (a keyframe, a planner's snapshot):
+;; rebuild the grid before the next tick.
+(func (export "regrid")
+  (i32.store (i32.const @GRID_OK) (i32.const 0)))
+
+#if DEBUG
+;; Every live ball in exactly the bucket it belongs in, every list ascending.
+(func $grid_check
+  (local $b i32) (local $j i32) (local $prev i32) (local $count i32) (local $live i32) (local $i i32) (local $n i32)
+  (!for $b (i32.const 0) (i32.const @NCELL)
+    (local.set $prev (i32.const -1))
+    (local.set $j (!ld u16 @HEAD (local.get $b)))
+    (block $end
+      (loop $walk
+        (br_if $end (i32.eq (local.get $j) (i32.const 0xffff)))
+        (if (i32.or (i32.le_s (local.get $j) (local.get $prev)) (i32.ne (!ld u16 @CELLOF (local.get $j)) (local.get $b)))
+          (then (i32.store (i32.const @ERR_CODE) (i32.const 92)) (i32.store (i32.const @ERR_INDEX) (local.get $j)) (unreachable)))
+        (!inc $count)
+        (local.set $prev (local.get $j))
+        (local.set $j (!ld u16 @NEXT (local.get $j)))
+        (br $walk))))
+  (local.set $n (i32.load (i32.const @HDR_NBALLS)))
+  (!for $i (i32.const 0) (local.get $n)
+    (if (i32.ne (!ld u16 @CELLOF (local.get $i)) (call $bucket_of (local.get $i)))
+      (then (i32.store (i32.const @ERR_CODE) (i32.const 93)) (i32.store (i32.const @ERR_INDEX) (local.get $i)) (unreachable)))
+    (if (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_LIVE)) (then (!inc $live))))
+  (if (i32.ne (local.get $count) (local.get $live))
+    (then (i32.store (i32.const @ERR_CODE) (i32.const 94)) (i32.store (i32.const @ERR_INDEX) (local.get $count)) (unreachable))))
+#endif
+
+;; Serial: the grid checked (rebuilt if the region came from outside), events,
+;; players and projectiles (which look balls up in the grid), then the awake
+;; list and blocks, a 4-ball word at a time.
 (func $tick_begin (export "tick_begin") (result i32)
-  (local $n i32) (local $i i32) (local $b i32) (local $t i32) (local $acc i32)
+  (local $n i32) (local $i i32) (local $m i32)
   (local $na i32) (local $nb i32) (local $blk i32) (local $nblk i32)
+  (if (i32.or (i32.eqz (i32.load (i32.const @GRID_OK)))
+              (i32.or (i32.ne (i32.load (i32.const @GRID_TICK)) (i32.load (i32.const @HDR_TICK)))
+                      (i32.ne (i32.load (i32.const @GRID_N)) (i32.load (i32.const @HDR_NBALLS)))))
+    (then (call $grid_build)))
   (call $apply_events)
   (local.set $n (i32.load (i32.const @HDR_NBALLS)))
-  (memory.fill (i32.const @CELLSTART) (i32.const 0) (i32.const @((NCELL + 1) * 4)))
-  (!for $i (i32.const 0) (local.get $n)
-    (if (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_LIVE))
-      (then
-        (local.set $b (call $bucket (call $cell (!ld f32 @PX (local.get $i)) (!ld f32 @PY (local.get $i)) (!ld f32 @PZ (local.get $i)))))
-        (!st u16 @CELLOF (local.get $i) (local.get $b))
-        (!st i32 @(CELLSTART + 4) (local.get $b) (i32.add (!ld i32 @(CELLSTART + 4) (local.get $b)) (i32.const 1))))
-      ;; out of play (sunk): in no cell
-      (else (!st u16 @CELLOF (local.get $i) (i32.const 0xffff)))))
-  ;; bucket b holds SORTED[CELLSTART[b] .. CELLSTART[b + 1])
-  (local.set $acc (i32.const 0))
-  (!for $b (i32.const 0) (i32.const @NCELL)
-    (local.set $acc (i32.add (local.get $acc) (!ld i32 @(CELLSTART + 4) (local.get $b))))
-    (!st i32 @(CELLSTART + 4) (local.get $b) (local.get $acc)))
-  (memory.copy (i32.const @CURSOR) (i32.const @CELLSTART) (i32.const @(NCELL * 4)))
-  (!for $i (i32.const 0) (local.get $n)
-    (local.set $b (!ld u16 @CELLOF (local.get $i)))
-    (if (i32.ne (local.get $b) (i32.const 0xffff))
-      (then
-        (local.set $t (!ld i32 @CURSOR (local.get $b)))
-        (!st u16 @SORTED (local.get $t) (local.get $i))
-        (!st i32 @CURSOR (local.get $b) (i32.add (local.get $t) (i32.const 1))))))
   (call $players)
   (call $push_balls)
   (call $projectiles (i32.const 0) (i32.const -1))
-  (local.set $na (i32.const 0))
-  (!for $i (i32.const 0) (local.get $n)
-    (if (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE))
-      (then (!st u16 @AWAKE (local.get $na) (local.get $i)) (!inc $na))))
-  (local.set $nb (i32.const 0))
   (local.set $nblk (i32.shr_u (i32.add (local.get $n) (i32.const 3)) (i32.const 2)))
   (!for $blk (i32.const 0) (local.get $nblk)
     (if (i32.and (i32.load offset=@FLAGS (i32.shl (local.get $blk) (i32.const 2))) (i32.const @(F_AWAKE * 0x01010101)))
-      (then (!st u16 @BLOCKS (local.get $nb) (local.get $blk)) (!inc $nb))))
+      (then
+        (!st u16 @BLOCKS (local.get $nb) (local.get $blk)) (!inc $nb)
+        (!for $m (i32.const 0) (i32.const 4)
+          (local.set $i (i32.add (i32.shl (local.get $blk) (i32.const 2)) (local.get $m)))
+          (if (i32.and (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE))
+            (then (!st u16 @AWAKE (local.get $na) (local.get $i)) (!inc $na)))))))
   (i32.store (i32.const @JOB_NA) (local.get $na))
   (i32.store (i32.const @JOB_NB) (local.get $nb))
   (local.get $na))
 
 ;; Phase A over AWAKE[lo, hi).
 (func $contacts (export "contacts") (param $lo i32) (param $hi i32)
-  (local $k i32) (local $i i32) (local $j i32) (local $s i32) (local $e i32) (local $b i32)
+  (local $k i32) (local $i i32) (local $j i32) (local $s i32) (local $b i32)
   (local $cx i32) (local $cy i32) (local $cz i32) (local $ox i32) (local $oy i32) (local $oz i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vy f32) (local $vz f32)
   (local $dx f32) (local $dy f32) (local $dz f32) (local $d2 f32) (local $dist f32) (local $inv f32)
@@ -92,13 +173,12 @@
           (local.set $b (call $bucket (i32.add (local.get $cx) (local.get $ox))
                                       (i32.add (local.get $cy) (local.get $oy))
                                       (i32.add (local.get $cz) (local.get $oz))))
-          (local.set $s (!ld i32 @CELLSTART (local.get $b)))
-          (local.set $e (!ld i32 @(CELLSTART + 4) (local.get $b)))
+          (local.set $s (!ld u16 @HEAD (local.get $b)))
           (block $done
             (loop $scan
-              (br_if $done (i32.ge_u (local.get $s) (local.get $e)))
-              (local.set $j (!ld u16 @SORTED (local.get $s)))
-              (local.set $s (i32.add (local.get $s) (i32.const 1)))
+              (br_if $done (i32.eq (local.get $s) (i32.const 0xffff)))
+              (local.set $j (local.get $s))
+              (local.set $s (!ld u16 @NEXT (local.get $j)))
               (br_if $scan (i32.eq (local.get $j) (local.get $i)))
               (local.set $dx (f32.sub (!ld f32 @PX (local.get $j)) (local.get $px)))
               (local.set $dy (f32.sub (!ld f32 @PY (local.get $j)) (local.get $py)))

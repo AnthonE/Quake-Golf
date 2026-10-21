@@ -70,6 +70,7 @@ export class Planner {
   try(slot, shot, cup, maxTicks = 1600) {
     const { u8, dv, x } = this;
     u8.set(this.snap, L.REGION);
+    x.regrid();
     u8.fill(0, L.INBOX, L.INBOX + 4);
     const pb = L.PLAYERS + slot * L.PSIZE;
     const ball = dv.getInt32(pb + L.P_BALL, true);

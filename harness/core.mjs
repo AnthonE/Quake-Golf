@@ -167,7 +167,7 @@ export class Sim {
   }
 
   regionCopy() { return this.u8.slice(L.REGION, L.REGION + L.REGION_SIZE); }
-  setRegion(bytes) { this.u8.set(bytes, L.REGION); }
+  setRegion(bytes) { this.u8.set(bytes, L.REGION); this.x.regrid(); }
   error() {
     return { code: this.i32[L.ERR_CODE >> 2], index: this.i32[L.ERR_INDEX >> 2], tick: this.i32[L.ERR_TICK >> 2] };
   }

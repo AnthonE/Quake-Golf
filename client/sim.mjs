@@ -63,7 +63,7 @@ async function run({ module, memory, netPort }) {
   // the interval that differed; ours name the first slice that differs.
   function restore({ tick, reason, region, interval, digests: theirs }) {
     changing(() => {
-      if (region) u8.set(region, L.REGION);
+      if (region) { u8.set(region, L.REGION); x.regrid(); }
       else x.init(welcome.seed);
     });
     if (at() !== tick) self.postMessage({ error: `keyframe for tick ${tick} restored tick ${at()}` });

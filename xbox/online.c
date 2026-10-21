@@ -200,6 +200,7 @@ static void restore(Online *o, uint32_t reason, uint32_t tick, uint32_t raw, con
     int32_t got = gunzip(packed, n, unpacked, sizeof unpacked);
     if (got != (int32_t)QG_REGION_SIZE) { o->state = ON_FAILED; o->error = "a keyframe did not unpack"; return; }
     unshuffle(qg_mem + QG_REGION, unpacked);
+    qg_regrid();
   } else qg_init(o->seed);
   if ((uint32_t)AT(o) != tick) { o->state = ON_FAILED; o->error = "a keyframe restored the wrong tick"; return; }
   for (int k = 0; k < ON_STORE; k++) if (o->store[k].tick >= 0 && o->store[k].tick < (int32_t)tick) o->store[k].tick = -1;

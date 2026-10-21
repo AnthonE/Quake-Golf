@@ -83,6 +83,7 @@
       (!st u8 @FLAGS (local.get $n) (i32.const @(F_LIVE | F_AWAKE)))
       (!st u8 @SLEEP (local.get $n) (i32.const 0))
       (!st u16 @OWNER (local.get $n) (local.get $owner))
+      (call $regrid_ball (local.get $n))
       (!inc $n)))
   (i32.store (i32.const @HDR_NBALLS) (local.get $n)))
 

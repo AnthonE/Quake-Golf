@@ -1,21 +1,34 @@
 ;; Tick orchestration, threads, init, keyframes.
 
-;; Serial: apply wakes, the cup and hole clock, advance the tick, digest one slice. Slice s of the
-;; interval that starts at tick K is digested at tick K+s+1, and the interval
-;; closes at K+128. So every digest of an interval is taken after its boundary,
-;; and a keyframe at a multiple of 128 restarts the sliced hash cleanly.
+;; Serial: apply wakes, the cup and hole clock, the grid brought up to date,
+;; advance the tick, digest one slice. Slice s of the interval that starts at
+;; tick K is digested at tick K+s+1, and the interval closes at K+128. So every
+;; digest of an interval is taken after its boundary, and a keyframe at a
+;; multiple of 128 restarts the sliced hash cleanly.
 (func $tick_end (export "tick_end")
-  (local $n i32) (local $i i32) (local $t i32) (local $s i32)
+  (local $n i32) (local $i i32) (local $t i32) (local $s i32) (local $blk i32) (local $m i32) (local $k i32)
   (local.set $n (i32.load (i32.const @HDR_NBALLS)))
-  (!for $i (i32.const 0) (local.get $n)
-    (if (!ld u8 @WAKE (local.get $i))
+  (!for $blk (i32.const 0) (i32.shr_u (i32.add (local.get $n) (i32.const 3)) (i32.const 2))
+    (if (i32.load offset=@WAKE (i32.shl (local.get $blk) (i32.const 2)))
       (then
-        (!st u8 @FLAGS (local.get $i) (i32.or (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE)))
-        (!st u8 @SLEEP (local.get $i) (i32.const 0))
-        (!st u8 @WAKE (local.get $i) (i32.const 0)))))
+        (!for $m (i32.const 0) (i32.const 4)
+          (local.set $i (i32.add (i32.shl (local.get $blk) (i32.const 2)) (local.get $m)))
+          (if (!ld u8 @WAKE (local.get $i))
+            (then
+              (!st u8 @FLAGS (local.get $i) (i32.or (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE)))
+              (!st u8 @SLEEP (local.get $i) (i32.const 0))
+              (!st u8 @WAKE (local.get $i) (i32.const 0))))))))
   (call $hole)
+  ;; every ball integrate moved: this tick's awake list
+  (!for $k (i32.const 0) (i32.load (i32.const @JOB_NA))
+    (call $regrid_ball (!ld u16 @AWAKE (local.get $k))))
   (local.set $t (i32.add (i32.load (i32.const @HDR_TICK)) (i32.const 1)))
   (i32.store (i32.const @HDR_TICK) (local.get $t))
+  (i32.store (i32.const @GRID_TICK) (local.get $t))
+  (i32.store (i32.const @GRID_N) (i32.load (i32.const @HDR_NBALLS)))
+#if DEBUG
+  (call $grid_check)
+#endif
   (local.set $s (i32.and (i32.sub (local.get $t) (i32.const 1)) (i32.const @(NSLICE - 1))))
   (call $hash_slice (local.get $s))
   (if (i32.eq (local.get $s) (i32.const @(NSLICE - 1)))
@@ -111,4 +124,5 @@
   (memory.copy (select (i32.const @SNAP1) (i32.const @SNAP0) (local.get $k)) (i32.const @REGION) (i32.const @REGION_SIZE)))
 
 (func (export "restore") (param $k i32)
+  (i32.store (i32.const @GRID_OK) (i32.const 0))
   (memory.copy (i32.const @REGION) (select (i32.const @SNAP1) (i32.const @SNAP0) (local.get $k)) (i32.const @REGION_SIZE)))

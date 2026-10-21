@@ -58,6 +58,7 @@
       (!st u8 @FLAGS (local.get $n) (i32.const @F_LIVE))
       (!st u8 @SLEEP (local.get $n) (i32.const 0))
       (!st u16 @OWNER (local.get $n) (local.get $p))
+      (call $regrid_ball (local.get $n))
       (!put i32 @(PLAYERS + P_BALL) (local.get $pb) (local.get $n))
       (i32.store (i32.const @HDR_NBALLS) (i32.add (local.get $n) (i32.const 1))))))
 
@@ -209,7 +210,7 @@
 ;; through their own ball so it can't be dribbled to the cup. Changes
 ;; velocities only, so the grid stays valid.
 (func $push_balls
-  (local $p i32) (local $pb i32) (local $own i32) (local $j i32) (local $s i32) (local $e i32)
+  (local $p i32) (local $pb i32) (local $own i32) (local $j i32) (local $s i32)
   (local $x0 i32) (local $x1 i32) (local $y0 i32) (local $y1 i32) (local $z0 i32) (local $z1 i32)
   (local $cx i32) (local $cy i32) (local $cz i32) (local $b i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $dx f32) (local $dz f32) (local $d2 f32) (local $d f32)
@@ -237,13 +238,12 @@
             (local.set $cx (local.get $x0))
             (loop $lx
               (local.set $b (call $bucket (local.get $cx) (local.get $cy) (local.get $cz)))
-              (local.set $s (!ld i32 @CELLSTART (local.get $b)))
-              (local.set $e (!ld i32 @(CELLSTART + 4) (local.get $b)))
+              (local.set $s (!ld u16 @HEAD (local.get $b)))
               (block $done
                 (loop $scan
-                  (br_if $done (i32.ge_u (local.get $s) (local.get $e)))
-                  (local.set $j (!ld u16 @SORTED (local.get $s)))
-                  (local.set $s (i32.add (local.get $s) (i32.const 1)))
+                  (br_if $done (i32.eq (local.get $s) (i32.const 0xffff)))
+                  (local.set $j (local.get $s))
+                  (local.set $s (!ld u16 @NEXT (local.get $j)))
                   (br_if $scan (i32.eq (local.get $j) (local.get $own)))
                   (local.set $by (!ld f32 @PY (local.get $j)))
                   (br_if $scan (f32.lt (local.get $by) (f32.sub (local.get $py) (f32.const @R))))

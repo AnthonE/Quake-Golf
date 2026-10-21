@@ -83,6 +83,7 @@ test('the referee hashes a match as its clients do; a joiner from its keyframe a
   assert.equal(key.tick, 1408);
   const j = await client(seed);
   j.u8.set(await W.unpackKey(key.packed), L.REGION);
+  j.x.regrid();
   assert.equal(j.tick, key.tick);
   assert.deepEqual(intervals(j, ticks, key.tick, ticks.length), refIntervals.filter(([t]) => t > key.tick));
   assert.ok(key.packed.length < 40000, `keyframe packs to ${key.packed.length} B`);
