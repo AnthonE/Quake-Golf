@@ -1,26 +1,28 @@
 #!/usr/bin/env node
 // Per-phase cost of a confirmed tick at 10,000 balls, single thread, plus
-// the 2- and 4-thread step, then the same under a sustained wake storm.
-//   node harness/perf.mjs [--from 16000] [--to 24000]
+// the 2- and 4-thread step, then the same under a sustained wake storm, then
+// M4's pit (tools/genlog.mjs --pit) through each stage of the heap's life.
+//   node harness/perf.mjs [--from 16000] [--to 24000] [--wasm build/game.wasm] [--pit-only]
 import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { newMemory, instantiate, Sim, parseLog } from './core.mjs';
 import { startWorkers } from './run-node.mjs';
-import { generate } from '../tools/genlog.mjs';
+import { generate, generatePit } from '../tools/genlog.mjs';
 import * as L from '../src/layout.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? Number(argv[i + 1]) : d; };
+const wasm = argv.includes('--wasm') ? argv[argv.indexOf('--wasm') + 1] : 'build/game.wasm';
 const from = opt('from', 16000);
 const to = opt('to', 24000);
 const logPath = `logs/perf${to}.qgl`;
-if (!existsSync('build/game.wasm')) execFileSync(process.execPath, ['tools/asm.mjs'], { stdio: 'inherit' });
+if (!existsSync(wasm)) execFileSync(process.execPath, ['tools/asm.mjs'], { stdio: 'inherit' });
 if (!existsSync(logPath)) execFileSync(process.execPath, ['tools/genlog.mjs', '--ticks', String(to), '--out', logPath], { stdio: 'inherit' });
 const log = parseLog(readFileSync(logPath));
-const bytes = readFileSync('build/game.wasm');
+const bytes = readFileSync(wasm);
 const module = await WebAssembly.compile(bytes);
 
-async function single() {
+async function single(log, from, to) {
   const memory = newMemory();
   const sim = new Sim(await instantiate(module, memory), memory);
   sim.init(log.courseSeed);
@@ -64,23 +66,39 @@ async function threaded(threads, log, from, to) {
   return { ms, awake: awake / (to - from) };
 }
 
-const s = await single();
-const tick = s.begin + s.contacts + s.integrate + s.end;
 const f = (x) => x.toFixed(3);
-console.log(`Node ${process.versions.v8}, ${s.balls} balls, ticks ${from}-${to}, mean ${Math.round(s.awake)} awake`);
-console.log(`  tick_begin (events, grid, lists)  ${f(s.begin)} ms`);
-console.log(`  contacts (phase A)                ${f(s.contacts)} ms`);
-console.log(`  integrate (phase B)               ${f(s.integrate)} ms`);
-console.log(`  tick_end (wakes, sliced hash)     ${f(s.end)} ms`);
-console.log(`  confirmed tick, 1 thread          ${f(tick)} ms   (budget 1.5 ms)`);
-console.log(`  p99 tick                          ${f(s.p99)} ms`);
-console.log(`  worst tick                        ${f(s.worst.ms)} ms at tick ${s.worst.tick}, ${s.worst.awake} awake (one sample: may be the OS)`);
-console.log(`  full-region hash (harness only)   ${f(s.hash)} ms`);
-for (const n of [2, 4]) console.log(`  confirmed tick, ${n} threads         ${f((await threaded(n, log, from, to)).ms)} ms`);
+if (!argv.includes('--pit-only')) {
+  const s = await single(log, from, to);
+  const tick = s.begin + s.contacts + s.integrate + s.end;
+  console.log(`Node ${process.versions.v8}, ${s.balls} balls, ticks ${from}-${to}, mean ${Math.round(s.awake)} awake`);
+  console.log(`  tick_begin (events, players, lists) ${f(s.begin)} ms`);
+  console.log(`  contacts (phase A)                ${f(s.contacts)} ms`);
+  console.log(`  integrate (phase B)               ${f(s.integrate)} ms`);
+  console.log(`  tick_end (wakes, grid, hash slice) ${f(s.end)} ms`);
+  console.log(`  confirmed tick, 1 thread          ${f(tick)} ms   (budget 1.5 ms)`);
+  console.log(`  p99 tick                          ${f(s.p99)} ms`);
+  console.log(`  worst tick                        ${f(s.worst.ms)} ms at tick ${s.worst.tick}, ${s.worst.awake} awake (one sample: may be the OS)`);
+  console.log(`  full-region hash (harness only)   ${f(s.hash)} ms`);
+  for (const n of [2, 4]) console.log(`  confirmed tick, ${n} threads         ${f((await threaded(n, log, from, to)).ms)} ms`);
 
-// A sustained storm: a large blast every 8 ticks keeps thousands awake.
-const storm = parseLog(generate({ ticks: 16000, blastEvery: 8, blastR: 16 }));
-for (const n of [1, 2, 4]) {
-  const r = await threaded(n, storm, 14000, 16000);
-  console.log(`  storm, ${Math.round(r.awake)} awake, ${n} thread${n > 1 ? 's' : ' '}       ${f(r.ms)} ms`);
+  // A sustained storm: a large blast every 8 ticks keeps thousands awake.
+  const storm = parseLog(generate({ ticks: 16000, blastEvery: 8, blastR: 16 }));
+  for (const n of [1, 2, 4]) {
+    const r = await threaded(n, storm, 14000, 16000);
+    console.log(`  storm, ${Math.round(r.awake)} awake, ${n} thread${n > 1 ? 's' : ' '}       ${f(r.ms)} ms`);
+  }
+}
+
+// M4: 10,000 balls heaped in one pit, then a grenade into it. Each stage is
+// stepped to from the start, then timed on its own ticks.
+const pit = parseLog(generatePit());
+const stages = [['filling, 64 balls every 20 ticks', 0, 3200], ['the heap, before the grenade', 4000, 6000],
+  ['the grenade, its first 4 s', 6000, 6500], ['settling again', 6500, 9000]];
+console.log(`M4 pit (tools/genlog.mjs --pit), ${pit.ticks} ticks:`);
+for (const [name, a, b] of stages) {
+  const r = await single(pit, a, b);
+  const one = r.begin + r.contacts + r.integrate + r.end;
+  const mt = [];
+  for (const n of [2, 4]) mt.push((await threaded(n, pit, a, b)).ms);
+  console.log(`  ${name.padEnd(34)} ${String(Math.round(r.awake)).padStart(5)} awake  1 thread ${f(one)} ms (contacts ${f(r.contacts)}, the rest ${f(one - r.contacts)}), p99 ${f(r.p99)}, worst ${f(r.worst.ms)}; 2 threads ${f(mt[0])}, 4 threads ${f(mt[1])}`);
 }

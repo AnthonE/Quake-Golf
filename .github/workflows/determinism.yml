@@ -35,6 +35,10 @@ jobs:
         run: |
           node tools/gengame.mjs --course 8 --bots 4 --ticks 20000 --out logs/game.qgl
           node harness/matrix.mjs --ticks 20000 --log logs/game.qgl --runtimes node,deno,chromium,x86,pentium3
+      - name: M4's pit, 10,000 balls heaped and a grenade into them
+        run: |
+          node tools/genlog.mjs --pit --out logs/pit.qgl
+          node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --runtimes node,deno,chromium,x86,pentium3
       - name: Xbox clients online (the relay, a native client and a late one under qemu, impaired, a flipped bit healed)
         run: node net/run-x2.mjs --chrome 0 --seconds 40 --late 10 --flip 20
       - if: failure()

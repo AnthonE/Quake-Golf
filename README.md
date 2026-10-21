@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); the blast still costs 4.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
 | X2 · Xbox online | the Xbox build plays in the browser's rooms over a lossy network: every hash equals the referee's, a late join from a keyframe on the Pentium III's instruction set, a flipped bit healed | **passed** with the Xbox's network code on Linux and under QEMU, not yet in xemu · [results](#x2-xbox-online) |
 | X1 · original Xbox | the sim as Pentium III code equals V8 on every tick of 1M; an XBE builds; a match played on the Xbox build replays in V8 tick for tick | **passed** under QEMU's Pentium III, not yet on a console · [results](#x1-the-original-xbox) |
 | M3 · netcode | four players at 150 ms and 10% loss: your moves show next frame, a late join from a keyframe, a flipped bit caught and healed | **passed** · [results](#m3-netcode) |
@@ -217,7 +218,8 @@ npm run build                          # src/*.wat -> build/game.wasm
 npm test                               # assembler, XXH64, sim, gameplay, splits, keyframes, threads, wire, agent door
 node harness/matrix.mjs --ticks 20000  # Node, Deno, Chrome x Liftoff/TurboFan x 1/2/4 threads
 node tools/gengame.mjs --bots 4 --out logs/game.qgl && node harness/matrix.mjs --ticks 20000 --log logs/game.qgl
-node harness/perf.mjs                  # per-phase cost at 10,000 balls
+node harness/perf.mjs                  # per-phase cost at 10,000 balls, the storm, and M4's pit stage by stage
+node tools/genlog.mjs --pit --out logs/pit.qgl && node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl   # the pit everywhere
 node net/run-m0.mjs --bots 63 --duration 60 [--impair delay=40,jitter=10,loss=0.05]
 node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played Chrome clients, one hole
 node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # four, a late join, a flipped bit
@@ -240,6 +242,14 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
 - Contacts are Jacobi: phase A reads only start-of-tick state, phase B writes
   only its own balls, so any split across threads gives the same bits. The
   tests run random splits in shuffled order and real 2- and 4-thread runs.
+- Balls find each other through a 64 x 8 x 64 grid of 0.4 m cells that wraps,
+  kept outside the region from tick to tick: each bucket is a list of its
+  balls in ascending index, and only the balls that moved change bucket, at
+  the end of the tick that moved them. The lists are a function of the
+  region alone, however they were reached, so the sim rebuilds them whole
+  whenever the region came from somewhere else (`init`, `restore`, a tick or
+  ball count it was not kept for, or the `regrid` export, which anything that
+  writes the region from outside calls).
 - `harness/` replays one event log in Node, Deno and a Chrome worker and
   records a hash of the whole region every tick. `tools/compare.mjs` names the
   first tick that differs and which slice and field it was in.
@@ -320,6 +330,79 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   on Linux with scripted controllers: `test/xbox.test.mjs` plays a two-player
   hole on it and replays the recorded match in V8.
 
+## M4, the pit
+
+`node tools/genlog.mjs --pit` writes M4's worst case, a grenade into a pit:
+10,000 balls dropped 64 at a time within 3 m of course 7's tee, where they
+spread into a heap 26 m across and 1.6 m high, then at tick 6,000 a
+grenade's blast (strength 20, radius 4 m) at the top of the heap, and 3,000
+ticks to settle. `node harness/perf.mjs` times it stage by stage.
+
+The first change is the grid. Every tick used to sort all 10,000 balls into
+a 32 x 16 x 32 grid of buckets, asleep or not: a counting sort and a prefix
+sum over 16,384 buckets, three quarters of a quiet tick's instructions on the
+Pentium III. Now the grid lasts from tick to tick. Each bucket is a list of
+its balls in ascending index, the order the sort gave, and only the balls
+that moved change bucket, at the end of the tick that moved them: the awake
+list, a spawn, a new ball on the tee, a sink. It is 64 x 8 x 64 buckets, so
+the pit no longer wraps onto itself: the old grid's 12.8 m period folded the
+26 m heap, and contacts scanned 57 candidates a ball where a grid with no
+wrap scans 30.
+
+A neighbour is met in the same order whatever the grid's shape (by its
+cell's offset from the ball's, then by index), so the physics is untouched,
+and that is what makes it checkable:
+
+| Check | Result |
+| --- | --- |
+| every tick's region hash against the build before, on the pit, M1's 20,000-tick log and the 4-bot match | all equal |
+| the same on the debug build under random splits, which checks the whole grid every tick | all equal |
+| a 3-bot match played on each build (the bots plan every shot on a private sim) | the same log, byte for byte |
+| `harness/matrix.mjs` on the pit, M1's log and the match: Node, Deno, Chrome x 3 tiers x 1, 2, 4 threads, `x86`, `pentium3` | all 29 agree on every tick, on each log |
+| a region copied in at the same tick with `regrid`; without it (`test/sim.test.mjs`) | continues tick for tick; the debug build traps, naming the stale ball |
+
+Node, one thread unless stated, the build before against this one, run back to back:
+
+| | before | now |
+| --- | --- | --- |
+| a quiet tick (M1's log, ticks 16,000 to 24,000, 127 awake) | 0.162 ms | 0.049 ms |
+| of which tick_begin | 0.107 ms | 0.006 ms |
+| the storm (1,359 awake), 1 and 4 threads | 0.70 and 0.44 ms | 0.44 and 0.26 ms |
+| the pit filling (3,806 awake on average) | 2.36 ms | 2.10 ms |
+| the heap, before the grenade (1,286 awake) | 1.26 ms | 0.99 ms |
+| **the grenade's first 4 s (6,043 awake)**, 1 and 4 threads | 4.58 and 1.63 ms | **3.95 and 1.14 ms** |
+| settling again (128 awake) | 0.19 ms | 0.07 ms |
+| Pentium III instructions a step (callgrind), quiet and in the storm | 2.43 M and 6.00 M | 0.50 M and 3.47 M |
+
+Not done:
+
+- **The grenade on one thread.** 3.2 to 4.0 ms a tick across runs (p99 6.4
+  to 6.6) against 1.5. Four threads bring it to 1.14 ms, but the client's sim worker
+  and the referee step on one. Per awake ball, contacts spend 83 ns on the
+  27 bucket lookups, about 300 ns walking some 30 candidates, and 120 ns on
+  the 7 that touch. Sorting the awake list by bucket, so that neighbours come
+  one after another, changed nothing (501 ns a ball either way): the walk is
+  not waiting on memory, it is short lists of unpredictable length.
+- **A heap never sleeps.** Before the grenade, 1,286 balls stay awake for as
+  long as the pit stands, about 1 ms a tick. The bottom balls are squeezed
+  out sideways from under the ones above (balls have no friction on each
+  other), the upper ones drop, and their hits wake their neighbours: 7,762
+  sleeps and wakes in 400 ticks. A heap on a bunker by the green keeps 2,000
+  awake; one on the green, which spreads into a single layer fast, about
+  100. Three changes to the contacts were tried on all three: friction
+  between balls (8,000 awake at 0.3 and 0.6: in Jacobi each contact cancels
+  the whole sliding speed, so several overshoot together); that friction and
+  the stopping of approach averaged over a ball's contacts (800 to 1,300 on
+  the bunker, but 700 to 1,500 on the tee and 150 to 590 on the green); and
+  the push out of an overlap halved against a sleeping ball as against an
+  awake one (3,000 on the tee and the bunker), against about 1,200, 2,100
+  and 110 as it is. The physics stays as it was until a change helps
+  everywhere.
+- **The Pentium III.** The grenade's first 4 s cost 20.7 M instructions a
+  step (callgrind), 16.8 M of them contacts, about 2,800 an awake ball: 28
+  to 42 ms at 733 MHz, against 8. An Xbox in that room would fall behind and
+  resync from keyframes, as a stalled tab does, until the heap calmed.
+
 ## X2, Xbox online
 
 `node net/run-x2.mjs` starts the relay, one Chrome client with the golf bot at
@@ -367,23 +450,24 @@ so the gate is the same as M1's: equal region hashes on every tick.
 | a scripted two-player hole on the Xbox core, replayed from its .qgl in V8 | every tick equal; under QEMU's Pentium III the rendered frames are byte-identical too |
 | the XBE | builds; its disassembly has no instruction past SSE1 |
 
-| Confirmed tick, 10,000 balls, ticks 16,000 to 24,000 (perf.mjs's window, ~127 awake) | |
-| --- | --- |
-| V8 TurboFan, this container (`node harness/perf.mjs`) | 0.123 ms |
-| the Pentium III code, natively on this container's CPU | 0.166 ms |
-| instructions per tick (callgrind), 1.88 M of them in tick_begin | 2.43 M |
-| Pentium III at 733 MHz, at 1 to 1.5 cycles an instruction | 3.3 to 5.0 ms, of 8 |
+| Confirmed tick, 10,000 balls, ticks 16,000 to 24,000 (perf.mjs's window, ~127 awake) | at X1 | since M4's grid |
+| --- | --- | --- |
+| V8, this container (`node harness/perf.mjs`) | 0.162 ms | 0.049 ms |
+| the Pentium III code, natively on this container's CPU | 0.262 ms | 0.082 ms |
+| instructions per tick (callgrind) | 2.43 M, 1.88 M in tick_begin | 0.50 M, 0.11 M in tick_begin |
+| Pentium III at 733 MHz, at 1 to 1.5 cycles an instruction | 3.3 to 5.0 ms, of 8 | 0.7 to 1.0 ms, of 8 |
 
-The translation runs at about 1.35 times TurboFan's time on the same machine,
+The translation runs at about 1.6 times V8's time on the same machine,
 without registers for locals and with half of x86-64's registers. The
 Pentium III figure is an estimate, not a measurement: no console was at hand,
 and with 128 KiB of L2 under a working set larger than that, memory stalls
-could push it past 1.5 cycles an instruction. Three quarters of the
-instructions are tick_begin re-binning all 10,000 balls, asleep or not, about
-190 a ball; a grid that moves only awake balls is the change that pays most
-here, and in the browser too. A storm (1,359 awake) costs V8 4.6 times a
-quiet tick, which would not fit a Pentium III's 8 ms. The renderer, about
-3 ms a frame here at 320x240, is the next cost to measure on hardware.
+could push it past 1.5 cycles an instruction. At X1, three quarters of the
+instructions were tick_begin re-binning all 10,000 balls, asleep or not,
+about 190 a ball; [M4](#m4-the-pit)'s grid moves only the balls that moved.
+A storm (1,359 awake) was 6.0 M instructions a step, 8.2 to 12.3 ms, past the
+8; it is 3.5 M now, 4.7 to 7.1 ms. M4's pit is far past it, at 20.7 M a step
+through the grenade. The renderer, about 3 ms a frame here at 320x240, is the
+next cost to measure on hardware.
 
 Not done yet:
 
@@ -396,9 +480,8 @@ Not done yet:
   GeForce 3) should draw the heightfield as a mesh and the balls as point
   sprites.
 - **Speed.** Locals live in the frame, and an inlined call passes its
-  arguments and results through memory. Registers for locals, then
-  hand-written assembly for tick_begin's binning loop, come after the grid
-  change above.
+  arguments and results through memory. With the grid change done, contacts
+  are the largest part of a tick; registers for locals come next.
 
 ## M3, netcode
 
@@ -512,7 +595,7 @@ rough wherever there is no hole) settles balls sooner, so the same log now
 keeps ~127 awake: a tick takes 0.18 ms on one thread (p99 0.40), and the
 storm keeps 1,359 awake at 0.71 / 0.55 / 0.51 ms on 1 / 2 / 4 threads. The
 M1 matrix still agrees in all 27 configurations. M4's worst case, a grenade
-into a 10,000-ball pit, replaces this log as the benchmark.
+into a 10,000-ball pit, is the benchmark now: see [M4](#m4-the-pit).
 
 **M0, the relay.** 63 bots and one client, each a WebTransport session in a
 Chrome worker, against the Deno relay on loopback for 60 s:
