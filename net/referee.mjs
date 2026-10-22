@@ -6,16 +6,20 @@
 import * as L from '../src/layout.mjs';
 import * as W from './wire.mjs';
 import { feedTick } from './inbox.mjs';
+import { startTeam, stepTeam } from './team.mjs';
 
 export class Referee {
-  static async create(bytes) {
+  // threads: the referee's own and its helpers' (net/team.mjs), 1 for none
+  static async create(bytes, threads = 1) {
     const memory = new WebAssembly.Memory({ initial: L.PAGES, maximum: L.PAGES, shared: true });
-    const { exports } = await WebAssembly.instantiate(await WebAssembly.compile(bytes), { env: { mem: memory } });
-    return new Referee(exports, memory);
+    const module = await WebAssembly.compile(bytes);
+    const { exports } = await WebAssembly.instantiate(module, { env: { mem: memory } });
+    return new Referee(exports, memory, await startTeam({ bytes, memory, n: threads }));
   }
 
-  constructor(x, memory) {
+  constructor(x, memory, team = null) {
     this.x = x;
+    this.team = team;
     this.u8 = new Uint8Array(memory.buffer);
     this.dv = new DataView(memory.buffer);
     this.i32 = new Int32Array(memory.buffer);
@@ -46,7 +50,7 @@ export class Referee {
   // closed, if it closed one: { tick, hash, digests }, digests the 128 u64 slice hashes.
   step(d) {
     feedTick(this.u8, this.dv, d);
-    this.x.step();
+    stepTeam(this.x, this.i32, this.team);
     const t = this.tick;
     if (this.i32[L.INTERVAL_TICK >> 2] !== t) return null;
     this.keep();

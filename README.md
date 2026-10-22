@@ -701,9 +701,30 @@ twice the instructions of one ball's branches.
 
 Not done:
 
-- **The grenade at its p99.** 1.49 ms a tick on average against 1.5, but
-  2.3 ms at the p99. Four threads bring it to 0.78 ms, and the client's sim
-  worker and the referee still step on one.
+The referee and the client's sim worker now split a tick across threads when
+the tick before had 1,024 balls or more awake (`net/team.mjs`): helper
+Workers wait in `worker_run`, and a quiet tick steps on one thread, which
+costs less than the barriers. Any split gives the same bits, so a client on
+four threads and a referee on two agree. The relay takes `--referee-threads`
+(2 by default); a page takes `?threads=`, by default 2 to 4 by its cores.
+Between ticks the helpers sleep, so `step_mt` wakes them as a tick starts,
+and they spin through `tick_begin` instead of waking at its end. The
+grenade's first 4 s, stepped as the relay steps them, one tick every 8 ms
+(Deno, `net/referee.mjs`):
+
+| | mean | p99 |
+| --- | --- | --- |
+| 1 thread | 1.8 to 1.9 ms | 3.3 to 4.5 ms |
+| 2 threads | 1.3 ms | 2.7 ms |
+| 4 threads | 1.1 to 1.2 ms | 2.0 to 2.9 ms |
+
+Stepped back to back, as perf.mjs does, a tick is quicker: the arrays stay
+in cache between ticks.
+
+Not done:
+
+- **The grenade at its p99.** 2 to 3 ms a tick on the relay's clock, even
+  on four threads: `tick_begin` with the sort and `tick_end` are serial.
 - **A heap never sleeps.** Before the grenade, 1,286 balls stay awake for as
   long as the pit stands, about 1 ms a tick. The bottom balls are squeezed
   out sideways from under the ones above (balls have no friction on each

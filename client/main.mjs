@@ -26,6 +26,9 @@ const SENS = Number(q.get('sens') || 3); // yaw units (1/16384 turn) per pixel o
 const BOT = q.get('bot') === '1';
 const REPLAY = q.get('replay');
 const WATCH = q.get('watch') === '1' || !!REPLAY; // a spectator: no slot, a camera that rides with any player
+// the sim worker's threads, itself and its helpers (net/team.mjs): leave the page, the net worker and a bot their cores
+const cores = navigator.hardwareConcurrency || 4;
+const THREADS = Number(q.get('threads') || (cores >= 8 ? 4 : cores >= 6 ? 3 : cores >= 4 ? 2 : 1));
 
 const epoch = () => performance.timeOrigin + performance.now();
 const stateText = ['CONNECTING', 'CATCHING UP', '', 'DISCONNECTED'];
@@ -90,7 +93,7 @@ async function main() {
   for (const w of [net, sim]) w.onerror = (e) => { error = String(e.message || e); e.preventDefault?.(); };
   if (REPLAY) net.postMessage({ replay: new URL(REPLAY, location.href).href, memory, prefix, simPort: ch.port1 }, [ch.port1]);
   else net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch: WATCH }, [ch.port1]);
-  sim.postMessage({ module, memory, netPort: ch.port2 }, [ch.port2]);
+  sim.postMessage({ module, memory, netPort: ch.port2, threads: THREADS }, [ch.port2]);
   addEventListener('pagehide', () => net.postMessage({ leave: true }));
 
   // input: yaw and pitch kept as floats for the camera, sampled as integers
