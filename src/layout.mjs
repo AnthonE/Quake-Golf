@@ -16,6 +16,13 @@ export const ERR_INDEX = 0x244;
 export const ERR_TICK = 0x248;
 export const INTERVAL_HASH = 0x300; // u64, written when slice 127 closes
 export const INTERVAL_TICK = 0x308;
+// The ball grid (HEAD, NEXT, CELLOF) lives outside the region and is kept up
+// to date tick by tick. It is rebuilt from the region whole when GRID_OK is 0
+// (init, restore, the regrid export after any outside write to the region) or
+// when the tick or the ball count it was kept for is not the region's.
+export const GRID_TICK = 0x310;
+export const GRID_N = 0x314;
+export const GRID_OK = 0x318;
 export const DIGESTS = 0x400; // u64[128], slice s digested at tick K+s+1; the interval closes at K+128
 export const INBOX = 0x1000; // u32 count, then records
 export const INBOX_REC = 0x1010;
@@ -73,10 +80,11 @@ export const DVZ = 0x1c0000;
 export const WAKE = 0x1d0000; // u8
 export const AWAKE = 0x1d4000; // u16 list
 export const BLOCKS = 0x1dc000; // u16 list of 4-ball blocks
-export const CELLSTART = 0x1e0000; // u32[NCELL + 1]
-export const CURSOR = 0x1f1000; // u32[NCELL]
-export const SORTED = 0x201000; // u16[BALL_CAP]
-export const CELLOF = 0x209000; // u16[BALL_CAP]
+// The ball grid, kept from tick to tick (GRID_OK): each bucket a list of the
+// balls in it in ascending index, the order a stable sort by bucket gives.
+export const HEAD = 0x1e0000; // u16[NCELL], the bucket's first ball, 0xffff for none
+export const NEXT = 0x1f0000; // u16[BALL_CAP], the next ball in the same bucket: always a higher index, or 0xffff
+export const CELLOF = 0x1f8000; // u16[BALL_CAP], the ball's bucket, 0xffff for none (sunk, or not yet spawned)
 
 // Terrain, regenerated from the seed.
 export const TERRAIN_H = 0x220000; // u16[512 * 512], 1/256 m
@@ -112,12 +120,18 @@ export const CL_KEYS = NET + 76; // u32 keyframes restored: the join's, then one
 // Clocks (client/clock.mjs), 32 B each, written by the net worker:
 export const CL_PLAY = NET + 128; // the playout clock, in server ticks: the confirmed world steps up to it
 export const CL_PRED = NET + 160; // the predicted clock: the server tick plus the input lead
+// Traffic, for the net graph (client/netgraph.mjs), counted by the net worker:
+export const CL_RX_BUNDLE = NET + 192; // u32 bytes of bundle datagrams received
+export const CL_RX_REPAIR = NET + 196; // u32 bytes of repair datagrams received
+export const CL_RX_STREAM = NET + 200; // u32 bytes of keyframes and fills received
+export const CL_TX = NET + 204; // u32 bytes of input datagrams sent
+export const CL_HEARD = NET + 208; // u32 closed ticks heard, by any of them
 // Input words by server tick (& 255), written by the net worker as it samples them:
 export const CL_WORDS = NET + 1024;
 export const PLAY_BASE = 2; // ticks of playout delay past the earliest arrival, before jitter
 
 export const BALL_CAP = 16384;
-export const NCELL = 16384; // 32 x 16 x 32 modular grid: 27 neighbours never alias
+export const NCELL = 32768; // 64 x 8 x 64 modular grid: 27 neighbours never alias, and a 26 m pit does not wrap
 export const GRID = 512;
 export const SPACING = 2; // metres per heightfield sample
 export const WORLD = GRID * SPACING;

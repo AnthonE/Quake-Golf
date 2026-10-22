@@ -1,9 +1,9 @@
 // One closed tick into the sim's inbox, exactly as every client and the
 // referee apply it: joins and leaves in the order the relay listed them, then
 // an input record per word. d: { ev: [{ slot, kind }] with the wire's kinds,
-// w: a bundle row (Uint32Array, one word per slot) or the record's [[slot, word]] }.
-// The two forms give the same records' effect: a slot the record leaves out
-// has word 0 in a row, and an input for a slot that isn't live does nothing.
+// w: a row (Uint32Array, one word per slot) or the words that changed, [[slot, word]] }.
+// The forms give the same records' effect: the sim keeps a player's word until
+// a new one comes, and an input for a slot that isn't live does nothing.
 import * as L from '../src/layout.mjs';
 import * as W from './wire.mjs';
 import { encodeLog } from '../harness/core.mjs';
@@ -25,12 +25,13 @@ export function feedTick(u8, dv, d) {
   dv.setUint32(L.INBOX, n, true);
 }
 
-// The relay's record of a room (one encoded tick per sim tick) as a .qgl log
-// the harness replays, for a desync's repro case.
+// The relay's record of a room (one encoded tick, its parts, per sim tick) as
+// a .qgl log the harness replays, for a desync's repro case.
 export function recordLog(record, seed) {
   const recs = [];
-  record.forEach((bytes, t) => {
-    const { events, words } = W.decodeTick(bytes);
+  const base = new W.TickBase();
+  record.forEach((parts, t) => {
+    const { events, words } = base.apply(parts);
     for (const e of events) if (KIND[e.kind]) recs.push([t, KIND[e.kind], e.slot]);
     for (const [p, w] of words) recs.push([t, L.EV_INPUT, p, w]);
   });

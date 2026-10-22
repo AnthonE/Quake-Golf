@@ -100,6 +100,7 @@ function setup(planner, start, cursed) {
   if (planner.cursed) planner.seed = null;
   planner.load(start);
   planner.u8.set(planner.snap, REGION); // load() fills only the snapshot
+  planner.x.regrid();
   planner.cursed = cursed;
   if (cursed) for (let i = TERRAIN_S; i < TERRAIN_S + 512 * 512; i++) if (planner.u8[i] === 0) planner.u8[i] = 1;
   return new View(planner.u8.buffer);

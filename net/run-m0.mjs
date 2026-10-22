@@ -121,7 +121,7 @@ const report = {
   impair: impair || 'none',
   chromeMaxDatagram: m0.client.maxDatagram,
   serverMaxDatagram: r.serverMaxDatagram,
-  maxBundle: r.maxBundle, oversize: r.oversize, limit, maxInput,
+  maxDatagram: r.maxDatagramSent, bytesPerBundle: r.bytesPerBundle, tickBytes: r.tickBytes, limit, maxInput,
   delivered: expected ? Number((100 * seen / expected).toFixed(3)) : 0,
   bundleJitterMs: { p50: percentile(devs, 0.5)?.toFixed(3), p95: percentile(devs, 0.95)?.toFixed(3), p99: percentile(devs, 0.99)?.toFixed(3) },
   inputsAppliedAsSentPct: mine ? Number((100 * matched / mine).toFixed(3)) : 0,
@@ -149,8 +149,7 @@ report.worstClient = perClient[0] || null;
 report.worstClientDelivered = perClient.length ? Math.min(...perClient.map((c) => c.delivered)) : 0;
 report.perClientDelivered = perClient.map((c) => c.delivered).sort((x, y) => x - y);
 const gate = {
-  fits: r.maxBundle <= limit && maxInput <= m0.client.maxDatagram,
-  noOversize: r.oversize === 0,
+  fits: r.maxDatagramSent <= limit && maxInput <= m0.client.maxDatagram,
   delivered: perClient.length > 0 && report.delivered >= report.deliveredBar && perClient.every((c) => c.delivered >= c.bar),
   everyoneJoined: rejects === 0 && r.sessions === bots + 1,
   noEarlyClose: earlyClose === 0,

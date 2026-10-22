@@ -131,3 +131,25 @@ test('debug builds refuse a keyframe off an interval boundary', async () => {
   assert.throws(() => sim.x.snapshot(0), WebAssembly.RuntimeError);
   assert.equal(sim.error().code, 90);
 });
+
+test('the ball grid kept from tick to tick is the one the region gives; regrid rebuilds it after an outside write', async () => {
+  // Two sims at the same tick, with as many balls in other places: b takes
+  // a's region, as a desync heal does. The debug build checks the whole grid every tick.
+  const T = 900;
+  const logA = smallLog(TICKS), logB = smallLog(TICKS, { blastR: 8 }); // the same spawns, other blasts
+  const a = await newSim(true), b = await newSim(true), c = await newSim(true);
+  for (const s of [a, b, c]) s.init(logA.courseSeed);
+  await hashes(a, logA, 0, T);
+  await hashes(b, logB, 0, T);
+  await hashes(c, logB, 0, T);
+  const key = a.regionCopy(), n = a.nballs;
+  const want = await hashes(a, logA, T, T + 300);
+  b.setRegion(key); // calls regrid
+  assert.deepEqual(await hashes(b, logA, T, T + 300), want);
+
+  // the same write without regrid: same tick, same ball count, a stale grid
+  c.u8.set(key, REGION);
+  assert.equal(c.nballs, n);
+  assert.throws(() => { c.feed(logA, T); c.x.step(); }, WebAssembly.RuntimeError);
+  assert.equal(c.error().code, 93); // a ball not in the bucket its position gives
+});

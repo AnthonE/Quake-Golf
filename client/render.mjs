@@ -5,6 +5,7 @@
 // any math goes.
 import * as L from '../src/layout.mjs';
 import { FONT } from './font.mjs';
+import { GRAPH_N, GRAPH_PANELS } from './netgraph.mjs';
 
 export const COLS = 80; // HUD cells of 4 x 6 px
 const FAR = 900;
@@ -20,7 +21,7 @@ struct U {
   cup: vec4f,      // cup x, y, z, my slot
   hole: vec4f,     // hole direction x, z, highest ground, flash count
   me: vec4u,       // nballs, my ball (or 0xffffffff), hud rows, sunk-ball count
-  pred: vec4f,     // extrapolate my projectiles (s): they come from the prediction, at its own clock
+  pred: vec4f,     // extrapolate my projectiles (s): they come from the prediction, at its own clock; the net graph shown (1)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var hmap: texture_2d<f32>;
@@ -31,6 +32,7 @@ struct U {
 @group(0) @binding(6) var<storage, read> flashes: array<vec4f>;
 @group(0) @binding(7) var<storage, read> hud: array<u32>;
 @group(0) @binding(8) var<storage, read> font: array<u32>;
+@group(0) @binding(9) var<storage, read> graph: array<vec4f>;
 
 const SKY_LO = vec3f(0.62, 0.66, 0.74);
 const SKY_HI = vec3f(0.16, 0.22, 0.42);
@@ -312,6 +314,38 @@ fn lit(p: vec2i) -> bool {
   return glyphBit(cell, vec2i(p.x - cell.x * 4, p.y - cell.y * 6));
 }
 
+// ---- the net graph (client/netgraph.mjs): ${GRAPH_PANELS} strips of ${GRAPH_N} columns at the top right, under
+// their labels (HUD rows 2, 6, 10, 14), each 17 px tall, newest on the right
+fn graphPx(p: vec2i) -> vec4f {
+  let col = p.x - (i32(u.screen.x) - ${GRAPH_N + 4});
+  if (u.pred.y < 0.5 || col < 0 || col >= ${GRAPH_N}) { return vec4f(0.0); }
+  let k = (p.y - 18) / 24;
+  let yy = p.y - 18 - 24 * k;
+  if (p.y < 18 || k >= ${GRAPH_PANELS} || yy >= 17) { return vec4f(0.0); }
+  let v = graph[u32(k * ${GRAPH_N} + col)];
+  let f = (16.5 - f32(yy)) / 17.0; // this pixel's height, 0 at the base to 1 at the top
+  let near = 0.5 / 17.0;
+  let back = vec4f(0.0, 0.0, 0.0, 0.5);
+  if (yy == 16) { return vec4f(0.35, 0.35, 0.35, 0.8); }
+  if (k == 0) {
+    if (abs(f - v.w) < near) { return vec4f(PALETTE[5], 1.0); }
+    if (f < v.x) { return vec4f(PALETTE[3], 0.9); }
+    if (f < v.x + v.y) { return vec4f(PALETTE[6], 0.9); }
+    if (f < v.x + v.y + v.z) { return vec4f(PALETTE[7], 0.9); }
+  } else if (k == 1) {
+    if (f < v.x) { return vec4f(PALETTE[6], 0.9); }
+  } else if (k == 2) {
+    if (abs(f - v.x) < near) { return vec4f(PALETTE[1], 1.0); }
+    if (abs(f - v.y) < near) { return vec4f(PALETTE[5], 1.0); }
+  } else {
+    if (v.y > 3.5) { return vec4f(PALETTE[2], 1.0); }
+    if (v.y > 2.5) { return vec4f(PALETTE[7], 1.0); }
+    if (v.y > 1.5) { return vec4f(0.35, 0.55, 1.0, 1.0); }
+    if (v.x > 0.5 && f < 0.6) { return vec4f(PALETTE[3], 1.0); }
+  }
+  return back;
+}
+
 @fragment fn fs_hud(@builtin(position) q: vec4f) -> @location(0) vec4f {
   let p = vec2i(q.xy);
   let c = vec2i(i32(u.screen.x) / 2, i32(u.screen.y) / 2);
@@ -323,6 +357,8 @@ fn lit(p: vec2i) -> bool {
     return vec4f(PALETTE[k], 1.0);
   }
   if (lit(p - vec2i(1, 1))) { return vec4f(0.0, 0.0, 0.0, 0.8); }
+  let g = graphPx(p);
+  if (g.a > 0.0) { return g; }
   discard;
   return vec4f(0.0);
 }
@@ -353,6 +389,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
   const flashBuf = storage(MAX_FLASH * 32);
   const hudBuf = storage(COLS * rows * 4);
   const fontBuf = storage(FONT.length * 4);
+  const graphBuf = storage(GRAPH_PANELS * GRAPH_N * 16);
   device.queue.writeBuffer(fontBuf, 0, FONT);
   const hmap = device.createTexture({ size: [512, 512], format: 'r32float', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
   const smap = device.createTexture({ size: [512, 512], format: 'r8uint', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
@@ -363,7 +400,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
       { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'uint' } },
-      ...[3, 4, 5, 6, 7, 8].map((b) => ({ binding: b, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } })),
+      ...[3, 4, 5, 6, 7, 8, 9].map((b) => ({ binding: b, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } })),
     ],
   });
   const bind = device.createBindGroup({
@@ -372,7 +409,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
       { binding: 0, resource: { buffer: ubuf } },
       { binding: 1, resource: hmap.createView() },
       { binding: 2, resource: smap.createView() },
-      ...[ballBuf, playerBuf, projBuf, flashBuf, hudBuf, fontBuf].map((buffer, k) => ({ binding: 3 + k, resource: { buffer } })),
+      ...[ballBuf, playerBuf, projBuf, flashBuf, hudBuf, fontBuf, graphBuf].map((buffer, k) => ({ binding: 3 + k, resource: { buffer } })),
     ],
   });
   const pl = device.createPipelineLayout({ bindGroupLayouts: [layout] });
@@ -407,7 +444,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
       device.queue.writeTexture({ texture: smap }, u8.slice(L.TERRAIN_S, L.TERRAIN_S + 512 * 512), { bytesPerRow: 512 }, [512, 512]);
     },
 
-    // One frame. s: { cam: [x, y, z], yaw, pitch (radians), time, dt, dtPred, proj, cup, dir, slot, myBall, nballs, flashes: [{ pos, age, size, kind }], text: Uint32Array }
+    // One frame. s: { cam: [x, y, z], yaw, pitch (radians), time, dt, dtPred, proj, cup, dir, slot, myBall, nballs, flashes: [{ pos, age, size, kind }], text: Uint32Array, graph: the net graph's Float32Array or null }
     // dt extrapolates the confirmed world; projectiles come from address `proj`
     // (the prediction's copy, where mine are ahead), mine extrapolated by dtPred.
     // Drawn to the canvas, or to `target` (a texture) when given.
@@ -418,6 +455,8 @@ export async function createRenderer(canvas, { present = true } = {}) {
         W, H, FAR, s.dt, s.cup[0], s.cup[1], s.cup[2], s.slot, s.dir[0], s.dir[1], hmax + 2, Math.min(s.flashes.length, MAX_FLASH)]);
       uu[20] = s.nballs; uu[21] = s.myBall < 0 ? 0xffffffff : s.myBall; uu[22] = rows; uu[23] = 0;
       uf[24] = s.dtPred ?? s.dt;
+      uf[25] = s.graph ? 1 : 0;
+      if (s.graph) device.queue.writeBuffer(graphBuf, 0, s.graph);
       device.queue.writeBuffer(ubuf, 0, uf);
       const n = s.nballs;
       if (n) {

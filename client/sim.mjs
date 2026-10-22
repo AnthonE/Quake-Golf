@@ -26,7 +26,8 @@ async function run({ module, memory, netPort }) {
   const set = (a, v) => Atomics.store(i32, a >> 2, v);
   // CL_SEQ is odd while the world changes, so readers of a copy retry
   const changing = (f) => { Atomics.add(i32, L.CL_SEQ >> 2, 1); try { f(); } finally { Atomics.add(i32, L.CL_SEQ >> 2, 1); } };
-  const store = new Map(); // server tick -> { ev, w }
+  const store = new Map(); // server tick -> { t, parts }, still coded
+  const base = new W.TickBase(); // the words the next tick to step is coded against
   let welcome = null;
   let started = false; // the join's keyframe is in
   let newest = -1;
@@ -38,9 +39,16 @@ async function run({ module, memory, netPort }) {
   netPort.onmessage = (e) => {
     const m = e.data;
     if (m.welcome) {
+      // the same room again, after a failover, goes on as it is until its keyframe
+      const same = welcome && welcome.seed === m.welcome.seed && welcome.roomStart === m.welcome.roomStart;
       welcome = m.welcome;
-      x.init(welcome.seed);
-      set(L.CL_STATE, 1);
+      store.clear();
+      newest = -1;
+      if (!same) {
+        x.init(welcome.seed);
+        base.reset();
+        set(L.CL_STATE, 1);
+      }
       self.postMessage({ ready: true, seed: welcome.seed });
     }
     if (m.key) restore(m.key);
@@ -63,8 +71,8 @@ async function run({ module, memory, netPort }) {
   // the interval that differed; ours name the first slice that differs.
   function restore({ tick, reason, region, interval, digests: theirs }) {
     changing(() => {
-      if (region) u8.set(region, L.REGION);
-      else x.init(welcome.seed);
+      if (region) { u8.set(region, L.REGION); x.regrid(); base.seed(u8, 0); }
+      else { x.init(welcome.seed); base.reset(); }
     });
     if (at() !== tick) self.postMessage({ error: `keyframe for tick ${tick} restored tick ${at()}` });
     for (const t of store.keys()) if (t < tick) store.delete(t);
@@ -94,7 +102,8 @@ async function run({ module, memory, netPort }) {
       const d = store.get(welcome.roomStart + k);
       if (!d) break;
       store.delete(welcome.roomStart + k);
-      changing(() => { feedTick(u8, dv, d); x.step(); });
+      const { events, words } = base.apply(d.parts);
+      changing(() => { feedTick(u8, dv, { ev: events, w: words }); x.step(); });
       k++;
       if (i32[L.INTERVAL_TICK >> 2] === k) {
         const hash = dv.getBigUint64(L.INTERVAL_HASH, true).toString(16);

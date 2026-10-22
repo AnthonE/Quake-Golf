@@ -2,7 +2,7 @@
 // Generates the M1 event log (.qgl) from a seed, integer-only, so every run
 // writes the same bytes. Balls arrive in bursts until 10,000 are live; blasts
 // on random balls keep about a thousand awake, and a big blast every ~16 s
-// is the wake storm.
+// is the wake storm. --pit writes M4's instead: one heap and a grenade.
 //
 // Header (32 B): "QGEL" | u16 ver | u16 rec | u32 course_seed | u32 gen_seed | u32 ticks | u32 n | 8 B zero
 // Record (16 B): u32 tick | u8 kind | u8 a | u16 b | u16 x | i16 y | u16 z | i16 c
@@ -40,6 +40,29 @@ export function generate({ courseSeed = 7, genSeed = 1, ticks = 20000, target = 
       recs.push([t, EV_EXPLODE, 255, 12 * 64, px * 64, 64, pz * 64, 0]);
     }
   }
+  return encode(courseSeed, genSeed, ticks, recs);
+}
+
+// The M4 log, the worst case: 10,000 balls heaped in one pit, 64 at a time
+// within 3 m of course 7's tee (514, 785), then a grenade's blast at the top
+// of the heap's middle at tick `grenade`, and the heap left to settle again.
+export function generatePit({ genSeed = 1, ticks = 9000, grenade = 6000, x = 514, z = 785 } = {}) {
+  let s = genSeed >>> 0 || 1;
+  const below = (n) => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s % n; };
+  const recs = [];
+  for (let t = 0, spawned = 0; t < ticks; t++) {
+    if (spawned < 10000 && t % 20 === 0) {
+      const count = Math.min(64, 10000 - spawned);
+      recs.push([t, EV_SPAWN, count, 0, x * 64 + below(385) - 192, 4 * 64, z * 64 + below(385) - 192, 64]);
+      spawned += count;
+    }
+    // strength 20 and radius 4 m, a grenade's; 1.5 m up
+    if (t === grenade) recs.push([t, EV_EXPLODE, 80, 4 * 64, x * 64, 96, z * 64, 0]);
+  }
+  return encode(7, genSeed, ticks, recs);
+}
+
+function encode(courseSeed, genSeed, ticks, recs) {
   const buf = new Uint8Array(32 + recs.length * REC);
   const dv = new DataView(buf.buffer);
   buf.set([0x51, 0x47, 0x45, 0x4c], 0); // QGEL
@@ -70,11 +93,14 @@ function arg(name, def) {
 
 if (isMain(import.meta.url)) {
   const out = arg('out', 'logs/short.qgl');
-  const buf = generate({
-    courseSeed: Number(arg('course', 7)), genSeed: Number(arg('seed', 1)), ticks: Number(arg('ticks', 20000)),
-    blastEvery: Number(arg('blast-every', 24)), blastR: Number(arg('blast-r', 4)), storms: arg('storms', '1') !== '0',
-  });
+  const pit = process.argv.includes('--pit');
+  const buf = pit
+    ? generatePit({ genSeed: Number(arg('seed', 1)), ticks: Number(arg('ticks', 9000)) })
+    : generate({
+      courseSeed: Number(arg('course', 7)), genSeed: Number(arg('seed', 1)), ticks: Number(arg('ticks', 20000)),
+      blastEvery: Number(arg('blast-every', 24)), blastR: Number(arg('blast-r', 4)), storms: arg('storms', '1') !== '0',
+    });
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, buf);
-  console.log(`${out}: ${(buf.length - 32) / REC} events over ${arg('ticks', 20000)} ticks`);
+  console.log(`${out}: ${(buf.length - 32) / REC} events over ${new DataView(buf.buffer).getUint32(16, true)} ticks`);
 }

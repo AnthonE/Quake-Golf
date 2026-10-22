@@ -17,6 +17,7 @@ const TYPES = {
   '.wasm': 'application/wasm',
   '.json': 'application/json',
   '.qgl': 'application/octet-stream',
+  '.qgr': 'application/octet-stream',
 };
 
 export function serve({ port = 0, host = '127.0.0.1' } = {}) {

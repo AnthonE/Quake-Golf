@@ -3,9 +3,13 @@
 // input slots in shared memory into one word, kept in a ring the prediction
 // reads; every second tick it sends the words the relay hasn't closed, its
 // per-tick acks and the newest interval hash. Closed ticks from bundles,
-// repairs and fills go to the sim worker, keyframes too, unpacked. It keeps
+// repairs and fills go to the sim worker still coded, once all their parts
+// are in; keyframes go unpacked. It keeps
 // the playout clock: the earliest arrival less 2 ticks and the p95 jitter of
 // first arrivals, run up to 3% fast or slow to stay on that target.
+// ?url= may list several relays: when the session's relay goes away, it tries
+// the next, a few times a second for up to 10 s, asking for its slot back (a
+// resume), which a standby relay that took the room over holds for it.
 import * as W from '../net/wire.mjs';
 import * as L from '../src/layout.mjs';
 import { createImpair } from '../net/impair.js';
@@ -14,20 +18,45 @@ import { writeClock } from './clock.mjs';
 const epoch = () => performance.timeOrigin + performance.now();
 
 let leave = () => {};
+let leaving = false;
 self.onmessage = (e) => {
-  if (e.data.leave) { leave(); return; }
-  run(e.data).catch((err) => {
-    const i32 = new Int32Array(e.data.memory.buffer);
-    Atomics.store(i32, L.CL_STATE >> 2, 3);
-    self.postMessage({ error: String(err?.stack || err) });
-  });
+  if (e.data.leave) { leaving = true; leave(); return; }
+  connect(e.data);
 };
+
+const FAILOVER_MS = 10000;
+async function connect(args) {
+  const urls = args.url.split(',');
+  let k = 0, back = null, lostAt = -1;
+  for (;;) {
+    try {
+      back = await run({ ...args, url: urls[k], back, failover: urls.length > 1 });
+      lostAt = epoch();
+    } catch (err) {
+      // a relay that's down, or not holding the room yet, mid-failover: the next
+      if (!back || epoch() - lostAt > FAILOVER_MS) {
+        Atomics.store(new Int32Array(args.memory.buffer), L.CL_STATE >> 2, 3);
+        self.postMessage({ error: String(err?.stack || err) });
+        return;
+      }
+    }
+    if (leaving || urls.length < 2 || epoch() - lostAt > FAILOVER_MS) break;
+    k = (k + 1) % urls.length;
+    await new Promise((ok) => setTimeout(ok, 250));
+  }
+  Atomics.store(new Int32Array(args.memory.buffer), L.CL_STATE >> 2, 3);
+  self.postMessage({ closed: true });
+}
 
 // p-th fraction of a list of numbers
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 
 // impair: { delay, jitter, loss } on this client's own datagrams, both ways (?impair=)
-async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
+// watch: a spectator, with no slot and no words to send; back: { slot, room }
+// of a session that went away, to resume. Returns this session's, once it ends.
+// failover: a relay silent for SILENT_MS is gone (a dead one's QUIC session would idle for far longer)
+const SILENT_MS = 1500;
+async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false, back = null, failover = false }) {
   const imp = createImpair({ ...impair, seed: (Math.random() * 2 ** 32) >>> 0 });
   const i32 = new Int32Array(memory.buffer);
   const u32 = new Uint32Array(memory.buffer);
@@ -44,10 +73,11 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
   const bidi = await wt.createBidirectionalStream();
   const sw = bidi.writable.getWriter();
   const tHello = epoch();
-  await sw.write(W.encodeHello({ maxDatagram: wt.datagrams.maxDatagramSize, wasmPrefix: prefix, nonce: (Math.random() * 2 ** 32) >>> 0 }));
+  const resume = back && !watch ? back.slot : -1;
+  await sw.write(W.encodeHello({ maxDatagram: wt.datagrams.maxDatagramSize, wasmPrefix: prefix, nonce: (Math.random() * 2 ** 32) >>> 0, watch, room: back?.room ?? 0, resume }));
   const sr = W.bufferedReader(bidi.readable.getReader());
   const head = await sr.read(4);
-  if (head[0] === W.T_REJECT) throw new Error(['', 'game.wasm differs from the server\'s: reload', 'the room is full', 'protocol mismatch'][head[1]] || 'rejected');
+  if (head[0] === W.T_REJECT) throw new Error(['', 'game.wasm differs from the server\'s: reload', 'the room is full', 'protocol mismatch', 'this relay only has a room to watch', 'nothing to watch yet'][head[1]] || 'rejected');
   const wb = new Uint8Array(32);
   wb.set(head, 0);
   wb.set(await sr.read(28), 4);
@@ -94,9 +124,10 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
   // what this worker has seen, for the runs
   const seen = { pongs: 0, keys: 0, fills: 0, bundles: 0, repairs: 0, rtt: bestRtt, ctlError: '', holes: [], gaps: [] };
   const repairedAt = new Map(); // tick -> repair datagrams that carried it, the last 512 ticks
-  setInterval(() => self.postMessage({ seen: { ...seen, rtt: bestRtt, lead } }), 1000);
+  const seenTimer = setInterval(() => self.postMessage({ seen: { ...seen, rtt: bestRtt, lead } }), 1000);
   // The control stream: keyframes (unpacked here), the fills after them, pongs.
   const recv = new W.Received();
+  const parts = new W.Parts(); // ticks that came in parts, until each is whole
   let report = null; // the newest interval hash, sent on the next 8 datagrams
   simPort.onmessage = (e) => {
     if (e.data.sync) {
@@ -114,13 +145,15 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
       if (m.type === W.T_PONG) { seen.pongs++; onPong(m); }
       if (m.type === W.T_KEY) {
         seen.keys++;
+        Atomics.add(i32, L.CL_RX_STREAM >> 2, 16 + m.packed.length + (m.digests ? 1032 : 0));
         const region = m.raw ? await W.unpackKey(m.packed) : null;
         simPort.postMessage({ key: { tick: m.tick, reason: m.reason, region, interval: m.interval, digests: m.digests } }, region ? [region.buffer] : []);
       }
       if (m.type === W.T_FILL) {
         seen.fills++;
-        const ticks = W.decodeFillBody(m.from, m.n, m.body).map((t) => ({ t: t.tick, ev: t.events, w: t.words }));
-        for (const t of ticks) recv.add(t.t);
+        Atomics.add(i32, L.CL_RX_STREAM >> 2, 16 + m.body.length);
+        const ticks = W.decodeFillBody(m.from, m.n, m.body).map((t) => ({ t: t.tick, parts: t.parts }));
+        for (const t of ticks) if (recv.add(t.t)) Atomics.add(i32, L.CL_HEARD >> 2, 1);
         simPort.postMessage({ ticks, fill: true });
       }
     }
@@ -154,14 +187,30 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
     const r = report?.left > 0 ? report : null;
     if (r) r.left--;
     const buf = W.encodeInput({ seq: seq++, firstTick: from, ...recv.ack(), words: list, report: r });
+    Atomics.add(i32, L.CL_TX >> 2, buf.length);
     imp.send(() => dw.write(buf).catch(() => {}));
   };
   let lastTimer = epoch();
+  let heardAt = epoch();
+  // a spectator's datagrams: only its acks and the newest hash, every second tick
+  const sendWatch = () => {
+    const r = report?.left > 0 ? report : null;
+    if (r) r.left--;
+    const buf = W.encodeInput({ seq: seq++, firstTick: 0, ...recv.ack(), words: [], report: r });
+    Atomics.add(i32, L.CL_TX >> 2, buf.length);
+    imp.send(() => dw.write(buf).catch(() => {}));
+  };
   const timer = setInterval(() => {
     const now = epoch();
     // how late this 4 ms timer runs: a starved worker samples, sends and acks late
     if (now - lastTimer > 50) seen.gaps.push(Math.round(now - lastTimer));
     lastTimer = now;
+    if (failover && now - heardAt > SILENT_MS) { try { wt.close(); } catch { /* gone */ } }
+    if (welcome.watch) {
+      const t = Math.floor(serverTick(now));
+      if (t - lastSent >= W.SEND_EVERY) { lastSent = t; sendWatch(); }
+      return;
+    }
     const predicted = Math.floor(serverTick(now) + lead);
     if (nextTick > predicted) return;
     while (nextTick <= predicted) {
@@ -199,35 +248,41 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
 
   for await (const buf of readable(wt.datagrams.readable)) imp.recv(() => onDatagram(buf));
   clearInterval(timer);
-  Atomics.store(i32, L.CL_STATE >> 2, 3);
-  self.postMessage({ closed: true });
+  clearInterval(seenTimer);
+  return { slot: welcome.slot, room: welcome.roomStart };
 
   function onDatagram(buf) {
     const now = epoch();
-    if (buf[0] === W.T_REPAIR) {
-      const ticks = [];
-      for (const t of W.decodeRepair(buf) || []) {
-        repairedAt.set(t.tick, (repairedAt.get(t.tick) || 0) + 1);
-        if (t.tick >= welcome.roomStart && recv.add(t.tick)) { ticks.push({ t: t.tick, ev: t.events, w: t.words }); arrived(t.tick, now); }
-      }
+    heardAt = now;
+    const d = W.decodeTicks(buf);
+    if (!d) return;
+    Atomics.add(i32, (d.type === W.T_REPAIR ? L.CL_RX_REPAIR : L.CL_RX_BUNDLE) >> 2, buf.length);
+    const ticks = [];
+    let newestHere = -1;
+    for (const e of d.entries) {
+      newestHere = Math.max(newestHere, e.tick);
+      if (d.type === W.T_REPAIR) repairedAt.set(e.tick, (repairedAt.get(e.tick) || 0) + 1);
+      if (e.tick < welcome.roomStart || recv.has(e.tick)) continue;
+      const whole = parts.add(e);
+      if (!whole || !recv.add(e.tick)) continue;
+      arrived(e.tick, now);
+      Atomics.add(i32, L.CL_HEARD >> 2, 1);
+      ticks.push({ t: e.tick, parts: whole });
+    }
+    parts.forget(recv.newest - 512);
+    if (d.type === W.T_REPAIR) {
       for (const t of repairedAt.keys()) if (t < recv.newest - 512) repairedAt.delete(t);
       seen.repairs++;
       if (ticks.length) { simPort.postMessage({ ticks }); Atomics.add(i32, L.CL_REPAIRS >> 2, ticks.length); }
       return;
     }
-    const b = W.decodeBundle(buf);
-    if (!b) return;
     seen.bundles++;
-    const ticks = [];
-    for (let k = 0; k < b.nb; k++) {
-      const t = b.T - k;
-      if (t < welcome.roomStart || !recv.add(t)) continue;
-      arrived(t, now);
-      ticks.push({ t, ev: b.events.filter((e) => e.tick === t).map(({ slot, kind }) => ({ slot, kind })), w: b.rows[k] });
-    }
     if (ticks.length) simPort.postMessage({ ticks });
     steer(now);
-    lastBundleT = Math.max(lastBundleT, b.T);
+    // a bundle that needed several datagrams stamps the same trailer on each: take it once, with its newest tick
+    if (newestHere <= lastBundleT) return;
+    const b = d.trailer;
+    lastBundleT = newestHere;
     inAck = Math.max(inAck, b.inAck);
     // The lead: the relay's slack (how early our words land) toward its own
     // jitter plus a send interval, at most 0.02 ticks a tick (2% fast or slow).

@@ -75,6 +75,7 @@ function playHole(planner, start, golfer, { witness, watched, wedgeOk, penaltyAl
   // load() fills only the private snapshot; try() copies it in. Copy it in now,
   // or the first shot is chosen from whatever the memory held before.
   planner.u8.set(planner.snap, REGION);
+  planner.x.regrid();
   const v = new View(planner.u8.buffer), dv = v.dv;
   const cup = v.hole().cup;
   let penalty = 0, wedges = 0;

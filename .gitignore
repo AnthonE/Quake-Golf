@@ -2,6 +2,7 @@ node_modules/
 build/
 logs/
 traces/
+replays/
 certs/
 .tools/
 xbox/bin/

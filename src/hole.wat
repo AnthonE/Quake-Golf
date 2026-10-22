@@ -39,6 +39,7 @@
                 (!st f32 @VX (local.get $b) (f32.const 0))
                 (!st f32 @VY (local.get $b) (f32.const 0))
                 (!st f32 @VZ (local.get $b) (f32.const 0))
+                (call $regrid_ball (local.get $b))
                 (local.set $fl (i32.or (local.get $fl) (i32.const @PF_DONE)))
                 (!put u8 @(PLAYERS + P_FL) (local.get $pb) (local.get $fl))
                 (!put i32 @(PLAYERS + P_DONE) (local.get $pb) (local.get $t))))))

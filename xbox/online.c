@@ -16,7 +16,7 @@ typedef uint64_t __attribute__((may_alias)) au64;
 enum { T_INPUT = 0x01, T_BUNDLE = 0x02, T_REPAIR = 0x03, T_HELLO = 0x10, T_WELCOME = 0x11, T_SYNC = 0x12, T_FILL = 0x13,
        T_KEY = 0x14, T_PING = 0x15, T_PONG = 0x16, T_REJECT = 0x1f };
 enum { SYNC_JOIN = 0, SYNC_HOLE = 1, SYNC_BEHIND = 2, SYNC_DESYNC = 3 };
-enum { PROTO = 3, SEND_EVERY = 2, NB = 4, NP = 64, MAX_INPUTS = 64, MAX_DATAGRAM = 1400 };
+enum { PROTO = 4, SEND_EVERY = 2, NB = 4, NP = 256, MAX_INPUTS = 64, MAX_DATAGRAM = 1400 };
 #define TICK_MS 8.0
 // client/sim.mjs
 #define HOLE_TICKS 56
@@ -84,13 +84,29 @@ static int heard(Online *o, int32_t t) {
   return 1;
 }
 
-static void keep(Online *o, const OnTick *d) {
-  if (d->tick < AT(o)) return;
-  OnTick *s = &o->store[d->tick & (ON_STORE - 1)];
-  // a slot still holding a tick to step is not overwritten (that tick is 1,024 ahead: a hole, then a resync)
-  if (s->tick == d->tick || (s->tick >= AT(o) && s->tick != d->tick)) return;
-  *s = *d;
-  if (d->tick > o->storeNewest) o->storeNewest = d->tick;
+// A part of closed tick t, into the store. 1 once that makes the tick whole
+// and it is new: heard, and waiting to be stepped.
+static int part_in(Online *o, int32_t t, uint32_t part, uint32_t parts, const uint8_t *b, uint32_t n) {
+  if (t < (int32_t)o->roomStart || t < AT(o) || has(o, t)) return 0;
+  if (!parts || parts > ON_PARTS || part >= parts || n > ON_PART_MAX) return 0;
+  OnTick *s = &o->store[t & (ON_STORE - 1)];
+  if (s->tick != t) {
+    // a slot still holding a tick to step is not taken (that tick is 1,024 ahead: a hole, then a resync)
+    if (s->tick >= AT(o) && s->whole) return 0;
+    s->tick = t;
+    s->parts = (uint8_t)parts;
+    s->have = 0;
+    s->whole = 0;
+  }
+  if (s->parts != parts || ((s->have >> part) & 1)) return 0;
+  copy(s->data[part], b, n);
+  s->len[part] = (uint16_t)n;
+  s->have |= (uint8_t)(1u << part);
+  if (s->have != (1u << parts) - 1) return 0;
+  s->whole = 1;
+  heard(o, t);
+  if (t > o->storeNewest) o->storeNewest = t;
+  return 1;
 }
 
 // first arrivals, for the playout clock: how long after it closed each tick reached us
@@ -123,55 +139,31 @@ static void steer(Online *o, double now) {
   else { o->playBase = atp; o->playEpoch = now; o->playRate = 1 + clampd(err / 16, -0.03, 0.03); }
 }
 
-// a tick as the record keeps it (fills and repairs): u8 ne | ne x (slot, kind) | u8 nw | nw x (slot, u32 word)
-static uint32_t sparse(const uint8_t *b, uint32_t n, int32_t tick, OnTick *d) {
-  uint32_t o = 0;
-  d->tick = tick;
-  d->dense = 0;
-  if (o >= n) return 0;
-  uint32_t ne = b[o++];
-  d->ne = 0;
-  for (uint32_t i = 0; i < ne && o + 2 <= n; i++, o += 2) if (d->ne < 16) { d->ev[d->ne][0] = b[o]; d->ev[d->ne][1] = b[o + 1]; d->ne++; }
-  if (o >= n) return 0;
-  uint32_t nw = b[o++];
-  d->nw = 0;
-  for (uint32_t i = 0; i < nw && o + 5 <= n; i++, o += 5) if (d->nw < 64) { d->slot[d->nw] = b[o]; d->word[d->nw] = rd32(b + o + 1); d->nw++; }
-  return o;
-}
-
+// Ticks datagrams (net/wire.mjs): u8 type | u8 n | u16 0 | u32 from | n x (u8 tick - from | u8 part << 4 | parts | u16 bytes | the part) | a bundle's trailer
 static void on_datagram(Online *o, const uint8_t *b, uint32_t n, double now) {
-  OnTick d;
-  if (n >= 8 && b[0] == T_REPAIR) {
-    uint32_t count = b[1], from = rd32(b + 4), off = 8;
-    o->repairs++;
-    for (uint32_t k = 0; k < count && off < n; k++) {
-      uint32_t used = sparse(b + off, n - off, (int32_t)(from + k), &d);
-      if (!used) break;
-      off += used;
-      if (d.tick >= (int32_t)o->roomStart && heard(o, d.tick)) { keep(o, &d); arrived(o, d.tick, now); o->repairTicks++; }
+  if (n < 8 || (b[0] != T_BUNDLE && b[0] != T_REPAIR)) return;
+  int bundle = b[0] == T_BUNDLE;
+  uint32_t end = n - (bundle ? 8 : 0), count = b[1], from = rd32(b + 4), off = 8;
+  if (end < 8) return;
+  int32_t newestHere = -1;
+  if (!bundle) o->repairs++;
+  for (uint32_t k = 0; k < count && off + 4 <= end; k++) {
+    uint32_t len = rd16(b + off + 2);
+    if (off + 4 + len > end) return;
+    int32_t t = (int32_t)(from + b[off]);
+    if (t > newestHere) newestHere = t;
+    if (part_in(o, t, b[off + 1] >> 4, b[off + 1] & 15, b + off + 4, len)) {
+      arrived(o, t, now);
+      if (!bundle) o->repairTicks++;
     }
-    return;
+    off += 4 + len;
   }
-  if (n < 16 || b[0] != T_BUNDLE) return;
-  uint32_t nb = b[1], np = b[2], ne = b[3];
-  int32_t T = (int32_t)rd32(b + 4);
-  if (np > 64 || n < 8 + nb * np * 4 + 2 * ne + 8) return;
+  if (!bundle) return;
   o->bundles++;
-  const uint8_t *ev = b + 8 + nb * np * 4;
-  for (uint32_t k = 0; k < nb; k++) {
-    int32_t t = T - (int32_t)k;
-    if (t < (int32_t)o->roomStart || !heard(o, t)) continue;
-    arrived(o, t, now);
-    d.tick = t;
-    d.dense = 1;
-    d.ne = 0;
-    for (uint32_t e = 0; e < ne; e++) if (T - (ev[2 * e + 1] & 15) == t && d.ne < 16) { d.ev[d.ne][0] = ev[2 * e]; d.ev[d.ne][1] = ev[2 * e + 1] >> 4; d.ne++; }
-    d.nw = (uint8_t)np;
-    for (uint32_t p = 0; p < np; p++) { d.slot[p] = (uint8_t)p; d.word[p] = rd32(b + 8 + 4 * (k * np + p)); }
-    keep(o, &d);
-  }
   steer(o, now);
-  if (T > o->lastBundleT) o->lastBundleT = T;
+  // a bundle in several datagrams stamps the same trailer on each: take it once, with its newest tick
+  if (newestHere <= o->lastBundleT) return;
+  o->lastBundleT = newestHere;
   const uint8_t *tr = b + n - 8;
   uint32_t inAck = rd32(tr);
   if (inAck > o->inAck) o->inAck = inAck;
@@ -200,7 +192,13 @@ static void restore(Online *o, uint32_t reason, uint32_t tick, uint32_t raw, con
     int32_t got = gunzip(packed, n, unpacked, sizeof unpacked);
     if (got != (int32_t)QG_REGION_SIZE) { o->state = ON_FAILED; o->error = "a keyframe did not unpack"; return; }
     unshuffle(qg_mem + QG_REGION, unpacked);
+    qg_regrid();
   } else qg_init(o->seed);
+  // the base the tick after it is coded against: each live player's last input (net/wire.mjs TickBase.seed)
+  for (uint32_t p = 0; p < 256; p++) {
+    uint32_t pb = QG_PLAYERS + QG_PSIZE * p;
+    o->base[p] = (qg_mem[pb + QG_P_FL] & QG_PF_LIVE) ? U(pb + QG_P_IN) : 0;
+  }
   if ((uint32_t)AT(o) != tick) { o->state = ON_FAILED; o->error = "a keyframe restored the wrong tick"; return; }
   for (int k = 0; k < ON_STORE; k++) if (o->store[k].tick >= 0 && o->store[k].tick < (int32_t)tick) o->store[k].tick = -1;
   if (o->keys < 16) { o->keyReason[o->keys] = reason; o->keyTick[o->keys] = tick - o->roomStart; }
@@ -231,6 +229,7 @@ static void welcome(Online *o, const uint8_t *b, double now) {
   for (int k = 0; k < 5; k++) o->pingAt[k] = now + 50.0 * k;
   qg_init(o->seed);
   o->state = ON_JOINING;
+  zero(o->base, sizeof o->base);
   // the first datagram tells the relay where to send bundles
   uint8_t d[24];
   zero(d, sizeof d);
@@ -274,14 +273,16 @@ static void parse(Online *o, double now) {
         uint32_t from = rd32(b + 4), count = rd32(b + 8), bytes = rd32(b + 12);
         if (16 + bytes > o->rxCap) { o->state = ON_FAILED; o->error = "a fill too big for the buffer"; return; }
         if (o->rxLen < 16 + bytes) return;
-        uint32_t off = 16;
-        OnTick d;
-        for (uint32_t k = 0; k < count && off < 16 + bytes; k++) {
-          uint32_t u = sparse(b + off, 16 + bytes - off, (int32_t)(from + k), &d);
-          if (!u) break;
-          off += u;
-          heard(o, d.tick);
-          keep(o, &d);
+        // n ticks: u8 parts | parts x (u16 bytes | the part)
+        uint32_t off = 16, stop = 16 + bytes;
+        for (uint32_t k = 0; k < count && off < stop; k++) {
+          uint32_t parts = b[off++];
+          for (uint32_t m = 0; m < parts && off + 2 <= stop; m++) {
+            uint32_t len = rd16(b + off);
+            if (off + 2 + len > stop) break;
+            part_in(o, (int32_t)(from + k), m, parts, b + off + 2, len);
+            off += 2 + len;
+          }
         }
         o->fills++;
         o->fillTicks += count;
@@ -360,26 +361,63 @@ static void sync_request(Online *o, uint32_t reason, uint32_t have) {
 
 // ---------------------------------------------------------------- the confirmed world
 
-// net/inbox.mjs feedTick: joins and leaves as listed, then an input record per word
-static void feed(const OnTick *d) {
-  uint32_t n = 0;
+// net/wire.mjs: a tick's bits, most significant first
+typedef struct { const uint8_t *b; uint32_t pos, end; int bad; } Bits;
+static uint32_t get(Bits *r, uint32_t n) {
+  uint32_t v = 0;
+  if (r->pos + n > r->end) { r->bad = 1; return 0; }
+  for (uint32_t i = 0; i < n; i++, r->pos++) v = (v << 1) | ((r->b[r->pos >> 3] >> (7 - (r->pos & 7))) & 1);
+  return v;
+}
+static uint32_t eg(Bits *r, uint32_t k) {
+  uint32_t z = 0;
+  while (!r->bad && get(r, 1) == 0) if (++z > 24) { r->bad = 1; return 0; }
+  return (1u << (z + k)) + get(r, z + k) - (1u << k);
+}
+static int32_t unzz(uint32_t u) { return (int32_t)(u >> 1) ^ -(int32_t)(u & 1); }
+
+// net/wire.mjs TickBase.apply and net/inbox.mjs feedTick: one coded tick into
+// the inbox (its joins and leaves, then a record per word that changed), the
+// base moved on a tick. 0 if the tick doesn't decode.
+static int feed(Online *o, const OnTick *d) {
+  uint32_t n = 0, nw = 0;
   uint8_t *r;
-  for (uint32_t e = 0; e < d->ne; e++) {
-    uint32_t kind = d->ev[e][1] == 1 ? QG_EV_JOIN : d->ev[e][1] == 2 ? QG_EV_LEAVE : 0;
-    if (!kind) continue;
-    r = qg_mem + QG_INBOX_REC + n++ * QG_REC;
-    zero(r, QG_REC);
-    r[4] = (uint8_t)kind;
-    r[5] = d->ev[e][0];
+  uint8_t slots[256];
+  uint32_t words[256];
+  for (uint32_t m = 0; m < d->parts; m++) {
+    Bits bits = { d->data[m], 0, 8u * d->len[m], 0 };
+    for (uint32_t ne = eg(&bits, 0); ne > 0 && !bits.bad; ne--) {
+      uint32_t slot = get(&bits, 8), wk = get(&bits, 2);
+      uint32_t kind = wk == 1 ? QG_EV_JOIN : wk == 2 ? QG_EV_LEAVE : 0;
+      if (!kind || n >= QG_INBOX_MAX) continue;
+      r = qg_mem + QG_INBOX_REC + n++ * QG_REC;
+      zero(r, QG_REC);
+      r[4] = (uint8_t)kind;
+      r[5] = (uint8_t)slot;
+    }
+    int32_t p = -1;
+    for (uint32_t nc = eg(&bits, 0); nc > 0 && !bits.bad; nc--) {
+      p += (int32_t)eg(&bits, 0) + 1;
+      if (p >= 256 || nw >= 256) return 0;
+      uint32_t fy = get(&bits, 1), fp = get(&bits, 1), fh = get(&bits, 1), prev = o->base[p];
+      uint32_t yaw = fy ? (uint32_t)((int32_t)prev + unzz(eg(&bits, 3))) & 0x3fff : prev & 0x3fff;
+      uint32_t pitch = fp ? (uint32_t)((int32_t)((prev >> 14) & 0x3ff) + unzz(eg(&bits, 1))) & 0x3ff : (prev >> 14) & 0x3ff;
+      uint32_t high = fh ? get(&bits, 8) : prev >> 24;
+      slots[nw] = (uint8_t)p;
+      words[nw++] = yaw | (pitch << 14) | (high << 24);
+    }
+    if (bits.bad) return 0;
   }
-  for (uint32_t w = 0; w < d->nw; w++) {
+  for (uint32_t w = 0; w < nw; w++) {
+    o->base[slots[w]] = words[w];
     r = qg_mem + QG_INBOX_REC + n++ * QG_REC;
     zero(r, QG_REC);
     r[4] = QG_EV_INPUT;
-    r[5] = d->slot[w];
-    wr32(r + 8, d->word[w]);
+    r[5] = slots[w];
+    wr32(r + 8, words[w]);
   }
   U(QG_INBOX) = n;
+  return 1;
 }
 
 static void step(Online *o, double now, double budget) {
@@ -388,8 +426,8 @@ static void step(Online *o, double now, double budget) {
   double t1 = plat_now_ms();
   while (k < target && plat_now_ms() - t1 < budget) {
     OnTick *d = &o->store[(o->roomStart + (uint32_t)k) & (ON_STORE - 1)];
-    if (d->tick != (int32_t)o->roomStart + k) break;
-    feed(d);
+    if (d->tick != (int32_t)o->roomStart + k || !d->whole) break;
+    if (!feed(o, d)) { o->state = ON_FAILED; o->error = "a tick from the server did not decode"; return; }
     d->tick = -1;
     qg_step();
     o->stepped++;
@@ -407,7 +445,8 @@ static void step(Online *o, double now, double budget) {
   int32_t next = (int32_t)o->roomStart + k;
   if (!o->filling && now - o->syncAt > 1500) {
     int why = -1;
-    if (o->store[next & (ON_STORE - 1)].tick != next && o->storeNewest - next >= HOLE_TICKS) why = SYNC_HOLE;
+    const OnTick *h = &o->store[next & (ON_STORE - 1)];
+    if ((h->tick != next || !h->whole) && o->storeNewest - next >= HOLE_TICKS) why = SYNC_HOLE;
     else if (target - k > BEHIND_TICKS) why = SYNC_BEHIND;
     if (why >= 0) { sync_request(o, (uint32_t)why, (uint32_t)next); o->syncAt = now; }
   }

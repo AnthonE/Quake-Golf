@@ -11,16 +11,17 @@
 
 enum { ON_HELLO, ON_JOINING, ON_CATCHING_UP, ON_PLAYING, ON_FAILED };
 
-#define ON_STORE 1024 // closed ticks held ahead of the confirmed world
-#define ON_KEEP 512   // interval hashes kept for the host's reports
+#define ON_STORE 1024   // closed ticks held ahead of the confirmed world
+#define ON_KEEP 512     // interval hashes kept for the host's reports
+#define ON_PARTS 3      // parts a tick may come in (net/wire.mjs: 256 words of noise take 2)
+#define ON_PART_MAX 1000 // net/wire.mjs PART_MAX
 
+// A closed tick as it came, still coded (net/wire.mjs): its parts, whole once all have come.
 typedef struct {
-  int32_t tick;       // server tick, -1 for an empty slot
-  uint8_t dense;      // a bundle row (a word per slot) or the record's active slots
-  uint8_t ne, nw;
-  uint8_t ev[16][2];  // slot, wire kind
-  uint8_t slot[64];
-  uint32_t word[64];
+  int32_t tick;   // server tick, -1 for an empty slot
+  uint8_t parts, have, whole;
+  uint16_t len[ON_PARTS];
+  uint8_t data[ON_PARTS][ON_PART_MAX];
 } OnTick;
 
 typedef struct {
@@ -50,6 +51,8 @@ typedef struct {
   // closed ticks waiting for the playout clock, by server tick & (ON_STORE - 1)
   OnTick store[ON_STORE];
   int32_t storeNewest;
+  // the words the next tick to step is coded against, one per slot (net/wire.mjs TickBase)
+  uint32_t base[256];
   int started, filling, keys;
   double syncAt;
   // the newest interval hash, sent on the next 8 input datagrams
