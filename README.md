@@ -639,6 +639,15 @@ each ball's position and next link, one cache line a candidate instead of
 four, gained 3%. And the approach test as a select instead of a branch
 changed nothing.
 
+A SIMD candidate test was tried too, also exact. Nearly every bucket holds
+two balls or fewer, so a row of three buckets is six slots, an empty one at
+x = inf. One f32x4 pass tests them all, `i32x4.bitmask` gives the hits, and a
+`ctz` loop takes them in walk order, with a row holding a third ball walked
+as before. It removes the walk's branches but loads every slot, about twice
+the positions the walk reads, and V8 compiles an f32 `select` as a branch and
+spilled much of the function: 3.36 ms of contacts a grenade tick against
+3.09 for the walk, measured on the same states.
+
 Not done:
 
 - **The grenade on one thread.** 2.95 ms a tick against 1.5. Four threads
