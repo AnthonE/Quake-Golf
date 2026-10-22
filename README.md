@@ -16,7 +16,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 | N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
 | N3 · spectators | one room served through a tree of relays, two deep, to 600 spectators on lossy links: every edge's referee hashes the room as the root's does, every spectator's world too, Chrome watching two relays down, a player turned away at an edge | **passed** · [results](#n3-spectators) |
 | N1 · 256 players | one room filled to 256 over a lossy network (Chrome, the Xbox's network code, and a host of 252 AI golfers): every hash equals the referee's, the 257th turned away, a late join from a keyframe of the full room, a flipped bit healed, every bundle one datagram | **passed** · [results](#n1-256-players) |
-| M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); a contact walk 1.2 to 1.4 times faster, bit for bit again; the blast still costs 3.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
+| M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); then contacts by sorted runs and SIMD, bit for bit still: the blast's first 4 s at 1.49 ms a tick on one thread (p99 2.3), from 3.9; the heap never sleeps · [results](#m4-the-pit) |
 | X2 · Xbox online | the Xbox build plays in the browser's rooms over a lossy network: every hash equals the referee's, a late join from a keyframe on the Pentium III's instruction set, a flipped bit healed | **passed** with the Xbox's network code on Linux and under QEMU, not yet in xemu · [results](#x2-xbox-online) |
 | X1 · original Xbox | the sim as Pentium III code equals V8 on every tick of 1M; an XBE builds; a match played on the Xbox build replays in V8 tick for tick | **passed** under QEMU's Pentium III, not yet on a console · [results](#x1-the-original-xbox) |
 | M3 · netcode | four players at 150 ms and 10% loss: your moves show next frame, a late join from a keyframe, a flipped bit caught and healed | **passed** · [results](#m3-netcode) |
@@ -660,15 +660,50 @@ the positions the walk reads, and V8 compiles an f32 `select` as a branch and
 spilled much of the function: 3.36 ms of contacts a grenade tick against
 3.09 for the walk, measured on the same states.
 
+The third change is the data, once the Xbox had a sim of its own
+(`xbox/sim/`) and `src/` no longer had to be what the Pentium III
+translation can run. When 768 balls or more are awake, `tick_begin`
+counting-sorts every live ball by bucket into flat arrays, its position
+copied beside it. Buckets number x fastest, so a row of three cells is one
+run of the arrays (two where the grid wraps): a ball tests 9 runs, four
+balls at a time in f32x4, instead of walking 27 lists. A group's hits go on
+a small queue for its thread with no branch (all four lanes written, the
+count moved by the mask), and `$press` works out the queued contacts four at
+a time: each lane does what `touch.wat` does for one, an awake and a sleeping
+neighbour both, blended by the lane's kind, and the pushes are added to the
+sums lane by lane in queue order. A run is its buckets in turn, each
+ascending, which is the lists' order, and each lane computes what one at a
+time does, so the bits are still the old ones:
+
+| Check | Result |
+| --- | --- |
+| every tick's region hash against the build before the first change, on the pit, M1's 20,000-tick log and the 4-bot match, 1 and 4 threads, and the debug build under random splits (which also checks the sorted copy against the lists every tick) | all equal |
+| `harness/matrix.mjs` on the pit: Node, Deno and Chrome x 3 tiers x 1, 2, 4 threads | all 27 agree on every tick |
+
+Node, one thread unless stated:
+
+| | at the start of M4's contacts work | now |
+| --- | --- | --- |
+| a quiet tick (127 awake: the lists) | 0.053 ms | 0.040 ms |
+| the storm (1,359 awake), 1 and 4 threads | 0.56 and 0.35 ms | 0.36 and 0.39 ms |
+| the pit filling | 2.34 to 2.39 ms | 0.95 ms |
+| the heap, before the grenade | 1.00 to 1.04 ms | 0.48 ms |
+| **the grenade's first 4 s**, 1 and 4 threads | 3.5 to 4.1 and 1.45 to 1.64 ms | **1.49 and 0.78 ms** |
+| of which contacts, 1 thread | 3.15 to 3.74 ms | 1.09 ms |
+
+Of the grenade's 1.49 ms, testing the runs is about 0.7, the contacts 0.4,
+the settling of each ball after it moves 0.23, and the sort 0.08. Branches
+were the cost all along: taking a group's hits by a branchy loop instead of
+the queue cost 0.6 ms more. Two more were tried and left out. Always testing
+two groups a row, to drop the loop's branch, was slower; so was settling
+four balls at a time, where each lane takes every path and blends, which is
+twice the instructions of one ball's branches.
+
 Not done:
 
-- **The grenade on one thread.** 2.95 ms a tick against 1.5. Four threads
-  bring it to 1.1 to 1.3 ms, but the client's sim worker and the referee
-  step on one. Per awake ball, a walk of the 27 buckets alone costs about
-  three quarters of contacts and the 7 contacts the rest. Sorting the awake
-  list by bucket, so that neighbours come one after another, changed
-  nothing, and neither did the packed copy above: the walk is not waiting on
-  memory, it is short lists (mostly one or two balls) of unpredictable length.
+- **The grenade at its p99.** 1.49 ms a tick on average against 1.5, but
+  2.3 ms at the p99. Four threads bring it to 0.78 ms, and the client's sim
+  worker and the referee still step on one.
 - **A heap never sleeps.** Before the grenade, 1,286 balls stay awake for as
   long as the pit stands, about 1 ms a tick. The bottom balls are squeezed
   out sideways from under the ones above (balls have no friction on each
