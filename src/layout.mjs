@@ -120,6 +120,12 @@ export const CL_KEYS = NET + 76; // u32 keyframes restored: the join's, then one
 // Clocks (client/clock.mjs), 32 B each, written by the net worker:
 export const CL_PLAY = NET + 128; // the playout clock, in server ticks: the confirmed world steps up to it
 export const CL_PRED = NET + 160; // the predicted clock: the server tick plus the input lead
+// Traffic, for the net graph (client/netgraph.mjs), counted by the net worker:
+export const CL_RX_BUNDLE = NET + 192; // u32 bytes of bundle datagrams received
+export const CL_RX_REPAIR = NET + 196; // u32 bytes of repair datagrams received
+export const CL_RX_STREAM = NET + 200; // u32 bytes of keyframes and fills received
+export const CL_TX = NET + 204; // u32 bytes of input datagrams sent
+export const CL_HEARD = NET + 208; // u32 closed ticks heard, by any of them
 // Input words by server tick (& 255), written by the net worker as it samples them:
 export const CL_WORDS = NET + 1024;
 export const PLAY_BASE = 2; // ticks of playout delay past the earliest arrival, before jitter

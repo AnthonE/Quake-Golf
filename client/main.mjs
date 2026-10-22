@@ -13,6 +13,7 @@ import { put, C } from './font.mjs';
 import { createSound } from './sound.mjs';
 import { parseImpair } from '../net/impair.js';
 import { readClock } from './clock.mjs';
+import { NetGraph } from './netgraph.mjs';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('screen');
@@ -88,8 +89,11 @@ async function main() {
   if (BOT) {
     const bot = new Worker(new URL('./botworker.mjs', import.meta.url), { type: 'module' });
     bot.postMessage({ module, memory, genome: q.get('genome') });
-    // watching a bot play, Tab still shows the scores
-    document.addEventListener('keydown', (e) => { if (e.code === 'Tab') { e.preventDefault(); held.add('Tab'); } });
+    // watching a bot play, Tab still shows the scores and N the net graph
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Tab') { e.preventDefault(); held.add('Tab'); }
+      if (e.code === 'KeyN' && !e.repeat) showGraph = !showGraph;
+    });
     document.addEventListener('keyup', (e) => { if (e.code === 'Tab') held.delete('Tab'); });
   } else {
     canvas.addEventListener('click', () => {
@@ -115,6 +119,7 @@ async function main() {
       if (e.code === 'Digit1') setWeapon(0);
       else if (e.code === 'Digit2') setWeapon(1);
       else if (e.code === 'KeyQ' && !e.repeat) setWeapon(weapon ^ 1);
+      else if (e.code === 'KeyN' && !e.repeat) showGraph = !showGraph;
       else if (e.code === 'KeyF' && !e.repeat) {
         if (document.fullscreenElement) document.exitFullscreen();
         else document.documentElement.requestFullscreen().then(() => navigator.keyboard?.lock?.()).catch(() => {});
@@ -128,6 +133,9 @@ async function main() {
   }
 
   const text = new Uint32Array(COLS * renderer.rows);
+  const netGraph = new NetGraph(memory);
+  let showGraph = q.get('net') !== '0';
+  let boardUp = false;
   const flashes = [];
   let fxSeen = 0;
   let seed = -1;
@@ -297,9 +305,11 @@ async function main() {
     }
 
     hudText(text, { h, me: pme || me, slot, st, cam, now, fps, banner });
+    netGraph.sample(now, hashes, keys);
+    const graph = showGraph && !boardUp && st > 0 ? netGraph.build((x, y, s, c) => put(text, COLS, x, y, s, c), C) : null;
     last = {
       cam, yaw: camYaw, pitch: camPitch, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, cup: h.cup, dir: h.dir, slot: slot < 0 ? 999 : slot,
-      myBall: me?.live ? me.ball : -1, nballs: view.nballs, flashes, text,
+      myBall: me?.live ? me.ball : -1, nballs: view.nballs, flashes, text, graph,
     };
     renderer.frame(u8, last);
   }
@@ -348,7 +358,8 @@ async function main() {
     }
     put(t, COLS, 1, rows - 2, `${fps} FPS  LEAD ${f32[L.CL_LEAD >> 2].toFixed(1)}  DELAY ${f32[L.CL_DELAY >> 2].toFixed(1)}  SLACK ${f32[L.CL_PING >> 2].toFixed(1)}MS  REPAIRS ${get(L.CL_REPAIRS)}  KEYS ${get(L.CL_KEYS)}`, C.GREY);
     if (!BOT && !locked && st === 2) centre(Math.floor(rows / 2) + 2, 'CLICK TO PLAY', C.WHITE);
-    if (h.state === L.H_OVER || (held.has('Tab') && h.live)) {
+    boardUp = h.state === L.H_OVER || (held.has('Tab') && h.live);
+    if (boardUp) {
       const list = [];
       for (let p = 0; p < L.NPLAYER; p++) { const pl = view.player(p); if (pl.live) list.push(pl); }
       list.sort((a, b) => a.total - b.total || a.slot - b.slot);

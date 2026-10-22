@@ -37,7 +37,14 @@ metres, and the cup is a slipgate that swallows any ball under 8 m/s. The
 grenade bounces and pops after 2.5 s, for lobs. A rocket at your own feet is
 a rocket jump (and a stroke). Holes last 4 minutes; not finishing costs 2.
 Your own movement, shots and rocket jumps are predicted, so they show on the
-next frame; other players and every ball show a round trip late. To feel a
+next frame; other players and every ball show a round trip late. The net graph
+in the top right (N hides it) shows the last 9.6 s of the netcode: bytes down
+by kind (bundles green, repairs orange, keyframes and fills purple) and up
+(the cyan line); the share of ticks that needed a repair and the lag from an
+input to the confirmed world; the input lead (yellow) and the playout delay
+(cyan), in ticks; and the sync, a green tick for each interval hash sent to
+the relay and a bar for each keyframe (blue a join, purple a resync, red a
+desync). To feel a
 bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
 round trip with 10% loss each way.
 

@@ -116,13 +116,15 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
       if (m.type === W.T_PONG) { seen.pongs++; onPong(m); }
       if (m.type === W.T_KEY) {
         seen.keys++;
+        Atomics.add(i32, L.CL_RX_STREAM >> 2, 16 + m.packed.length + (m.digests ? 1032 : 0));
         const region = m.raw ? await W.unpackKey(m.packed) : null;
         simPort.postMessage({ key: { tick: m.tick, reason: m.reason, region, interval: m.interval, digests: m.digests } }, region ? [region.buffer] : []);
       }
       if (m.type === W.T_FILL) {
         seen.fills++;
+        Atomics.add(i32, L.CL_RX_STREAM >> 2, 16 + m.body.length);
         const ticks = W.decodeFillBody(m.from, m.n, m.body).map((t) => ({ t: t.tick, parts: t.parts }));
-        for (const t of ticks) recv.add(t.t);
+        for (const t of ticks) if (recv.add(t.t)) Atomics.add(i32, L.CL_HEARD >> 2, 1);
         simPort.postMessage({ ticks, fill: true });
       }
     }
@@ -156,6 +158,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
     const r = report?.left > 0 ? report : null;
     if (r) r.left--;
     const buf = W.encodeInput({ seq: seq++, firstTick: from, ...recv.ack(), words: list, report: r });
+    Atomics.add(i32, L.CL_TX >> 2, buf.length);
     imp.send(() => dw.write(buf).catch(() => {}));
   };
   let lastTimer = epoch();
@@ -208,6 +211,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
     const now = epoch();
     const d = W.decodeTicks(buf);
     if (!d) return;
+    Atomics.add(i32, (d.type === W.T_REPAIR ? L.CL_RX_REPAIR : L.CL_RX_BUNDLE) >> 2, buf.length);
     const ticks = [];
     let newestHere = -1;
     for (const e of d.entries) {
@@ -217,6 +221,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
       const whole = parts.add(e);
       if (!whole || !recv.add(e.tick)) continue;
       arrived(e.tick, now);
+      Atomics.add(i32, L.CL_HEARD >> 2, 1);
       ticks.push({ t: e.tick, parts: whole });
     }
     parts.forget(recv.newest - 512);
