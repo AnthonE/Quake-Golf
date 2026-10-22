@@ -17,16 +17,28 @@
 // (its native door) as a spectator and serves it to spectators of its own,
 // closing ticks as they come down rather than on its own clock. Its referee
 // starts from the keyframe it began watching at and reports its hashes
-// upstream, so each relay in a tree is checked by the one above it.
+// upstream, so each relay in a tree is checked by the one above it. Given
+// several upstreams, it watches the next when one goes away.
+//
+// With --standby as well, an edge whose upstreams are all gone takes the room
+// over: it holds the record and a referee already, so it closes the ticks
+// from the newest it has on, on the old clock's timeline, and each player in
+// the world keeps their slot for GRACE_MS, held by a ghost that repeats
+// their last word (as for a player whose inputs are late) until they come
+// back here with a resume (net/wire.mjs) and take it over, with no join.
 //
 //   .tools/deno run --unstable-net -A net/relay.ts [--port 4433] [--native-port 4434] [--duration 70] [--cc low-latency|default] [--seed N] [--host 127.0.0.1]
-//                  [--upstream host:native-port] [--watchers 4096]
+//                  [--upstream host:native-port[,host:native-port...]] [--standby] [--watchers 4096] [--replays dir]
+// With --replays, each room's record goes to a replay file (net/replay.mjs)
+// when it ends, with the referee's interval hashes.
 // Clients are Chrome (net/run-m0.mjs hosts the bots there): Deno's WebTransport
 // client always binds an IPv6 socket, which hosts without IPv6 refuse. Native
 // clients (the Xbox) come in on --native-port instead: the same session over a
 // TCP connection for the stream and UDP for the datagrams (net/wire.mjs).
 import * as W from './wire.mjs';
+import * as L from '../src/layout.mjs';
 import { recordLog } from './inbox.mjs';
+import { encodeReplay } from './replay.mjs';
 
 const argv = Deno.args;
 const opt = (k: string, d: string) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
@@ -49,8 +61,12 @@ const nativePort = Number(opt('native-port', '4434')); // 0: no native door
 const newSeed = () => (seedArg ? Number(seedArg) >>> 0 : crypto.getRandomValues(new Uint32Array(1))[0]);
 // where the run summary goes; stdout by default (V8 traces share stdout, so runners pass a file)
 const summaryPath = opt('summary', '');
-const upstream = opt('upstream', ''); // an edge: the relay (host:native port) whose room it serves
+// an edge: the relays (host:native port) whose room it serves, in order of preference
+const upstreams = opt('upstream', '') ? opt('upstream', '').split(',') : [];
+const standby = argv.includes('--standby');
+let edge = upstreams.length > 0; // until a standby takes the room over
 const MAX_WATCHERS = Number(opt('watchers', '4096'));
+const replaysDir = opt('replays', '');
 
 const cert = await Deno.readTextFile('certs/cert.pem');
 const key = await Deno.readTextFile('certs/key.pem');
@@ -66,6 +82,7 @@ type Slot = {
   keys: number; syncing: boolean; lastSync: number; lastDesync: number; lastReport: number; reports: Map<number, bigint>;
   token: number; // a native session's, 0 for WebTransport
   watch: boolean; // a spectator: no slot (slot -1), no words
+  ghost?: boolean; // a slot held for its player after a takeover, with no session
   leave?: (why: string) => void;
 };
 // How a session reaches its client: its stream (read and write) and its datagrams.
@@ -77,7 +94,9 @@ type Door = {
 };
 
 const E = performance.now();
-const deadline = (t: number) => E + W.TICK_MS * (t + 1);
+// tick t closes at E0 + (t + 1) ticks; a standby that takes a room over moves E0 onto the old clock's timeline
+let E0 = E;
+const deadline = (t: number) => E0 + W.TICK_MS * (t + 1);
 let closed = -1;
 const slots: (Slot | null)[] = new Array(W.NP).fill(null);
 const watchers = new Set<Slot>();
@@ -94,8 +113,15 @@ let roomStart = -1;
 let recordStart = -1;
 let roomSeed = newSeed();
 let record: Uint8Array[][] = [];
+// for the replay: the region the record starts from (an edge's keyframe; null
+// from the room's start) and the referee's interval hashes over it
+let recordRegion: Uint8Array | null = null;
+let recordHashes: [number, bigint][] = [];
+// on an edge, the newest recorded tick's words and the players in the world: what a takeover starts from
+const recBase = new W.TickBase();
+const recLive = new Set<number>();
 // The room's tick now, fractional, as pongs tell it: the clock's, or on an edge the upstream's.
-let serverNow = () => (performance.now() - E) / W.TICK_MS;
+let serverNow = () => (performance.now() - E0) / W.TICK_MS;
 const stats = {
   ticks: 0, closeLate: [] as number[], stallEvents: [] as number[][], sent: 0, sentBytes: 0, maxBundle: 0, bundles: 0, bundleBytes: 0, tickBytes: 0, maxTick: 0, lateArrivals: 0,
   recv: 0, recvBytes: 0, onTime: 0, substituted: 0, sessions: 0, rejected: 0, slack: [] as number[], activeTicks: 0, activeSlotTicks: 0, silent: 0, warmup: 0,
@@ -104,8 +130,8 @@ const stats = {
   repairs: 0, repairTicks: 0, pongs: 0, keys: [] as Record<string, number>[], compared: 0, agreed: 0,
   mismatches: [] as Record<string, unknown>[], dumps: [] as string[], refLagMax: 0, refErrors: [] as string[],
   refHashes: [] as [number, string][], reports: {} as Record<number, [number, string][]>,
-  watchSessions: 0, watchMax: 0, watchBytes: 0, watchSeconds: 0, watchCompared: 0, watchAgreed: 0,
-  upstream: null as null | Record<string, unknown>,
+  replays: [] as string[], watchSessions: 0, watchMax: 0, watchBytes: 0, watchSeconds: 0, watchCompared: 0, watchAgreed: 0,
+  resumed: 0, takeover: null as null | Record<string, number>,
 };
 
 // The referee: closed ticks go to it in batches; interval hashes and packed keyframes come back.
@@ -124,9 +150,10 @@ referee.onmessage = (e: MessageEvent) => {
   if (m.intervals) {
     for (const iv of m.intervals) {
       refIntervals.set(iv.tick, iv);
+      recordHashes.push([iv.tick, iv.hash]);
       stats.refHashes.push([iv.tick, iv.hash.toString(16)]);
       for (const s of everyone()) check(s, iv.tick);
-      if (upstream) up.report = { interval: iv.tick, hash: iv.hash, left: 8 };
+      if (edge) up.report = { interval: iv.tick, hash: iv.hash, left: 8 };
     }
     for (const t of refIntervals.keys()) if (t < m.at - 16 * 128) refIntervals.delete(t);
     stats.refLagMax = Math.max(stats.refLagMax, closed - roomStart - m.at);
@@ -137,22 +164,38 @@ referee.onmessage = (e: MessageEvent) => {
 function startRecord(start: number, region: Uint8Array | null = null) {
   recordStart = start;
   record = [];
+  recordRegion = region;
+  recordHashes = [];
+  recBase.reset();
+  recLive.clear();
+  if (region) {
+    recBase.seed(region);
+    for (let p = 0; p < W.NP; p++) if (region[L.PLAYERS - L.REGION + p * L.PSIZE + L.P_FL] & L.PF_LIVE) recLive.add(p);
+  }
   toReferee = [];
   refIntervals.clear();
   referee.postMessage({ reset: { room: ++refRoom, seed: roomSeed, region } });
+}
+// The record so far as a replay file, the room's seed and the time in its name.
+function saveReplay() {
+  if (!replaysDir || recordStart < 0 || !record.length) return Promise.resolve();
+  const file = `${replaysDir}/${roomSeed.toString(16).padStart(8, '0')}-${new Date().toISOString().replace(/[:.]/g, '-')}.qgr`;
+  const r = { prefix, seed: roomSeed, roomStart, from: recordStart, ticks: record, hashes: recordHashes, region: recordRegion };
+  stats.replays.push(file);
+  return Deno.mkdir(replaysDir, { recursive: true }).then(async () => Deno.writeFile(file, await encodeReplay(r))).catch((e) => console.error('relay: replay: ' + e));
 }
 function startRoom(start: number) {
   roomStart = start;
   startRecord(start);
 }
 // The referee's newest keyframe; if it doesn't answer in 5 s, the room's start
-// (raw 0: the client inits from the seed), which only the root's record holds.
+// (raw 0: the client inits from the seed), if the record holds it.
 function keyframe(): Promise<{ tick: number; raw: number; packed: Uint8Array }> {
   const id = ++keyId;
   return new Promise((ok) => {
     keyWaiters.set(id, ok);
     referee.postMessage({ room: refRoom, want: id });
-    if (!upstream) setTimeout(() => { if (keyWaiters.delete(id)) ok({ tick: 0, raw: 0, packed: new Uint8Array(0) }); }, 5000);
+    if (recordStart === roomStart) setTimeout(() => { if (keyWaiters.delete(id)) ok({ tick: 0, raw: 0, packed: new Uint8Array(0) }); }, 5000);
   });
 }
 
@@ -346,6 +389,7 @@ function closeTick(T: number, now: number) {
     toReferee.push(parts);
     // the last one out: the next joiner starts a new room, and its spectators go
     if (!slots.some((x) => x)) {
+      saveReplay();
       roomStart = recordStart = -1; record = []; toReferee = []; roomSeed = newSeed();
       for (const w of [...watchers]) w.leave?.('room-ended');
     }
@@ -367,6 +411,7 @@ function broadcast(T: number) {
   // them once per limit, then copy and stamp each recipient's trailer
   const byMax = new Map<number, Uint8Array[]>();
   for (const s of everyone()) {
+    if (s.ghost) continue;
     // a spectator that has stopped acking has gone, whatever its connection says
     if (s.watch && now - Math.max(s.lastRecv, stallEnd) > SILENT_MS) { s.leave?.('silent'); continue; }
     const max = Math.min(W.MAX_DATAGRAM, s.maxDatagram);
@@ -412,11 +457,14 @@ function pump() {
 async function admit(d: Door) {
   const hello = W.decodeHello(await d.sr.read(24));
   const watch = !!hello?.watch;
-  const p = watch ? -1 : freeSlot();
+  // a player back for the slot a ghost holds (else a resume is a join)
+  const held = !watch && hello && hello.resume >= 0 && hello.room === roomStart >>> 0 ? slots[hello.resume] : null;
+  const claim = held?.ghost && held.leaveTick === Infinity ? held : null;
+  const p = watch ? -1 : claim ? claim.slot : freeSlot();
   let reason = 0;
   if (!hello || hello.proto !== W.PROTO) reason = W.REJECT.PROTO;
   else if (hello.wasmPrefix.some((b: number, i: number) => b !== prefix[i])) reason = W.REJECT.WASM;
-  else if (upstream && !watch) reason = W.REJECT.WATCH_ONLY;
+  else if (edge && !watch) reason = W.REJECT.WATCH_ONLY;
   else if (watch && recordStart < 0) reason = W.REJECT.EMPTY;
   else if (watch ? watchers.size >= MAX_WATCHERS : p < 0) reason = W.REJECT.FULL;
   if (reason) {
@@ -428,15 +476,11 @@ async function admit(d: Door) {
   const maxDatagram = d.maxDatagram || Math.min(W.MAX_DATAGRAM, hello!.maxDatagram);
   stats.serverMaxDatagram.push(maxDatagram);
   stats.clientMaxDatagram.push(hello!.maxDatagram);
-  const joinTick = watch ? closed + 1 : scheduleEvent(p, W.EV_JOIN, closed + 1 + 4);
+  const joinTick = watch || claim ? closed + 1 : scheduleEvent(p, W.EV_JOIN, closed + 1 + 4);
   if (roomStart < 0) startRoom(joinTick);
-  const s: Slot = {
-    slot: p, joinTick, leaveTick: Infinity, writer: d.datagrams as WritableStreamDefaultWriter<Uint8Array>, ctl: d.sw, maxDatagram,
-    last: 0, missing: 0, late: 0, lastSlack: 0, periodSlack: Infinity, contig: joinTick - 1, lastRecv: performance.now(), pendingLate: 0, close: d.close,
-    words: new Uint32Array(W.RING), wordTick: new Int32Array(W.RING).fill(-1), arrival: new Float64Array(W.RING),
-    fromTick: Infinity, repairTick: new Int32Array(W.RING).fill(-1), repairAt: new Float64Array(W.RING),
-    keys: 0, syncing: false, lastSync: -1e9, lastDesync: -1e9, lastReport: -1, reports: new Map(), token: d.token, watch,
-  };
+  const s = newSlot(p, joinTick, { writer: d.datagrams as WritableStreamDefaultWriter<Uint8Array>, ctl: d.sw, maxDatagram, close: d.close, token: d.token, watch });
+  // the ghost's word goes on until this player's first one lands
+  if (claim) { s.last = claim.last; s.missing = claim.missing; stats.resumed++; }
   if (watch) {
     watchers.add(s);
     stats.watchSessions++;
@@ -475,6 +519,17 @@ async function admit(d: Door) {
   s.leave = leave;
   return { s, leave };
 }
+
+function newSlot(slot: number, joinTick: number, o: Partial<Slot>): Slot {
+  return {
+    slot, joinTick, leaveTick: Infinity, writer: nowhere, ctl: nowhere, maxDatagram: W.MAX_DATAGRAM,
+    last: 0, missing: 0, late: 0, lastSlack: 0, periodSlack: Infinity, contig: joinTick - 1, lastRecv: performance.now(), pendingLate: 0, close: () => {},
+    words: new Uint32Array(W.RING), wordTick: new Int32Array(W.RING).fill(-1), arrival: new Float64Array(W.RING),
+    fromTick: Infinity, repairTick: new Int32Array(W.RING).fill(-1), repairAt: new Float64Array(W.RING),
+    keys: 0, syncing: false, lastSync: -1e9, lastDesync: -1e9, lastReport: -1, reports: new Map(), token: 0, watch: false, ...o,
+  };
+}
+const nowhere = { write: () => Promise.resolve() } as unknown as WritableStreamDefaultWriter<Uint8Array>;
 
 async function session(incoming: Deno.QuicIncoming) {
   const conn = await incoming.accept();
@@ -559,20 +614,20 @@ function summary() {
     tickBytes: { mean: stats.activeTicks ? Number((stats.tickBytes / stats.activeTicks).toFixed(1)) : 0, max: stats.maxTick },
     fills: stats.fills, fillTicks: stats.fillTicks, repairs: stats.repairs, repairTicks: stats.repairTicks, pongs: stats.pongs,
     keys: stats.keys, compared: stats.compared, agreed: stats.agreed, mismatches: stats.mismatches, dumps: stats.dumps,
-    refLagMax: stats.refLagMax, refErrors: stats.refErrors, refHashes: stats.refHashes, reports: stats.reports,
+    replays: stats.replays, refLagMax: stats.refLagMax, refErrors: stats.refErrors, refHashes: stats.refHashes, reports: stats.reports,
     downKBpsPerSession: slotSecs ? Number((stats.sentBytes / slotSecs / 1000).toFixed(2)) : 0,
     watchers: { sessions: stats.watchSessions, max: stats.watchMax, compared: stats.watchCompared, agreed: stats.watchAgreed,
       downKBpsEach: stats.watchSeconds ? Number((stats.watchBytes / stats.watchSeconds / 1000).toFixed(2)) : 0 },
-    upstream: upstream ? { from: upstream, keys: up.stats.keys, bundles: up.stats.bundles, repairs: up.stats.repairs, ticks: up.stats.ticks, syncs: up.stats.syncs,
-      bytes: up.stats.bytes, recordStart, rttMs: Number(up.bestRtt.toFixed(2)) } : null,
+    upstream: upstreams.length ? { ...upStats, recordStart, rttMs: Number(up.bestRtt.toFixed(2)) } : null,
+    resumed: stats.resumed, takeover: stats.takeover,
     upKBpsPerSession: slotSecs ? Number((stats.recvBytes / slotSecs / 1000).toFixed(2)) : 0,
     serverMaxDatagram: { min: Math.min(...stats.serverMaxDatagram), max: Math.max(...stats.serverMaxDatagram) },
     clientMaxDatagram: { min: Math.min(...stats.clientMaxDatagram), max: Math.max(...stats.clientMaxDatagram) },
   };
 }
 
-// An edge's way in: it watches the room on `upstream` (its native door) as a
-// spectator would, a lockstep client with no sim of its own beyond the
+// An edge's way in: it watches the room on an upstream relay (its native door)
+// as a spectator would, a lockstep client with no sim of its own beyond the
 // referee. Ticks join the record in order as they come down, and every second
 // tick a bundle goes out; acks and the referee's hashes go up every 16 ms; a
 // hole repairs can't fill asks upstream for a keyframe, and any keyframe after
@@ -581,26 +636,33 @@ const HOLE_TICKS = 56;
 // the stream's messages as readControl gives them, and the welcome
 type Ctl = { type: number; reason: number; tick: number; raw: number; packed: Uint8Array; from: number; n: number; body: Uint8Array; nonce: number; serverTick: number };
 type Welcome = { roomStart: number; seed: number; token: number; serverTick: number };
-const up = {
-  token: 0, keys: 0, seq: 0, recv: new W.Received(), parts: new W.Parts(), pending: new Map<number, Uint8Array[]>(),
-  sBase: 0, sEpoch: 0, bestRtt: Infinity, pingAt: [] as number[], filling: false, syncAt: -1e9,
+const newUp = (from = '') => ({
+  from, token: 0, keys: 0, seq: 0, recv: new W.Received(), parts: new W.Parts(), pending: new Map<number, Uint8Array[]>(),
+  sBase: 0, sEpoch: 0, bestRtt: Infinity, pingAt: [] as number[], filling: false, syncAt: -1e9, heardAt: performance.now(),
   report: null as null | { interval: number; hash: bigint; left: number },
-  stats: { keys: [] as Record<string, number>[], bundles: 0, repairs: 0, ticks: 0, syncs: 0, bytes: 0 },
-};
+});
+let up = newUp();
+const upStats = { links: [] as string[], keys: [] as Record<string, number | string>[], bundles: 0, repairs: 0, ticks: 0, syncs: 0, bytes: 0 };
 function offerUp(t: number, parts: Uint8Array[]) {
   if (recordStart < 0 || t < recordStart + record.length) return;
   up.pending.set(t, parts);
   for (let next = recordStart + record.length; up.pending.has(next); next++) {
-    record.push(up.pending.get(next)!);
-    toReferee.push(up.pending.get(next)!);
+    const tick = up.pending.get(next)!;
+    record.push(tick);
+    toReferee.push(tick);
+    for (const e of recBase.apply(tick).events) {
+      if (e.kind === W.EV_JOIN) recLive.add(e.slot);
+      if (e.kind === W.EV_LEAVE) recLive.delete(e.slot);
+    }
     up.pending.delete(next);
-    up.stats.ticks++;
+    upStats.ticks++;
     closed = next;
     if (next % W.SEND_EVERY === W.SEND_EVERY - 1) broadcast(next);
   }
 }
-async function watchUpstream() {
-  const [host, port] = upstream.split(':');
+// One upstream, until its connection ends (it throws if it can't be reached or refuses us).
+async function watchUpstream(from: string) {
+  const [host, port] = from.split(':');
   const conn = await Deno.connect({ hostname: host, port: Number(port), transport: 'tcp' });
   conn.setNoDelay(true);
   const sock = Deno.listenDatagram({ hostname: '0.0.0.0', port: 0, transport: 'udp' });
@@ -609,11 +671,13 @@ async function watchUpstream() {
   const sr = W.bufferedReader(conn.readable.getReader());
   await sw.write(W.encodeHello({ maxDatagram: 1400, wasmPrefix: prefix, watch: true }));
   const head = await sr.read(4);
-  if (head[0] === W.T_REJECT) throw new Error(`upstream refused us: reason ${head[1]}`);
+  if (head.length < 4 || head[0] === W.T_REJECT) { try { conn.close(); } catch { /* gone */ } sock.close(); throw Object.assign(new Error(`refused us: reason ${head[1]}`), { reason: head[1] }); }
   const wb = new Uint8Array(32);
   wb.set(head, 0);
   wb.set(await sr.read(28), 4);
   const w = W.decodeWelcome(wb) as Welcome;
+  up = newUp(from);
+  upStats.links.push(from);
   roomStart = w.roomStart;
   roomSeed = w.seed;
   up.token = w.token;
@@ -628,14 +692,16 @@ async function watchUpstream() {
   };
   send(W.encodeInput({ seq: up.seq++, firstTick: 0, ackTick: 0, ackBits: 0n, words: [] }));
   for (let k = 0; k < 5; k++) setTimeout(() => { up.pingAt[k] = performance.now(); sw.write(W.encodePing(k)).catch(() => {}); }, 50 * k);
-  setInterval(() => {
+  const timer = setInterval(() => {
     const r = up.report && up.report.left > 0 ? up.report : null;
     if (r) r.left--;
     send(W.encodeInput({ seq: up.seq++, firstTick: 0, ...up.recv.ack(), words: [], report: r ? { interval: r.interval, epoch: up.keys, hash: r.hash } : null }));
     const next = recordStart + record.length, now = performance.now();
+    // an upstream this quiet is gone, whatever TCP says
+    if (now - up.heardAt > 1500) { try { conn.close(); } catch { /* gone */ } }
     if (recordStart >= 0 && !up.filling && !up.pending.has(next) && up.recv.newest - next >= HOLE_TICKS && now - up.syncAt > 1500) {
       up.syncAt = now;
-      up.stats.syncs++;
+      upStats.syncs++;
       sw.write(W.encodeSync(W.SYNC.HOLE, next)).catch(() => {});
     }
   }, 16);
@@ -645,8 +711,9 @@ async function watchUpstream() {
       try { [buf] = await sock.receive(); } catch { return; }
       const d = W.decodeTicks(buf);
       if (!d) continue;
-      up.stats.bytes += buf.length;
-      if (d.type === W.T_BUNDLE) up.stats.bundles++; else up.stats.repairs++;
+      up.heardAt = performance.now();
+      upStats.bytes += buf.length;
+      if (d.type === W.T_BUNDLE) upStats.bundles++; else upStats.repairs++;
       for (const e of d.entries) {
         const whole = up.parts.add(e);
         if (!whole || !up.recv.add(e.tick)) continue;
@@ -655,33 +722,78 @@ async function watchUpstream() {
       up.parts.forget(up.recv.newest - 512);
     }
   })();
-  for (;;) {
-    const m = (await W.readControl(sr)) as Ctl | null;
-    if (!m) break;
-    if (m.type === W.T_PONG) {
-      const rtt = performance.now() - up.pingAt[m.nonce];
-      if (rtt < up.bestRtt) { up.bestRtt = rtt; up.sBase = m.serverTick + rtt / 2 / W.TICK_MS; up.sEpoch = performance.now(); }
+  try {
+    for (;;) {
+      const m = (await W.readControl(sr).catch(() => null)) as Ctl | null;
+      if (!m) break;
+      if (m.type === W.T_PONG) {
+        const rtt = performance.now() - up.pingAt[m.nonce];
+        if (rtt < up.bestRtt) { up.bestRtt = rtt; up.sBase = m.serverTick + rtt / 2 / W.TICK_MS; up.sEpoch = performance.now(); }
+      }
+      if (m.type === W.T_KEY) {
+        up.keys++;
+        const region = m.raw ? await W.unpackKey(m.packed) : null;
+        upStats.keys.push({ from, reason: m.reason, simTick: m.tick - roomStart, raw: m.raw ? 1 : 0 });
+        log(`upstream keyframe: reason ${m.reason}, tick ${m.tick}`);
+        const again = recordStart >= 0;
+        up.pending.clear();
+        closed = m.tick - 1;
+        startRecord(m.tick, region);
+        up.filling = true;
+        // our spectators' ticks start over too
+        if (again) for (const s of watchers) { s.syncing = false; s.fromTick = Infinity; sendKey(s, W.SYNC.HOLE); }
+      }
+      if (m.type === W.T_FILL) {
+        for (const t of W.decodeFillBody(m.from, m.n, m.body)) { up.recv.add(t.tick); offerUp(t.tick, t.parts); }
+        up.filling = false;
+      }
     }
-    if (m.type === W.T_KEY) {
-      up.keys++;
-      const region = m.raw ? await W.unpackKey(m.packed) : null;
-      up.stats.keys.push({ reason: m.reason, simTick: m.tick - roomStart, raw: m.raw ? 1 : 0 });
-      log(`upstream keyframe: reason ${m.reason}, tick ${m.tick}`);
-      const again = recordStart >= 0;
-      up.pending.clear();
-      closed = m.tick - 1;
-      startRecord(m.tick, region);
-      up.filling = true;
-      // our spectators' ticks start over too
-      if (again) for (const s of watchers) { s.syncing = false; s.fromTick = Infinity; sendKey(s, W.SYNC.HOLE); }
-    }
-    if (m.type === W.T_FILL) {
-      for (const t of W.decodeFillBody(m.from, m.n, m.body)) { up.recv.add(t.tick); offerUp(t.tick, t.parts); }
-      up.filling = false;
+  } finally {
+    clearInterval(timer);
+    try { sock.close(); } catch { /* gone */ }
+    try { conn.close(); } catch { /* gone */ }
+  }
+}
+
+// The upstreams in turn: when one goes away, each of the others once; when
+// none will have us, a standby takes the room over, and any other edge stops.
+async function followUpstream() {
+  let k = 0, failed = 0;
+  while (failed < upstreams.length) {
+    const from = upstreams[k];
+    k = (k + 1) % upstreams.length;
+    try {
+      await watchUpstream(from);
+      console.error(`relay: upstream ${from} went away`);
+      failed = 1;
+    } catch (e) {
+      // nobody in the room yet: wait for one
+      if ((e as { reason?: number }).reason === W.REJECT.EMPTY) { k = upstreams.indexOf(from); await new Promise((ok) => setTimeout(ok, 500)); continue; }
+      failed++;
+      console.error(`relay: upstream ${from}: ${(e as Error)?.message || e}`);
     }
   }
-  console.error('relay: the upstream relay closed the connection');
-  await finish();
+  if (standby && recordStart >= 0) takeOver();
+  else { console.error('relay: no upstream left'); await finish(); }
+}
+
+// A standby's takeover: the room goes on from the newest tick in the record,
+// on the old clock's timeline (the upstream's tick, as the pings put it), so
+// every tick number and every client's clock stay as they were. The ticks
+// between the record's end and now close at once, the ghosts' words repeated.
+const GRACE_MS = 8000;
+function takeOver() {
+  const now = performance.now();
+  E0 = now - serverNow() * W.TICK_MS;
+  serverNow = () => (performance.now() - E0) / W.TICK_MS;
+  edge = false;
+  prevWords = recBase.w.slice();
+  events = [];
+  eventsAt.clear();
+  for (const p of recLive) slots[p] = newSlot(p, closed + 1, { ghost: true, last: prevWords[p], lastRecv: now + GRACE_MS - SILENT_MS });
+  stats.takeover = { tick: closed + 1, simTick: closed + 1 - roomStart, behindTicks: Math.round(serverNow() - closed - 1), ghosts: recLive.size, at: Number(((now - E) / 1000).toFixed(2)) };
+  console.error(`relay: taking the room over from sim tick ${closed + 1 - roomStart}, ${recLive.size} slots held for their players`);
+  pump();
 }
 
 const endpoint = new Deno.QuicEndpoint({ hostname, port });
@@ -693,11 +805,12 @@ if (nativePort) {
   const tcp = Deno.listen({ hostname, port: nativePort, transport: 'tcp' });
   (async () => { for await (const conn of tcp) nativeSession(conn).catch(() => {}); })();
 }
-if (upstream) watchUpstream().catch((e) => { console.error('relay: upstream: ' + (e?.message || e)); Deno.exit(1); });
+if (edge) followUpstream();
 else pump();
 if (!quiet) console.error(`relay listening on https://${hostname}:${port}/ (${cc})${nativePort ? `, native clients on ${hostname}:${nativePort} (TCP and UDP)` : ''}, tick ${W.TICK_MS} ms`);
 
 async function finish() {
+  await saveReplay();
   const text = JSON.stringify(summary());
   if (summaryPath) await Deno.writeTextFile(summaryPath, text + '\n');
   else console.log(text);

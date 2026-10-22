@@ -68,6 +68,27 @@ of them:
 node net/bot-host.mjs --relay 127.0.0.1:4444 --bots 200 --watch   # or 200 spectators that check every hash
 ```
 
+Every room `net/play.mjs` runs is saved when it ends, as a replay in
+`replays/`. It is the room's closed ticks and the referee's hashes, a few
+kilobytes a minute. Open one with `?replay=../replays/<file>`. K pauses,
+J and L go back and on 10 s, [ and ] halve and double the speed, and every
+interval is checked against the relay's hashes as it plays.
+`node tools/replay.mjs <file>` checks one without a browser.
+
+A standby relay keeps a room alive if its relay dies. Give the page both
+addresses (`?url=https://127.0.0.1:4433/,https://127.0.0.1:4443/`) and start
+the standby:
+
+```sh
+.tools/deno run --unstable-net -A net/relay.ts --port 4443 --native-port 4444 --upstream 127.0.0.1:4434 --standby
+```
+
+Kill the first relay and the game goes on: the standby takes the room over
+and everyone comes back to their own slot.
+
+To write your own client, in any language, [docs/wire.md](docs/wire.md) is
+the protocol, and `net/tiny-client.mjs` is a whole client in 128 lines.
+
 ## Play it on an original Xbox, or in xemu
 
 You need the ISO and a relay. Build them from the same commit: the relay
@@ -255,7 +276,11 @@ node tools/x86.mjs                     # game.wasm -> Pentium III assembly, the 
 node harness/matrix.mjs --ticks 20000 --runtimes node,x86,pentium3   # that code on this CPU and under qemu-i386 -cpu pentium3
 node net/run-x2.mjs [--chrome 1] [--seconds 60] [--late 15] [--flip 25] [--impair delay=100,jitter=15,loss=0.05]   # Xbox clients online
 node net/run-n1.mjs [--chrome 2] [--seconds 90] [--late 30] [--flip 45]   # 256 players: Chrome, Xbox clients and 252 AI golfers
+node net/run-n3.mjs [--chrome 1] [--golfers 128] [--watchers 200]   # spectators through a tree of relays
+node net/run-n4.mjs [--chrome 1] [--kill 25] [--golfers 64]   # the root killed mid-match, a standby takes over; the replay checked
 node net/bot-host.mjs --relay 127.0.0.1:4434 --bots 250 [--seconds 0] [--impair ...]   # fill a running room with neural golfers
+node net/tiny-client.mjs 127.0.0.1:4434 --seconds 30   # the smallest whole client (docs/wire.md)
+node tools/replay.mjs replays/<file>.qgr   # step a replay and check its every interval hash
 build/x86/replay --log logs/perf24000.qgl --ticks 24000 --time-from 16000   # its per-tick cost, perf.mjs's window
 build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the Xbox core: frames (.ppm), the match (.qgl, .qgh)
 ```
@@ -297,6 +322,14 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   referee's slice digests so it can name the slice, and the room's record is
   saved as a .qgl that replays the desync. An emptied room starts over on a
   new seed.
+- The record does two more jobs. A replay (`net/replay.mjs`) is the record
+  written out with the referee's hashes, and playing one is being a client
+  with the network taken away (`client/replay.mjs` stands in for the net
+  worker). An edge relay keeps a record and a referee of its own, so one
+  started with `--standby` can take the room over when its upstream dies:
+  it closes the next ticks on the old clock's timeline, and holds each
+  player's slot with a ghost that repeats their last word until they come
+  back with a resume.
 - Gameplay is in the sim too, all serial and in index order: `players.wat`
   (Quake movement, shots on a shot-counter advance, pushes on other players'
   balls), `weapons.wat` (rockets marched in half steps, bouncing grenades,
@@ -422,9 +455,8 @@ CI runs the gate without Chrome (254 golfers and the two Xbox clients) on every 
 
 Not done:
 
-- **Rooms per machine, and failover.** One relay runs one room. Several
-  rooms across isolates, and a standby relay that takes a room over from the
-  record without a desync, come next.
+- **Rooms per machine.** One relay runs one room; several across isolates
+  come next. (Failover, the other half, is [N4](#n4-failover-and-replays).)
 
 ## N3, spectators
 

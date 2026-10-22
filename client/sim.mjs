@@ -39,10 +39,16 @@ async function run({ module, memory, netPort }) {
   netPort.onmessage = (e) => {
     const m = e.data;
     if (m.welcome) {
+      // the same room again, after a failover, goes on as it is until its keyframe
+      const same = welcome && welcome.seed === m.welcome.seed && welcome.roomStart === m.welcome.roomStart;
       welcome = m.welcome;
-      x.init(welcome.seed);
-      base.reset();
-      set(L.CL_STATE, 1);
+      store.clear();
+      newest = -1;
+      if (!same) {
+        x.init(welcome.seed);
+        base.reset();
+        set(L.CL_STATE, 1);
+      }
       self.postMessage({ ready: true, seed: welcome.seed });
     }
     if (m.key) restore(m.key);

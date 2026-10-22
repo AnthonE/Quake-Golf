@@ -5,6 +5,7 @@
 // input sampled since its newest tick. The camera and your projectiles come
 // from there; everything else from the confirmed world. The net worker and
 // the sim worker do the rest; ?bot=1 hands the input slots to a golf bot.
+// ?replay=<url> plays a replay file instead (client/replay.mjs), as a spectator.
 import * as L from '../src/layout.mjs';
 import { View } from '../src/view.mjs';
 import { wasmPrefix, packInput } from '../net/wire.mjs';
@@ -23,7 +24,8 @@ canvas.width = W;
 canvas.height = H;
 const SENS = Number(q.get('sens') || 3); // yaw units (1/16384 turn) per pixel of mouse
 const BOT = q.get('bot') === '1';
-const WATCH = q.get('watch') === '1'; // a spectator: no slot, a camera that rides with any player
+const REPLAY = q.get('replay');
+const WATCH = q.get('watch') === '1' || !!REPLAY; // a spectator: no slot, a camera that rides with any player
 
 const epoch = () => performance.timeOrigin + performance.now();
 const stateText = ['CONNECTING', 'CATCHING UP', '', 'DISCONNECTED'];
@@ -34,7 +36,7 @@ async function main() {
   const module = await WebAssembly.compile(bytes);
   const prefix = await wasmPrefix(bytes);
   const url = q.get('url') || `https://${location.hostname}:4433/`;
-  const hash = q.get('hash') || (await (await fetch('../certs/hash.txt')).text()).trim();
+  const hash = REPLAY ? '' : q.get('hash') || (await (await fetch('../certs/hash.txt')).text()).trim();
   const certHash = Uint8Array.from(atob(hash), (c) => c.charCodeAt(0));
   const memory = new WebAssembly.Memory({ initial: L.PAGES, maximum: L.PAGES, shared: true });
   const u8 = new Uint8Array(memory.buffer);
@@ -54,18 +56,31 @@ async function main() {
   const renderer = await createRenderer(canvas, { present: q.get('present') !== '0' });
   const sound = createSound();
   const ch = new MessageChannel();
-  const net = new Worker(new URL('./net.mjs', import.meta.url), { type: 'module' });
+  const net = new Worker(new URL(REPLAY ? './replay.mjs' : './net.mjs', import.meta.url), { type: 'module' });
   const sim = new Worker(new URL('./sim.mjs', import.meta.url), { type: 'module' });
   let error = '';
   let welcome = null;
   // for the runs: [sim tick, interval hash], keyframes restored, desyncs named, resyncs asked for, fills
   const hashes = [], keys = [], desyncs = [], syncs = [], fills = [];
   let netSeen = null;
-  net.onmessage = (e) => { if (e.data.error) error = e.data.error.split('\n')[0]; if (e.data.welcome) welcome = e.data.welcome; if (e.data.seen) netSeen = e.data.seen; };
+  // a replay's: its span, the relay's hashes, and each interval the sim stepped, checked against them
+  let replay = null;
+  const checked = new Map();
+  net.onmessage = (e) => {
+    const m = e.data;
+    if (m.error) error = m.error.split('\n')[0];
+    if (m.welcome) welcome = m.welcome;
+    if (m.seen) netSeen = m.seen;
+    if (m.replay) replay = { ...m.replay, truth: new Map(m.replay.hashes), speed: 1, paused: false };
+    if (m.state) Object.assign(replay, m.state);
+  };
   sim.onmessage = (e) => {
     const m = e.data;
     if (m.error) error = m.error.split('\n')[0];
-    if (m.hashes) hashes.push(...m.hashes);
+    if (m.hashes) {
+      hashes.push(...m.hashes);
+      if (replay) for (const [k, h] of m.hashes) if (replay.truth.has(k)) checked.set(k, replay.truth.get(k) === h);
+    }
     if (m.key) keys.push({ ...m.key, at: performance.now() });
     if (m.desync) desyncs.push({ ...m.desync, at: performance.now() });
     if (m.sync !== undefined) syncs.push({ why: m.sync, at: performance.now(), next: m.next, newest: m.newest, after: m.after, behind: m.behind });
@@ -73,7 +88,8 @@ async function main() {
   };
   // an exception a worker's own timer throws reaches only its error event
   for (const w of [net, sim]) w.onerror = (e) => { error = String(e.message || e); e.preventDefault?.(); };
-  net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch: WATCH }, [ch.port1]);
+  if (REPLAY) net.postMessage({ replay: new URL(REPLAY, location.href).href, memory, prefix, simPort: ch.port1 }, [ch.port1]);
+  else net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch: WATCH }, [ch.port1]);
   sim.postMessage({ module, memory, netPort: ch.port2 }, [ch.port2]);
   addEventListener('pagehide', () => net.postMessage({ leave: true }));
 
@@ -104,6 +120,11 @@ async function main() {
       if (e.code === 'ArrowLeft') turn(-1);
       if (e.code === 'Tab') { e.preventDefault(); held.add('Tab'); }
       if (e.code === 'KeyN' && !e.repeat) showGraph = !showGraph;
+      // a replay: K pauses, J and L go back and on 10 s, [ and ] halve and double the speed, Home starts it again
+      if (REPLAY && !e.repeat) {
+        const m = { KeyK: { pause: 1 }, KeyP: { pause: 1 }, KeyJ: { seek: -10 }, KeyL: { seek: 10 }, BracketLeft: { speed: 0.5 }, BracketRight: { speed: 2 }, Home: { to: 0 } }[e.code];
+        if (m) net.postMessage(m);
+      }
     });
     document.addEventListener('keyup', (e) => { if (e.code === 'Tab') held.delete('Tab'); });
   } else if (BOT) {
@@ -154,7 +175,7 @@ async function main() {
 
   const text = new Uint32Array(COLS * renderer.rows);
   const netGraph = new NetGraph(memory, { watch: WATCH });
-  let showGraph = q.get('net') !== '0';
+  let showGraph = q.get('net') ? q.get('net') !== '0' : !REPLAY;
   let boardUp = false;
   const flashes = [];
   let fxSeen = 0;
@@ -174,6 +195,9 @@ async function main() {
       slot: get(L.CL_SLOT), watching: WATCH ? watched : null, clState: get(L.CL_STATE), keys: get(L.CL_KEYS), repairs: get(L.CL_REPAIRS), hole: view.hole(), me, predicted: pme, nballs: view.nballs, error, welcome,
       lead: f32[L.CL_LEAD >> 2], delay: f32[L.CL_DELAY >> 2], jitter: f32[L.CL_JITTER >> 2], queued: get(L.CL_QUEUED), next: get(L.CL_NEXT),
       play: readClock(i32, f64, L.CL_PLAY, epoch()), pred: readClock(i32, f64, L.CL_PRED, epoch()), room: get(L.CL_ROOM), net: netSeen,
+      // a replay's: how far it has played, and its intervals checked against the relay's
+      replay: replay && { first: replay.first, end: replay.end, hashes: replay.truth.size, speed: replay.speed, paused: replay.paused,
+        equal: [...checked.values()].filter(Boolean).length, differ: [...checked].filter(([, v]) => !v).map(([k]) => k) },
     }),
     // the debug flip: one bit of this client's confirmed world (by default the lowest of ball 0's x)
     flip: (addr = L.PX, bit = 0) => sim.postMessage({ flip: { addr, bit } }),
@@ -363,7 +387,8 @@ async function main() {
     const rows = renderer.rows;
     const right = (y, s, c) => put(t, COLS, COLS - 1 - String(s).length, y, s, c);
     const centre = (y, s, c) => put(t, COLS, Math.floor((COLS - String(s).length) / 2), y, s, c);
-    if (st !== 2 || !me?.live) {
+    // (a spectator with nobody live to ride with sees the course)
+    if (st !== 2 || (!me?.live && !WATCH)) {
       centre(Math.floor(rows / 2) - 3, error ? 'ERROR: ' + error.slice(0, 64) : stateText[st] || 'JOINING', error ? C.RED : C.YELLOW);
     }
     const dist = Math.hypot(h.cup[0] - h.tee[0], h.cup[2] - h.tee[2]);
@@ -387,7 +412,16 @@ async function main() {
     }
     put(t, COLS, 1, rows - 2, `${fps} FPS  ${WATCH ? '' : `LEAD ${f32[L.CL_LEAD >> 2].toFixed(1)}  `}DELAY ${f32[L.CL_DELAY >> 2].toFixed(1)}  SLACK ${f32[L.CL_PING >> 2].toFixed(1)}MS  REPAIRS ${get(L.CL_REPAIRS)}  KEYS ${get(L.CL_KEYS)}`, C.GREY);
     if (!BOT && !WATCH && !locked && st === 2) centre(Math.floor(rows / 2) + 2, 'CLICK TO PLAY', C.WHITE);
-    if (WATCH && st === 2) put(t, COLS, 1, 2, `WATCHING P${slot + 1}  < >`, C.CYAN);
+    if (WATCH && st === 2) put(t, COLS, 1, 2, me?.live ? `WATCHING P${slot + 1}  < >` : 'NOBODY TO WATCH', C.CYAN);
+    if (replay) {
+      const at = Math.max(0, Math.min(replay.end, readClock(i32, f64, L.CL_PLAY, epoch())) - replay.roomStart);
+      put(t, COLS, 1, 3, `REPLAY ${clock(at)} / ${clock(replay.end - replay.roomStart)}  ${replay.speed}X${replay.paused ? '  PAUSED' : ''}`, C.YELLOW);
+      let ok = 0, bad = -1;
+      for (const [k, v] of checked) { if (v) ok++; else if (bad < 0 || k < bad) bad = k; }
+      if (bad >= 0) put(t, COLS, 1, 4, `HASH DIFFERS FROM THE RELAY'S AT ${clock(bad)}`, C.RED);
+      else put(t, COLS, 1, 4, `${ok} OF ${replay.truth.size} HASHES EQUAL THE RELAY'S`, ok ? C.GREEN : C.GREY);
+      put(t, COLS, 1, 5, 'K PAUSE  J L 10 S  [ ] SPEED  HOME START', C.GREY);
+    }
     boardUp = h.state === L.H_OVER || (held.has('Tab') && h.live);
     if (boardUp) {
       const list = [];

@@ -7,6 +7,9 @@
 // are in; keyframes go unpacked. It keeps
 // the playout clock: the earliest arrival less 2 ticks and the p95 jitter of
 // first arrivals, run up to 3% fast or slow to stay on that target.
+// ?url= may list several relays: when the session's relay goes away, it tries
+// the next, a few times a second for up to 10 s, asking for its slot back (a
+// resume), which a standby relay that took the room over holds for it.
 import * as W from '../net/wire.mjs';
 import * as L from '../src/layout.mjs';
 import { createImpair } from '../net/impair.js';
@@ -15,21 +18,45 @@ import { writeClock } from './clock.mjs';
 const epoch = () => performance.timeOrigin + performance.now();
 
 let leave = () => {};
+let leaving = false;
 self.onmessage = (e) => {
-  if (e.data.leave) { leave(); return; }
-  run(e.data).catch((err) => {
-    const i32 = new Int32Array(e.data.memory.buffer);
-    Atomics.store(i32, L.CL_STATE >> 2, 3);
-    self.postMessage({ error: String(err?.stack || err) });
-  });
+  if (e.data.leave) { leaving = true; leave(); return; }
+  connect(e.data);
 };
+
+const FAILOVER_MS = 10000;
+async function connect(args) {
+  const urls = args.url.split(',');
+  let k = 0, back = null, lostAt = -1;
+  for (;;) {
+    try {
+      back = await run({ ...args, url: urls[k], back, failover: urls.length > 1 });
+      lostAt = epoch();
+    } catch (err) {
+      // a relay that's down, or not holding the room yet, mid-failover: the next
+      if (!back || epoch() - lostAt > FAILOVER_MS) {
+        Atomics.store(new Int32Array(args.memory.buffer), L.CL_STATE >> 2, 3);
+        self.postMessage({ error: String(err?.stack || err) });
+        return;
+      }
+    }
+    if (leaving || urls.length < 2 || epoch() - lostAt > FAILOVER_MS) break;
+    k = (k + 1) % urls.length;
+    await new Promise((ok) => setTimeout(ok, 250));
+  }
+  Atomics.store(new Int32Array(args.memory.buffer), L.CL_STATE >> 2, 3);
+  self.postMessage({ closed: true });
+}
 
 // p-th fraction of a list of numbers
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 
 // impair: { delay, jitter, loss } on this client's own datagrams, both ways (?impair=)
-// watch: a spectator, with no slot and no words to send
-async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false }) {
+// watch: a spectator, with no slot and no words to send; back: { slot, room }
+// of a session that went away, to resume. Returns this session's, once it ends.
+// failover: a relay silent for SILENT_MS is gone (a dead one's QUIC session would idle for far longer)
+const SILENT_MS = 1500;
+async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false, back = null, failover = false }) {
   const imp = createImpair({ ...impair, seed: (Math.random() * 2 ** 32) >>> 0 });
   const i32 = new Int32Array(memory.buffer);
   const u32 = new Uint32Array(memory.buffer);
@@ -46,7 +73,8 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
   const bidi = await wt.createBidirectionalStream();
   const sw = bidi.writable.getWriter();
   const tHello = epoch();
-  await sw.write(W.encodeHello({ maxDatagram: wt.datagrams.maxDatagramSize, wasmPrefix: prefix, nonce: (Math.random() * 2 ** 32) >>> 0, watch }));
+  const resume = back && !watch ? back.slot : -1;
+  await sw.write(W.encodeHello({ maxDatagram: wt.datagrams.maxDatagramSize, wasmPrefix: prefix, nonce: (Math.random() * 2 ** 32) >>> 0, watch, room: back?.room ?? 0, resume }));
   const sr = W.bufferedReader(bidi.readable.getReader());
   const head = await sr.read(4);
   if (head[0] === W.T_REJECT) throw new Error(['', 'game.wasm differs from the server\'s: reload', 'the room is full', 'protocol mismatch', 'this relay only has a room to watch', 'nothing to watch yet'][head[1]] || 'rejected');
@@ -96,7 +124,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
   // what this worker has seen, for the runs
   const seen = { pongs: 0, keys: 0, fills: 0, bundles: 0, repairs: 0, rtt: bestRtt, ctlError: '', holes: [], gaps: [] };
   const repairedAt = new Map(); // tick -> repair datagrams that carried it, the last 512 ticks
-  setInterval(() => self.postMessage({ seen: { ...seen, rtt: bestRtt, lead } }), 1000);
+  const seenTimer = setInterval(() => self.postMessage({ seen: { ...seen, rtt: bestRtt, lead } }), 1000);
   // The control stream: keyframes (unpacked here), the fills after them, pongs.
   const recv = new W.Received();
   const parts = new W.Parts(); // ticks that came in parts, until each is whole
@@ -163,6 +191,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
     imp.send(() => dw.write(buf).catch(() => {}));
   };
   let lastTimer = epoch();
+  let heardAt = epoch();
   // a spectator's datagrams: only its acks and the newest hash, every second tick
   const sendWatch = () => {
     const r = report?.left > 0 ? report : null;
@@ -176,6 +205,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
     // how late this 4 ms timer runs: a starved worker samples, sends and acks late
     if (now - lastTimer > 50) seen.gaps.push(Math.round(now - lastTimer));
     lastTimer = now;
+    if (failover && now - heardAt > SILENT_MS) { try { wt.close(); } catch { /* gone */ } }
     if (welcome.watch) {
       const t = Math.floor(serverTick(now));
       if (t - lastSent >= W.SEND_EVERY) { lastSent = t; sendWatch(); }
@@ -218,11 +248,12 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
 
   for await (const buf of readable(wt.datagrams.readable)) imp.recv(() => onDatagram(buf));
   clearInterval(timer);
-  Atomics.store(i32, L.CL_STATE >> 2, 3);
-  self.postMessage({ closed: true });
+  clearInterval(seenTimer);
+  return { slot: welcome.slot, room: welcome.roomStart };
 
   function onDatagram(buf) {
     const now = epoch();
+    heardAt = now;
     const d = W.decodeTicks(buf);
     if (!d) return;
     Atomics.add(i32, (d.type === W.T_REPAIR ? L.CL_RX_REPAIR : L.CL_RX_BUNDLE) >> 2, buf.length);

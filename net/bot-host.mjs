@@ -9,7 +9,10 @@
 // reports the shared world's interval hashes, so the relay sees as many
 // ordinary clients as there are bots. With --watch they are spectators
 // instead: no slot, no words, but the same acks, repairs and hash reports.
-//   node net/bot-host.mjs [--relay 127.0.0.1:4434] [--bots 250] [--seconds 0] [--rate 50] [--genome qg2:...]
+// Given several relays, a session whose relay goes away tries the next, a few
+// times a second for up to 10 s, asking for its slot back (a resume): a
+// standby relay that has taken the room over holds it (net/relay.ts --standby).
+//   node net/bot-host.mjs [--relay 127.0.0.1:4434[,host:port...]] [--bots 250] [--seconds 0] [--rate 50] [--genome qg2:...]
 //                         [--impair delay=60,jitter=10,loss=0.02] [--out traces/bot-host.json] [--watch]
 // --seconds 0 plays until Ctrl-C; --rate: sessions opened a second. The summary
 // (--out, else stdout) holds every session's delivery and inputs, and the
@@ -30,7 +33,9 @@ import { BrainBot } from '../client/brain.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
-const [host, port] = opt('relay', '127.0.0.1:4434').split(':');
+const relays = opt('relay', '127.0.0.1:4434').split(',').map((a) => { const [host, port] = a.split(':'); return { host, port: Number(port) }; });
+const FAILOVER_MS = 10000;
+const SILENT_MS = 1500; // a relay this quiet is gone, whatever TCP says
 const nBots = Number(opt('bots', 250));
 const seconds = Number(opt('seconds', 0));
 const rate = Number(opt('rate', 50));
@@ -96,7 +101,7 @@ function step() {
     world.stepped++;
     // inputs applied as sent: each session's word for t against the tick's own
     for (const s of sessions) {
-      if (!s.joined || s.watch || t < s.joinTick) continue;
+      if (!s.joined || s.watch || t < s.joinTick0) continue;
       const sent = s.words.get(t);
       if (sent === undefined) continue;
       s.mine++;
@@ -141,27 +146,52 @@ class Session {
     this.mine = 0;
     this.matched = 0;
     this.closed = false;
+    this.leaving = false;
+    this.relay = 0; // which of relays
+    this.lostAt = -1; // when the relay went away, until another has us
+    this.failovers = [];
   }
 
   open() {
     this.udp = dgram.createSocket('udp4');
     this.udp.on('message', (buf) => this.imp.recv(() => this.onDatagram(buf)));
     this.udp.on('error', () => {});
-    this.tcp = net.connect({ host, port: Number(port), noDelay: true });
-    this.tcp.on('error', () => {});
-    this.tcp.on('close', () => { this.closed = true; });
-    this.tcp.on('data', (d) => { this.rx = this.rx.length ? Buffer.concat([this.rx, d]) : d; this.parse(); });
-    this.tcp.on('connect', () => this.stream(W.encodeHello({ maxDatagram: 1400, wasmPrefix: prefix, nonce: this.k, watch })));
+    this.connect();
   }
 
-  stream(b) { if (!this.closed) this.tcp.write(b); }
+  connect() {
+    const { host, port } = relays[this.relay];
+    const tcp = this.tcp = net.connect({ host, port, noDelay: true });
+    tcp.on('error', () => {});
+    tcp.on('close', () => { if (tcp === this.tcp) this.lost(); });
+    tcp.on('data', (d) => { this.rx = this.rx.length ? Buffer.concat([this.rx, d]) : d; this.parse(); });
+    // back after a failover: the same slot in the same room
+    const resume = this.lostAt >= 0 && !watch ? this.slot : -1;
+    tcp.on('connect', () => this.stream(W.encodeHello({ maxDatagram: 1400, wasmPrefix: prefix, nonce: this.k, watch, room: resume >= 0 ? this.roomStart : 0, resume })));
+  }
+
+  // The relay went away (or wouldn't have us yet): the next one, in a quarter
+  // second, with this session's view of the room's ticks begun again.
+  lost() {
+    const now = performance.now();
+    if (this.leaving || this.slot === -1 && !watch || relays.length < 2) { this.closed = true; return; }
+    if (this.lostAt < 0) this.lostAt = now;
+    if (now - this.lostAt > FAILOVER_MS) { this.closed = true; return; }
+    Object.assign(this, { joined: false, rx: Buffer.alloc(0), recv: new W.Received(), parts: new W.Parts(), lastBundleT: -1, inAck: 0, keys: 0 });
+    if (world.filling === this) world.filling = null;
+    this.relay = (this.relay + 1) % relays.length;
+    setTimeout(() => this.connect(), 250);
+  }
+
+  stream(b) { if (!this.closed && this.tcp && !this.tcp.destroyed) this.tcp.write(b); }
 
   datagram(m) {
     const d = new Uint8Array(4 + m.length);
     new DataView(d.buffer).setUint32(0, this.token >>> 0, true);
     d.set(m, 4);
     this.stats.up += d.length;
-    this.imp.send(() => { if (!this.closed) this.udp.send(d, Number(port), host); }); // a delayed send can land after leave()
+    const { host, port } = relays[this.relay];
+    this.imp.send(() => { if (!this.closed) this.udp.send(d, port, host); }); // a delayed send can land after leave()
   }
 
   // net/wire.mjs readControl, on bytes as they come
@@ -169,7 +199,20 @@ class Session {
     for (;;) {
       const b = this.rx;
       if (!this.joined) {
-        if (b.length >= 4 && b[0] === W.T_REJECT) { this.reject = b[1]; this.leave(); return; }
+        if (b.length >= 4 && b[0] === W.T_REJECT) {
+          // mid-failover, a relay that isn't holding the room yet: try again
+          if (this.lostAt >= 0 && (b[1] === W.REJECT.WATCH_ONLY || b[1] === W.REJECT.EMPTY)) {
+            const tcp = this.tcp;
+            this.tcp = null; // its close isn't news
+            tcp.destroy();
+            this.relay = (this.relay + relays.length - 1) % relays.length;
+            this.lost();
+            return;
+          }
+          this.reject = b[1];
+          this.leave();
+          return;
+        }
         if (b.length < 32) return;
         this.welcome(W.decodeWelcome(b.subarray(0, 32)));
         this.rx = b.subarray(32);
@@ -188,7 +231,18 @@ class Session {
   }
 
   welcome(w) {
-    Object.assign(this, { joined: true, slot: w.slot, joinTick: w.joinTick, token: w.token, roomStart: w.roomStart, nextTick: w.joinTick, lastSent: w.joinTick });
+    if (this.lostAt >= 0) {
+      this.failovers.push({ ms: Math.round(performance.now() - this.lostAt), to: this.relay, slot: w.slot, kept: w.slot === this.slot });
+      this.lostAt = -1;
+      this.heardAt = performance.now();
+      // the words already decided for ticks past the new join go as they are
+      Object.assign(this, { joined: true, joinTick: w.joinTick, token: w.token, nextTick: Math.max(this.nextTick, w.joinTick), lastSent: Math.max(this.lastSent, w.joinTick) });
+      if (!w.watch && w.slot !== this.slot) { this.slot = w.slot; this.bot = new BrainBot(w.slot, genome, { lag: 8 }); }
+      this.datagram(W.encodeInput({ seq: this.seq++, firstTick: w.joinTick, ackTick: 0, ackBits: 0n, words: [] }));
+      return;
+    }
+    this.heardAt = performance.now();
+    Object.assign(this, { joined: true, slot: w.slot, joinTick: w.joinTick, joinTick0: w.joinTick, token: w.token, roomStart: w.roomStart, nextTick: w.joinTick, lastSent: w.joinTick });
     if (!w.watch) this.bot = new BrainBot(w.slot, genome, { lag: 8 });
     const now = performance.now();
     if (world.roomStart < 0) {
@@ -227,6 +281,7 @@ class Session {
   }
 
   onDatagram(buf) {
+    this.heardAt = performance.now();
     const d = W.decodeTicks(buf);
     if (!d) return;
     this.stats.down += buf.length;
@@ -252,6 +307,7 @@ class Session {
   // world; every second tick, the words the relay hasn't closed, the acks, the newest hash.
   tick(now) {
     if (!this.joined || this.closed) return;
+    if (relays.length > 1 && now - this.heardAt > SILENT_MS) { const tcp = this.tcp; this.tcp = null; tcp?.destroy(); this.lost(); return; }
     if (this.watch) {
       // a spectator: its acks and the newest hash, every second tick of the server's clock
       const t = Math.floor(serverTick(now));
@@ -284,9 +340,10 @@ class Session {
   }
 
   leave() {
+    this.leaving = true;
     if (this.closed) return;
     this.closed = true;
-    try { this.tcp.end(); } catch { /* gone */ }
+    try { this.tcp?.end(); } catch { /* gone */ }
     try { this.udp.close(); } catch { /* gone */ }
   }
 }
@@ -320,9 +377,9 @@ const players = sessions.filter((s) => s.joined && !s.watch).map((s) => {
 });
 const per = sessions.map((s) => {
   const end = s.lastBundleT;
-  const expected = s.joined && end >= s.joinTick ? end - s.joinTick + 1 : 0;
+  const expected = s.joined && end >= s.joinTick0 ? end - s.joinTick0 + 1 : 0;
   return {
-    k: s.k, joined: s.joined, slot: s.slot, reject: s.reject, error: s.error || null, joinTick: s.joinTick ?? null, keys: s.keys,
+    k: s.k, joined: s.joined, slot: s.slot, reject: s.reject, error: s.error || null, joinTick: s.joinTick0 ?? null, keys: s.keys, failovers: s.failovers,
     expected, bundleTicks: s.stats.bundleTicks, repairTicks: s.stats.repairTicks, bundles: s.stats.bundles,
     downKB: Number((s.stats.down / 1000).toFixed(1)), upKB: Number((s.stats.up / 1000).toFixed(1)), mine: s.mine, matched: s.matched,
   };
