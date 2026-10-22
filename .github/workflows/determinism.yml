@@ -41,6 +41,8 @@ jobs:
           node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --runtimes node,deno,chromium,x86,pentium3
       - name: Xbox clients online (the relay, a native client and a late one under qemu, impaired, a flipped bit healed)
         run: node net/run-x2.mjs --chrome 0 --seconds 40 --late 10 --flip 20
+      - name: 256 players in one room (the bot host's 254 golfers and the Xbox clients, impaired, the 257th refused)
+        run: node net/run-n1.mjs --chrome 0 --seconds 60 --late 20 --flip 35
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

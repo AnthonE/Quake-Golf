@@ -1,7 +1,7 @@
 # Quake Golf
 
-64 players, one course, rockets and grenades as clubs, and every ball ever hit
-stays in play. The sim is **hand-written WebAssembly** (no compiler), stepped in
+256 players in one room, one course, rockets and grenades as clubs, and every
+ball ever hit stays in play. The sim is **hand-written WebAssembly** (no compiler), stepped in
 deterministic lockstep at 125 Hz, so only inputs cross the network: bandwidth
 follows players, never balls.
 
@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| N1 · 256 players | one room filled to 256 over a lossy network (Chrome, the Xbox's network code, and a host of 252 AI golfers): every hash equals the referee's, the 257th turned away, a late join from a keyframe of the full room, a flipped bit healed, every bundle one datagram | **passed** · [results](#n1-256-players) |
 | M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); the blast still costs 4.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
 | X2 · Xbox online | the Xbox build plays in the browser's rooms over a lossy network: every hash equals the referee's, a late join from a keyframe on the Pentium III's instruction set, a flipped bit healed | **passed** with the Xbox's network code on Linux and under QEMU, not yet in xemu · [results](#x2-xbox-online) |
 | X1 · original Xbox | the sim as Pentium III code equals V8 on every tick of 1M; an XBE builds; a match played on the Xbox build replays in V8 tick for tick | **passed** under QEMU's Pentium III, not yet on a console · [results](#x1-the-original-xbox) |
@@ -39,6 +40,13 @@ Your own movement, shots and rocket jumps are predicted, so they show on the
 next frame; other players and every ball show a round trip late. To feel a
 bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
 round trip with 10% loss each way.
+
+To play among 250 AI golfers, start the bot host beside it; it fills the room
+through the relay's native door, every golfer its own session:
+
+```sh
+node net/bot-host.mjs --bots 250     # neural golfers (below) sharing one copy of the world, until Ctrl-C
+```
 
 ## Play it on an original Xbox, or in xemu
 
@@ -226,6 +234,8 @@ node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # fo
 node tools/x86.mjs                     # game.wasm -> Pentium III assembly, the native runner, the Xbox core's test driver (clang)
 node harness/matrix.mjs --ticks 20000 --runtimes node,x86,pentium3   # that code on this CPU and under qemu-i386 -cpu pentium3
 node net/run-x2.mjs [--chrome 1] [--seconds 60] [--late 15] [--flip 25] [--impair delay=100,jitter=15,loss=0.05]   # Xbox clients online
+node net/run-n1.mjs [--chrome 2] [--seconds 90] [--late 30] [--flip 45]   # 256 players: Chrome, Xbox clients and 252 AI golfers
+node net/bot-host.mjs --relay 127.0.0.1:4434 --bots 250 [--seconds 0] [--impair ...]   # fill a running room with neural golfers
 build/x86/replay --log logs/perf24000.qgl --ticks 24000 --time-from 16000   # its per-tick cost, perf.mjs's window
 build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the Xbox core: frames (.ppm), the match (.qgl, .qgh)
 ```
@@ -254,8 +264,11 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   records a hash of the whole region every tick. `tools/compare.mjs` names the
   first tick that differs and which slice and field it was in.
 - `net/relay.ts` is the relay: one isolate owns the QUIC sessions, an 8 ms
-  clock from a fixed epoch, and the bundles (four ticks every second tick, with
-  a per-recipient trailer). It records every closed tick from the room's
+  clock from a fixed epoch, and the bundles (the newest four ticks every second
+  tick, with a per-recipient trailer). Each closed tick is coded once, as the
+  input words that changed since the tick before, each a delta from that
+  player's last word, bit-packed (`net/wire.mjs`, wire v4); bundles, repairs,
+  fills and the record all carry ticks in that form. It records every closed tick from the room's
   start and hands it to the referee, `net/referee.mjs` in a Worker: the same
   game.wasm stepping the room, the truth for interval hashes and keyframes.
   A joiner gets the newest keyframe and the record since it. A tick a
@@ -329,6 +342,75 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   frame doubled into the 640x480 framebuffer). `headless.c` is the same core
   on Linux with scripted controllers: `test/xbox.test.mjs` plays a two-player
   hole on it and replays the recorded match in V8.
+
+## N1, 256 players
+
+`node net/run-n1.mjs` fills one room to all 256 slots: two Chrome clients (the
+golf bot at one's controls, the neural golfer at the other's); the Xbox's
+network code (`xbox/online.c`), one native client from the start and one that
+joins last, from a keyframe, under `qemu-i386 -cpu pentium3`; and the bot host
+(`net/bot-host.mjs`) with the other 252, each a neural golfer on its own
+session over the relay's native door. Every datagram both ways has a 100 ms
+round trip, 15 ms jitter and 5% loss. 45 s in, the first native client flips a
+bit of its own state. Once the room is full, one more player knocks.
+
+Wire v4 is what makes it fit. A tick no longer carries a word for every slot:
+the sim keeps a player's last word until a new one comes, so a tick carries
+only the words that changed, each coded against that player's previous word
+(a yaw and a pitch delta in Exp-Golomb codes, and the button byte only if it
+changed), and the slots between them as gaps. A tick too big for one datagram
+(256 players' worth of random noise is about 1.6 KB) is cut by slot into
+parts, each decodable on its own. Each tick is coded against the one before,
+which costs a lockstep client nothing, since it can't step past a missing
+tick anyway; a joiner's base is each live player's last input in the
+keyframe's region, so keyframes didn't change. The relay codes each tick once,
+whoever receives it.
+
+The bot host shows the other half: every client of a room computes the same
+world, so one process can play 252 slots from a single copy of it. It steps
+the room from whatever ticks any of its sessions hears, and its golfers read
+that one world. Each session still acks, gets its own repairs, keeps its own
+input lead and reports the world's interval hashes, so to the relay they are
+252 ordinary clients.
+
+| 256 players, 90 s, 100 ms round trip, 15 ms jitter, 5% loss each way | |
+| --- | --- |
+| the room | 256 sessions at once; the 257th turned away as full |
+| interval hashes vs the referee's | 20,738 of 20,739 reports equal; the other is the flip. Chrome 89 of 89 each, the bot host's world 83 of 83, the natives 83 (3 more between the flip and its heal) and 59 |
+| the flip | caught at the interval closing at sim tick 5,760 and healed by its desync keyframe |
+| the late join | slot 255, under QEMU's Pentium III, from a keyframe of the full room at sim tick 3,712, 86 ticks to fast-forward |
+| a tick, coded | 26 B on average, 151 B at most |
+| a bundle | 145 B on average, always one datagram (the largest 348 B) |
+| per session | 9.0 KB/s down, 4.9 KB/s up |
+| ticks heard by bundle | 99.75% (two bundles a tick at 5% loss give 99.75%), the worst session 99.54%; repairs brought 12,607 ticks in 5,226 datagrams |
+| inputs applied as sent | 99.34% (1.5% of words late, repeated) |
+| the relay | 54% of a core: 256 sessions, about 16,000 bundles and 16,000 input datagrams a second |
+| the bot host | 55% of a core for 252 golfers: one sim, 0.18 ms a tick; 725 strokes in 90 s |
+
+What a bundle costs, the same runs before and since:
+
+| | wire v3: a word for each of 64 slots, every tick | wire v4: the words that changed |
+| --- | --- | --- |
+| 3 players (X2) | 1,052 B, 65 KB/s each | 41 B, 2.6 KB/s |
+| 64 bots that move their aim every tick (M0) | 1,052 B, 65 KB/s | 513 B, 32 KB/s |
+| 256 players (N1) | could not: 64 slots | 145 B, 9.0 KB/s |
+
+CI runs the gate without Chrome (254 golfers and the two Xbox clients) on every push.
+
+![The first hole with the room full, from a Chrome client](docs/n1-crowd.png)
+![Its scoreboard: 256 players](docs/n1-scores.png)
+
+Not done:
+
+- **A net graph.** The client's HUD line shows the lead, the playout delay,
+  the slack, repairs and keyframes; a graph of them, and of bytes and loss,
+  would show the netcode working as you play.
+- **Spectators.** A room's ticks are the same for everyone, so a watcher
+  needs only bundles and a keyframe; relays fanning one room out to more
+  relays could serve any number of them.
+- **Rooms per machine, and failover.** One relay runs one room. Several
+  rooms across isolates, and a standby relay that takes a room over from the
+  record without a desync, come next.
 
 ## M4, the pit
 
@@ -611,7 +693,8 @@ Chrome worker, against the Deno relay on loopback for 60 s:
 | relay CPU | 39% of a core | 41% of a core |
 
 Chrome reports a 1,024 B `maxDatagramSize`, which only limits what it sends;
-it receives the 1,052 B bundles fine. The relay's cost is per packet in Deno's
+it receives the 1,052 B bundles fine. (Those were wire v3's bundles: since
+[N1](#n1-256-players), the same 64 bots' bundles are 513 B.) The relay's cost is per packet in Deno's
 QUIC path (~8,000 packets a second per room); the referee sim is about 5% of a
 core. So packets set rooms per core: about two today. BBR
 (`congestionControl: "low-latency"`) and the default controller measured the

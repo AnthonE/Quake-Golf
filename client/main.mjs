@@ -88,6 +88,9 @@ async function main() {
   if (BOT) {
     const bot = new Worker(new URL('./botworker.mjs', import.meta.url), { type: 'module' });
     bot.postMessage({ module, memory, genome: q.get('genome') });
+    // watching a bot play, Tab still shows the scores
+    document.addEventListener('keydown', (e) => { if (e.code === 'Tab') { e.preventDefault(); held.add('Tab'); } });
+    document.addEventListener('keyup', (e) => { if (e.code === 'Tab') held.delete('Tab'); });
   } else {
     canvas.addEventListener('click', () => {
       sound.wake();
@@ -350,12 +353,17 @@ async function main() {
       for (let p = 0; p < L.NPLAYER; p++) { const pl = view.player(p); if (pl.live) list.push(pl); }
       list.sort((a, b) => a.total - b.total || a.slot - b.slot);
       const y0 = 6;
-      centre(y0, h.state === L.H_OVER ? 'HOLE OVER' : 'SCORES', C.YELLOW);
-      centre(y0 + 2, 'PLAYER      HOLE  TOTAL  HOLES', C.GREY);
-      list.slice(0, rows - y0 - 6).forEach((pl, k) => {
+      centre(y0, `${h.state === L.H_OVER ? 'HOLE OVER' : 'SCORES'}  ${list.length} PLAYERS`, C.YELLOW);
+      centre(y0 + 2, 'RANK  PLAYER    HOLE  TOTAL  HOLES', C.GREY);
+      // as many as fit, best first; in a full room, your own row takes the last line
+      const fit = rows - y0 - 6;
+      const rank = new Map(list.map((pl, k) => [pl.slot, k + 1]));
+      const mine = list.findIndex((pl) => pl.slot === slot);
+      const shown = mine >= fit ? [...list.slice(0, fit - 1), list[mine]] : list.slice(0, fit);
+      shown.forEach((pl, k) => {
         const name = (pl.slot === slot ? 'YOU ' : 'P') + String(pl.slot + 1);
         const hole = h.state === L.H_OVER ? String(pl.score) : String(pl.strokes);
-        centre(y0 + 3 + k, `${name.padEnd(10)}  ${hole.padStart(4)}  ${String(pl.total).padStart(5)}  ${String(pl.holes).padStart(5)}`, pl.slot === slot ? C.YELLOW : C.WHITE);
+        centre(y0 + 3 + k, `${String(rank.get(pl.slot)).padStart(4)}  ${name.padEnd(8)}  ${hole.padStart(4)}  ${String(pl.total).padStart(5)}  ${String(pl.holes).padStart(5)}`, pl.slot === slot ? C.YELLOW : C.WHITE);
       });
     }
   }
