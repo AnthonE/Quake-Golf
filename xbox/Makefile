@@ -7,8 +7,10 @@
 # (and into the ISO) as quakegolf.txt; the title screen can change it too.
 # The default is the machine running xemu, as xemu's NAT network sees it.
 #
-# The sim is build/game.wasm translated to Pentium III assembly
-# (tools/w2x86.mjs, COFF flavour); this rebuilds it when the WAT changes.
+# The sim is the Xbox's own, xbox/sim/ (a frozen fork of src/: the browsers'
+# sim is free to change its bits, this one is not), assembled to
+# build/xbox/game.wasm and translated to Pentium III assembly (tools/w2x86.mjs,
+# COFF flavour); this rebuilds it when the WAT changes.
 
 XBE_TITLE = Quake\ Golf
 GEN_XISO = $(XBE_TITLE).iso
@@ -26,10 +28,10 @@ export PATH := $(NXDK_DIR)/bin:$(PATH)
 
 include $(NXDK_DIR)/Makefile
 
-$(ROOT)/build/game.wasm: $(wildcard $(ROOT)/src/*.wat) $(ROOT)/src/layout.mjs $(ROOT)/src/macros.mjs $(ROOT)/tools/asm.mjs
+$(ROOT)/build/xbox/game.wasm: $(wildcard $(CURDIR)/sim/*.wat) $(CURDIR)/sim/layout.mjs $(CURDIR)/sim/macros.mjs $(ROOT)/tools/asm.mjs
 	cd $(ROOT) && node tools/asm.mjs
 
-$(SIM) $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h &: $(ROOT)/build/game.wasm $(ROOT)/tools/w2x86.mjs $(ROOT)/tools/x86.mjs $(ROOT)/client/font.mjs
+$(SIM) $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h &: $(ROOT)/build/xbox/game.wasm $(ROOT)/tools/w2x86.mjs $(ROOT)/tools/x86.mjs $(ROOT)/client/font.mjs
 	cd $(ROOT) && node tools/x86.mjs --no-runner
 
 $(CURDIR)/main.obj $(CURDIR)/game.obj $(CURDIR)/brain.obj $(CURDIR)/online.obj: $(GEN)/qg_sim.h $(GEN)/layout.h $(GEN)/font.h

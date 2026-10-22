@@ -5,7 +5,8 @@
 // x86 is the sim translated for the Xbox's Pentium III (tools/w2x86.mjs) on
 // this machine's CPU; pentium3 is the same binary under qemu-i386 -cpu
 // pentium3, which faults on anything past SSE1. Both run one config: no V8
-// tiers, one thread.
+// tiers, one thread. They run the Xbox's own sim (xbox/sim/, a fork of src/),
+// so they take --wasm build/xbox/game.wasm, and the V8 runs beside them too.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { decodeTrace } from './core.mjs';
@@ -26,6 +27,9 @@ mkdirSync('traces', { recursive: true });
 if (!existsSync('build/game.wasm')) execFileSync(process.execPath, ['tools/asm.mjs'], { stdio: 'inherit' });
 if (!existsSync(log)) execFileSync(process.execPath, ['tools/genlog.mjs', '--ticks', String(ticks), '--out', log], { stdio: 'inherit' });
 // the native runner is rebuilt from this very module every time, so it is never stale
+if (runtimes.some((rt) => NATIVE.has(rt)) && !wasm.includes('xbox/')) {
+  throw new Error('x86 and pentium3 run the Xbox\'s sim: add --wasm build/xbox/game.wasm');
+}
 if (runtimes.some((rt) => NATIVE.has(rt))) execFileSync(process.execPath, ['tools/x86.mjs', '--wasm', wasm], { stdio: 'inherit' });
 
 function command(rt, tier, n, out) {

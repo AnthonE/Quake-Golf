@@ -95,8 +95,12 @@ the protocol, and `net/tiny-client.mjs` is a whole client in 128 lines.
 
 ## Play it on an original Xbox, or in xemu
 
-You need the ISO and a relay. Build them from the same commit: the relay
-refuses an Xbox whose sim differs from its own `game.wasm`.
+You need the ISO and a relay running the Xbox's sim. The Xbox has its own:
+`xbox/sim/`, a fork of `src/` frozen where it was, while the browsers' sim
+changes its bits for speed. So an Xbox plays in rooms of Xboxes, never with
+browsers, and the relay refuses an Xbox whose sim differs from the one it runs
+(`--wasm build/xbox/game.wasm`). Build the ISO and the relay from the same
+commit.
 
 **The ISO.** Every push builds it in CI: open the newest run of the
 `determinism` workflow on GitHub Actions and download the `quake-golf-xbox`
@@ -116,7 +120,7 @@ from Git Bash):
 
 ```sh
 npm ci
-node net/play.mjs    # Chrome players on UDP 4433, Xbox players on TCP and UDP 4434
+node net/play.mjs --xbox    # a room on the Xbox's sim: Xbox players on TCP and UDP 4434
 ```
 
 **xemu.** Open Settings, then Network: enable it and set it to NAT. Then
@@ -278,8 +282,8 @@ node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played C
 node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # four, a late join, a flipped bit
 node tools/x86.mjs                     # game.wasm -> Pentium III assembly, the native runner, the Xbox core's test driver (clang)
 node harness/matrix.mjs --ticks 20000 --runtimes node,x86,pentium3   # that code on this CPU and under qemu-i386 -cpu pentium3
-node net/run-x2.mjs [--chrome 1] [--seconds 60] [--late 15] [--flip 25] [--impair delay=100,jitter=15,loss=0.05]   # Xbox clients online
-node net/run-n1.mjs [--chrome 2] [--seconds 90] [--late 30] [--flip 45]   # 256 players: Chrome, Xbox clients and 252 AI golfers
+node net/run-x2.mjs [--seconds 60] [--late 15] [--flip 25] [--impair delay=100,jitter=15,loss=0.05]   # Xbox clients online, in a room on the Xbox's sim
+node net/run-n1.mjs [--chrome 2] [--seconds 90]   # 256 players: Chrome and 254 AI golfers
 node net/run-n3.mjs [--chrome 1] [--golfers 128] [--watchers 200]   # spectators through a tree of relays
 node net/run-n4.mjs [--chrome 1] [--kill 25] [--golfers 64]   # the root killed mid-match, a standby takes over; the replay checked
 node net/bot-host.mjs --relay 127.0.0.1:4434 --bots 250 [--seconds 0] [--impair ...]   # fill a running room with neural golfers
@@ -298,6 +302,14 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   `memory.grow`, data segments, mutable globals). wabt assembles the result.
 - `src/layout.mjs` is the one memory map: a 512 KiB region hashed in 128
   slices, scratch outside it, terrain regenerated from the seed.
+- There are two sims. `src/` is the browsers', Node's and the relays', built
+  to `build/game.wasm`, and free to change its bits for speed. `xbox/sim/` is
+  the Xbox's, a fork of `src/` frozen where it was, built to
+  `build/xbox/game.wasm` and translated to Pentium III code. Every platform
+  of a sim gets the same bits as the others, which CI checks for both; the two
+  sims meet in no room, since a hello carries its sim's hash. One relay,
+  referee and harness serve both, so the names they read must keep the same
+  places in both layouts (`test/fork.test.mjs`).
 - Contacts are Jacobi: phase A reads only start-of-tick state, phase B writes
   only its own balls, so any split across threads gives the same bits. The
   tests run random splits in shuffled order and real 2- and 4-thread runs.
@@ -452,7 +464,7 @@ What a bundle costs, the same runs before and since:
 | 64 bots that move their aim every tick (M0) | 1,052 B, 65 KB/s | 513 B, 32 KB/s |
 | 256 players (N1) | could not: 64 slots | 145 B, 9.0 KB/s |
 
-CI runs the gate without Chrome (254 golfers and the two Xbox clients) on every push.
+CI runs the gate without Chrome (256 golfers) on every push. The two Xbox clients that were in this room have left it: since the fork they play the Xbox's own sim, in rooms of their own ([X2](#x2-xbox-online)).
 
 ![The first hole with the room full, from a Chrome client](docs/n1-crowd.png)
 ![Its scoreboard: 256 players](docs/n1-scores.png)
@@ -679,14 +691,14 @@ Not done:
 
 ## X2, Xbox online
 
-`node net/run-x2.mjs` starts the relay, one Chrome client with the golf bot at
-the controls, and two native clients. Those run the Xbox's own network code
+`node net/run-x2.mjs` starts a relay on the Xbox's sim (`xbox/sim/`) and two
+native clients. Those run the Xbox's own network code
 (`xbox/online.c`) with scripted controllers: they line up a rocket drive,
 take it, follow the ball, walk and hop. One joins with the room; the other
 joins 15 s late, from a keyframe, running under `qemu-i386 -cpu pentium3`.
 Every datagram, both ways, has a 100 ms round trip, 15 ms jitter and 5% loss.
 25 s in, the first native client flips a bit of its own score total, as M3
-does to a browser client. CI runs the same without Chrome on every push.
+does to a browser client. CI runs the same on every push.
 
 | 60 s, 100 ms round trip, 15 ms jitter, 5% loss each way | |
 | --- | --- |

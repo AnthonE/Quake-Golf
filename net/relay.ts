@@ -70,7 +70,9 @@ const replaysDir = opt('replays', '');
 
 const cert = await Deno.readTextFile('certs/cert.pem');
 const key = await Deno.readTextFile('certs/key.pem');
-const wasm = await Deno.readFile('build/game.wasm');
+// the sim the room runs: game.wasm, or the Xbox's (build/xbox/game.wasm) for a
+// room of Xboxes; a hello names its sim's hash, so the two never meet in a room
+const wasm = await Deno.readFile(opt('wasm', 'build/game.wasm'));
 const prefix = await W.wasmPrefix(wasm);
 
 type Slot = {

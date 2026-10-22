@@ -1,6 +1,7 @@
-// The Xbox client's keyframe path: xbox/inflate.c against what the referee
-// sends, net/wire.mjs packKey (the region, its floats' bytes grouped, then
-// gzipped by the platform's CompressionStream). Real regions, a fresh course
+// The Xbox client's keyframe path: xbox/inflate.c against what an Xbox
+// room's referee (build/xbox/game.wasm, the Xbox's own sim) sends,
+// net/wire.mjs packKey (the region, its floats' bytes grouped, then gzipped
+// by the platform's CompressionStream). Real regions, a fresh course
 // and a pit of thousands of balls, plus data that forces stored blocks and long
 // matches, each unpacked by the C code and compared byte for byte.
 import { test } from 'node:test';
@@ -12,14 +13,14 @@ import { join, resolve } from 'node:path';
 import { packKey, shuffle } from '../net/wire.mjs';
 import { newMemory, instantiate, parseLog, Sim } from '../harness/core.mjs';
 import { generate } from '../tools/genlog.mjs';
-import * as L from '../src/layout.mjs';
+import * as L from '../xbox/sim/layout.mjs';
 import { CFLAGS } from '../tools/x86.mjs';
 
 const has = (cmd, args) => { try { execFileSync(cmd, args, { stdio: 'ignore' }); return true; } catch { return false; } };
 const CLANG = has('clang', ['--version']);
 
 async function region(ticks) {
-  const bytes = readFileSync('build/game.wasm');
+  const bytes = readFileSync('build/xbox/game.wasm');
   const memory = newMemory();
   const sim = new Sim(await instantiate(await WebAssembly.compile(bytes), memory), memory);
   const log = parseLog(generate({ ticks }));

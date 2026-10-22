@@ -29,20 +29,25 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       - run: npm run build
       - run: npm test
-      - name: Node, Deno and Chrome x both JIT tiers x 1, 2, 4 threads, and the Xbox's Pentium III build (native and under qemu)
-        run: node harness/matrix.mjs --ticks 20000 --runtimes node,deno,chromium,x86,pentium3
+      - name: Node, Deno and Chrome x both JIT tiers x 1, 2, 4 threads
+        run: node harness/matrix.mjs --ticks 20000 --runtimes node,deno,chromium
       - name: The same for a match four golf bots play
         run: |
           node tools/gengame.mjs --course 8 --bots 4 --ticks 20000 --out logs/game.qgl
-          node harness/matrix.mjs --ticks 20000 --log logs/game.qgl --runtimes node,deno,chromium,x86,pentium3
+          node harness/matrix.mjs --ticks 20000 --log logs/game.qgl --runtimes node,deno,chromium
       - name: M4's pit, 10,000 balls heaped and a grenade into them
         run: |
           node tools/genlog.mjs --pit --out logs/pit.qgl
-          node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --runtimes node,deno,chromium,x86,pentium3
-      - name: Xbox clients online (the relay, a native client and a late one under qemu, impaired, a flipped bit healed, and the tiny client)
-        run: node net/run-x2.mjs --chrome 0 --seconds 40 --late 10 --flip 20
-      - name: 256 players in one room (the bot host's 254 golfers and the Xbox clients, impaired, the 257th refused)
-        run: node net/run-n1.mjs --chrome 0 --seconds 60 --late 20 --flip 35
+          node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --runtimes node,deno,chromium
+      - name: The Xbox's sim (xbox/sim/), its Pentium III build natively and under qemu, against V8
+        run: |
+          node harness/matrix.mjs --ticks 20000 --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
+          node harness/matrix.mjs --ticks 20000 --log logs/game.qgl --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
+          node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
+      - name: Xbox clients online (a relay on the Xbox's sim, a native client and a late one under qemu, impaired, a flipped bit healed, and the tiny client)
+        run: node net/run-x2.mjs --seconds 40 --late 10 --flip 20
+      - name: 256 players in one room (the bot host's golfers, impaired, the 257th refused)
+        run: node net/run-n1.mjs --chrome 0 --seconds 60
       - name: Spectators through a tree of relays (two edges on the root, a third two deep, 100 verifying spectators each, a player turned away at an edge)
         run: node net/run-n3.mjs --chrome 0 --seconds 40 --golfers 64 --watchers 100
       - name: Failover and replays (the root killed mid-match, a standby takes the room over, everyone keeps their slot, the replay checks out)
