@@ -54,7 +54,7 @@ const cpu0 = process.cpuUsage();
 // The shared world: the room's confirmed state, one sim for every bot.
 const world = {
   sim: null, view: null, base: new W.TickBase(), store: new Map(), newest: -1,
-  roomStart: -1, seed: 0, started: false, starting: false, filling: null, syncAt: -1e9,
+  roomStart: -1, seed: 0, started: false, starting: false, filling: null, syncAt: -1e9, relay: 0,
   sBase: 0, sEpoch: 0, bestRtt: Infinity, // the server's clock, from the first session's welcome and pings
   hashes: [], keys: [], stepped: 0, stepMs: 0, worstStepMs: 0, syncs: 0,
 };
@@ -70,10 +70,15 @@ function offer(t, parts) {
   if (t > world.newest) world.newest = t;
 }
 
-// A keyframe: the first one starts the shared world; later joins' are only theirs.
+// A keyframe: the first one starts the shared world; later joins' are only
+// theirs, but for the first from a relay that took the room over, whose ticks
+// from it on are the room's now (the old relay's last few may not have
+// reached it, and those it closed again its own way).
 async function keyframe(k, s) {
-  if ((world.started || world.starting) && k.reason === W.SYNC.JOIN) return;
+  const takeover = s.relay !== world.relay;
+  if ((world.started || world.starting) && k.reason === W.SYNC.JOIN && !takeover) return;
   world.starting = true;
+  if (takeover) { world.relay = s.relay; world.store.clear(); world.newest = -1; }
   const region = k.raw ? await W.unpackKey(k.packed) : null;
   if (region) { world.sim.setRegion(region); world.base.seed(region); } else { world.sim.init(world.seed); world.base.reset(); }
   if (at() !== k.tick) throw new Error(`keyframe for tick ${k.tick} restored tick ${at()}`);

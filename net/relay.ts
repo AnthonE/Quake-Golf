@@ -750,6 +750,8 @@ async function watchUpstream(from: string) {
     }
   } finally {
     clearInterval(timer);
+    // the datagrams already here, or on their way, are ticks the room's players have too
+    await new Promise((ok) => setTimeout(ok, 100));
     try { sock.close(); } catch { /* gone */ }
     try { conn.close(); } catch { /* gone */ }
   }
