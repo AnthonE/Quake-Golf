@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| N3 · spectators | one room served through a tree of relays, two deep, to 600 spectators on lossy links: every edge's referee hashes the room as the root's does, every spectator's world too, Chrome watching two relays down, a player turned away at an edge | **passed** · [results](#n3-spectators) |
 | N1 · 256 players | one room filled to 256 over a lossy network (Chrome, the Xbox's network code, and a host of 252 AI golfers): every hash equals the referee's, the 257th turned away, a late join from a keyframe of the full room, a flipped bit healed, every bundle one datagram | **passed** · [results](#n1-256-players) |
 | M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); the blast still costs 4.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
 | X2 · Xbox online | the Xbox build plays in the browser's rooms over a lossy network: every hash equals the referee's, a late join from a keyframe on the Pentium III's instruction set, a flipped bit healed | **passed** with the Xbox's network code on Linux and under QEMU, not yet in xemu · [results](#x2-xbox-online) |
@@ -53,6 +54,18 @@ through the relay's native door, every golfer its own session:
 
 ```sh
 node net/bot-host.mjs --bots 250     # neural golfers (below) sharing one copy of the world, until Ctrl-C
+```
+
+To watch instead of play, open the page with `?watch=1`: no slot, no inputs,
+a camera riding with a player (→, Space or a click the next one, ← the one before).
+A room can be watched through edge relays, each a spectator of the one above
+it serving the room on to its own spectators, so one room reaches any number
+of them:
+
+```sh
+.tools/deno run --unstable-net -A net/relay.ts --port 4443 --native-port 4444 --upstream 127.0.0.1:4434
+# then open the page with ?watch=1&url=https://127.0.0.1:4443/
+node net/bot-host.mjs --relay 127.0.0.1:4444 --bots 200 --watch   # or 200 spectators that check every hash
 ```
 
 ## Play it on an original Xbox, or in xemu
@@ -409,15 +422,48 @@ CI runs the gate without Chrome (254 golfers and the two Xbox clients) on every 
 
 Not done:
 
-- **A net graph.** The client's HUD line shows the lead, the playout delay,
-  the slack, repairs and keyframes; a graph of them, and of bytes and loss,
-  would show the netcode working as you play.
-- **Spectators.** A room's ticks are the same for everyone, so a watcher
-  needs only bundles and a keyframe; relays fanning one room out to more
-  relays could serve any number of them.
 - **Rooms per machine, and failover.** One relay runs one room. Several
   rooms across isolates, and a standby relay that takes a room over from the
   record without a desync, come next.
+
+## N3, spectators
+
+A room's ticks are the same for everyone, so a spectator is a client that
+holds no slot: it says so in its hello (a flag byte), the relay welcomes it as
+watching (`T_WATCHING`) and sends it what it sends a player, the bundles,
+repairs and keyframes, and checks the interval hashes it reports. It sends no
+words, so it costs the room nothing: no slot, no input in any tick.
+
+An edge relay (`net/relay.ts --upstream host:port`) is a spectator of another
+relay's room that serves it on to spectators of its own. It closes each tick
+as it comes down rather than on its own clock, so its bundles and repairs are
+its own. Its referee starts from the keyframe it began watching at (the record
+is change-coded, so it seeds the tick base from that keyframe's region) and
+reports its interval hashes upstream like any spectator: each relay in a tree
+is checked by the one above it, and a relay that drifts is resynced by it. An
+edge takes no players; one that asks is turned away (`REJECT.WATCH_ONLY`).
+
+`node net/run-n3.mjs` builds the tree: the root relay holds the room and the
+bot host's 128 golfers play it; edges A and B watch the root and C watches A,
+two levels down. Each edge serves 200 spectators from a bot host in `--watch`
+mode, each its own session, and C a Chrome tab too (`?watch=1`). Every
+spectator's link has a 100 ms round trip, 15 ms jitter and 5% loss; the links
+between relays have none. At the end, a player knocks at an edge.
+
+| 60 s, 128 golfers, 3 edges, 601 spectators, 100 ms round trip, 15 ms jitter, 5% loss | |
+| --- | --- |
+| the root | 128 players and 2 spectators (edges A and B); 9,462 of 9,462 hash reports equal its referee's; 59% of a core |
+| the edges' referees vs the one above | A 70 of 70, B 70 of 70, C (two down) 67 of 67; no resync, no repair upstream |
+| each edge | 200 spectators (A also serves C); every report equal (9,600, 9,508, 9,579); 47% of a core |
+| the spectators | 600 joined from their edge's keyframe, none turned away; each host's world hashed as the root's, 49 of 49 |
+| the Chrome spectator on C | watching P1 two relays from the room; 59 of 59 interval hashes equal |
+| per spectator | 5.3 KB/s down; 99.6% of ticks heard by bundle (two bundles a tick at 5% loss give 99.75%) |
+| a player at an edge | turned away: spectators only |
+| the hosts | 24% of a core for 200 spectators, one shared world |
+
+CI runs a smaller tree without Chrome (64 golfers, 100 spectators an edge) on every push.
+
+![Watching P1 from Chrome, through edge C, two relays from the room](docs/n3-watch.png)
 
 ## M4, the pit
 

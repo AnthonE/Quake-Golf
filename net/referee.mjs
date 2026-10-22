@@ -26,9 +26,11 @@ export class Referee {
 
   get tick() { return this.dv.getUint32(L.HDR_TICK, true); }
 
-  // A new room on `seed`: its sim tick 0 is the first keyframe.
-  reset(seed) {
+  // A new room on `seed`: its sim tick 0 is the first keyframe. With a region
+  // (an edge relay's, from the keyframe it began watching at), from there instead.
+  reset(seed, region = null) {
     this.x.init(seed);
+    if (region) { this.u8.set(region, L.REGION); this.x.regrid(); }
     this.packed.clear();
     this.keyTick = [-1, -1];
     this.keep();

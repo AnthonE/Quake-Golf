@@ -7,9 +7,10 @@
 // each is a neural golfer (client/brain.mjs) on the golf bot's legs. Each
 // session still acks, gets its own repairs, keeps its own input lead and
 // reports the shared world's interval hashes, so the relay sees as many
-// ordinary clients as there are bots.
+// ordinary clients as there are bots. With --watch they are spectators
+// instead: no slot, no words, but the same acks, repairs and hash reports.
 //   node net/bot-host.mjs [--relay 127.0.0.1:4434] [--bots 250] [--seconds 0] [--rate 50] [--genome qg2:...]
-//                         [--impair delay=60,jitter=10,loss=0.02] [--out traces/bot-host.json]
+//                         [--impair delay=60,jitter=10,loss=0.02] [--out traces/bot-host.json] [--watch]
 // --seconds 0 plays until Ctrl-C; --rate: sessions opened a second. The summary
 // (--out, else stdout) holds every session's delivery and inputs, and the
 // shared world's interval hashes.
@@ -35,6 +36,7 @@ const seconds = Number(opt('seconds', 0));
 const rate = Number(opt('rate', 50));
 const impair = parseImpair(opt('impair', ''));
 const outPath = opt('out', '');
+const watch = argv.includes('--watch');
 const genome = opt('genome', readFileSync(join(ROOT, 'xbox/golfer.h'), 'utf8').match(/GOLFER_DEFAULT "(qg2:[A-Za-z0-9_-]+)"/)[1]);
 const HOLE_TICKS = 56; // client/sim.mjs: a repair can come until a hole is 64 ticks old
 const TARGET_SLACK = (W.SEND_EVERY + 1) * W.TICK_MS; // net/bot.mjs: a lost input's repeat must still land
@@ -94,7 +96,7 @@ function step() {
     world.stepped++;
     // inputs applied as sent: each session's word for t against the tick's own
     for (const s of sessions) {
-      if (s.slot < 0 || t < s.joinTick) continue;
+      if (!s.joined || s.watch || t < s.joinTick) continue;
       const sent = s.words.get(t);
       if (sent === undefined) continue;
       s.mine++;
@@ -104,7 +106,7 @@ function step() {
     if (sim.i32[L.INTERVAL_TICK >> 2] === k) {
       const hash = new DataView(memory.buffer).getBigUint64(L.INTERVAL_HASH, true);
       world.hashes.push([k, hash.toString(16)]);
-      for (const s of sessions) if (s.slot >= 0) s.report = { interval: k, hash, left: 8 };
+      for (const s of sessions) if (s.joined) s.report = { interval: k, hash, left: 8 };
     }
   }
   // a hole repairs couldn't fill: the first session asks for a keyframe
@@ -112,7 +114,7 @@ function step() {
   if (!world.filling && now - world.syncAt > 1500 && !world.store.has(at()) && world.newest - at() >= HOLE_TICKS) {
     world.syncAt = now;
     world.syncs++;
-    sessions.find((s) => s.slot >= 0)?.stream(W.encodeSync(W.SYNC.HOLE, at()));
+    sessions.find((s) => s.joined)?.stream(W.encodeSync(W.SYNC.HOLE, at()));
   }
 }
 
@@ -120,6 +122,8 @@ class Session {
   constructor(k) {
     this.k = k;
     this.slot = -1;
+    this.joined = false;
+    this.watch = watch;
     this.reject = null;
     this.imp = createImpair({ ...impair, seed: 1000 + k });
     this.rx = Buffer.alloc(0);
@@ -147,7 +151,7 @@ class Session {
     this.tcp.on('error', () => {});
     this.tcp.on('close', () => { this.closed = true; });
     this.tcp.on('data', (d) => { this.rx = this.rx.length ? Buffer.concat([this.rx, d]) : d; this.parse(); });
-    this.tcp.on('connect', () => this.stream(W.encodeHello({ maxDatagram: 1400, wasmPrefix: prefix, nonce: this.k })));
+    this.tcp.on('connect', () => this.stream(W.encodeHello({ maxDatagram: 1400, wasmPrefix: prefix, nonce: this.k, watch })));
   }
 
   stream(b) { if (!this.closed) this.tcp.write(b); }
@@ -157,14 +161,14 @@ class Session {
     new DataView(d.buffer).setUint32(0, this.token >>> 0, true);
     d.set(m, 4);
     this.stats.up += d.length;
-    this.imp.send(() => this.udp.send(d, Number(port), host));
+    this.imp.send(() => { if (!this.closed) this.udp.send(d, Number(port), host); }); // a delayed send can land after leave()
   }
 
   // net/wire.mjs readControl, on bytes as they come
   parse() {
     for (;;) {
       const b = this.rx;
-      if (this.slot < 0) {
+      if (!this.joined) {
         if (b.length >= 4 && b[0] === W.T_REJECT) { this.reject = b[1]; this.leave(); return; }
         if (b.length < 32) return;
         this.welcome(W.decodeWelcome(b.subarray(0, 32)));
@@ -184,8 +188,8 @@ class Session {
   }
 
   welcome(w) {
-    Object.assign(this, { slot: w.slot, joinTick: w.joinTick, token: w.token, roomStart: w.roomStart, nextTick: w.joinTick, lastSent: w.joinTick });
-    this.bot = new BrainBot(w.slot, genome, { lag: 8 });
+    Object.assign(this, { joined: true, slot: w.slot, joinTick: w.joinTick, token: w.token, roomStart: w.roomStart, nextTick: w.joinTick, lastSent: w.joinTick });
+    if (!w.watch) this.bot = new BrainBot(w.slot, genome, { lag: 8 });
     const now = performance.now();
     if (world.roomStart < 0) {
       world.roomStart = w.roomStart;
@@ -247,7 +251,17 @@ class Session {
   // One word a tick as the predicted clock passes it, the bot looking at the shared
   // world; every second tick, the words the relay hasn't closed, the acks, the newest hash.
   tick(now) {
-    if (this.slot < 0 || this.closed) return;
+    if (!this.joined || this.closed) return;
+    if (this.watch) {
+      // a spectator: its acks and the newest hash, every second tick of the server's clock
+      const t = Math.floor(serverTick(now));
+      if (t - this.lastSent < W.SEND_EVERY) return;
+      this.lastSent = t;
+      const r = this.report?.left > 0 ? this.report : null;
+      if (r) r.left--;
+      this.datagram(W.encodeInput({ seq: this.seq++, firstTick: 0, ...this.recv.ack(), words: [], report: r && { interval: r.interval, epoch: this.keys, hash: r.hash } }));
+      return;
+    }
     const predicted = Math.floor(serverTick(now) + this.lead);
     if (this.nextTick > predicted) return;
     // ticks between deciding an input and seeing what it did, in the shared world
@@ -286,7 +300,7 @@ const timer = setInterval(() => {
 }, W.TICK_MS / 2);
 let last = 0;
 const progress = setInterval(() => {
-  const live = sessions.filter((s) => s.slot >= 0 && !s.closed).length;
+  const live = sessions.filter((s) => s.joined && !s.closed).length;
   const sim = world.sim.tick;
   if (!argv.includes('--quiet')) process.stderr.write(`\r[bot-host] ${((performance.now() - t0) / 1000).toFixed(0)} s, ${live} sessions, world at sim tick ${sim} (+${sim - last}), ${world.store.size} queued   `);
   last = sim;
@@ -300,22 +314,22 @@ if (!argv.includes('--quiet')) process.stderr.write('\n');
 const cpu = process.cpuUsage(cpu0);
 const wall = (performance.now() - t0) / 1000;
 const v = world.view;
-const players = sessions.filter((s) => s.slot >= 0).map((s) => {
+const players = sessions.filter((s) => s.joined && !s.watch).map((s) => {
   const p = v.player(s.slot);
   return { slot: s.slot, strokes: p.strokes, holes: p.holes, total: p.total, done: p.done };
 });
 const per = sessions.map((s) => {
   const end = s.lastBundleT;
-  const expected = s.slot >= 0 && end >= s.joinTick ? end - s.joinTick + 1 : 0;
+  const expected = s.joined && end >= s.joinTick ? end - s.joinTick + 1 : 0;
   return {
-    k: s.k, slot: s.slot, reject: s.reject, error: s.error || null, joinTick: s.joinTick ?? null, keys: s.keys,
+    k: s.k, joined: s.joined, slot: s.slot, reject: s.reject, error: s.error || null, joinTick: s.joinTick ?? null, keys: s.keys,
     expected, bundleTicks: s.stats.bundleTicks, repairTicks: s.stats.repairTicks, bundles: s.stats.bundles,
     downKB: Number((s.stats.down / 1000).toFixed(1)), upKB: Number((s.stats.up / 1000).toFixed(1)), mine: s.mine, matched: s.matched,
   };
 });
 const summary = {
   bots: nBots, seconds, impair, genome,
-  joined: per.filter((p) => p.slot >= 0).length, rejected: per.filter((p) => p.reject !== null).length,
+  watch, joined: per.filter((p) => p.joined).length, rejected: per.filter((p) => p.reject !== null).length,
   errors: per.filter((p) => p.error).map((p) => ({ k: p.k, error: p.error })),
   cpuPctOfOneCore: Number((100 * (cpu.user + cpu.system) / 1e6 / wall).toFixed(1)),
   world: {

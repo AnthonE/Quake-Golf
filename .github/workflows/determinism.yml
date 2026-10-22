@@ -43,6 +43,8 @@ jobs:
         run: node net/run-x2.mjs --chrome 0 --seconds 40 --late 10 --flip 20
       - name: 256 players in one room (the bot host's 254 golfers and the Xbox clients, impaired, the 257th refused)
         run: node net/run-n1.mjs --chrome 0 --seconds 60 --late 20 --flip 35
+      - name: Spectators through a tree of relays (two edges on the root, a third two deep, 100 verifying spectators each, a player turned away at an edge)
+        run: node net/run-n3.mjs --chrome 0 --seconds 40 --golfers 64 --watchers 100
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

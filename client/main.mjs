@@ -23,6 +23,7 @@ canvas.width = W;
 canvas.height = H;
 const SENS = Number(q.get('sens') || 3); // yaw units (1/16384 turn) per pixel of mouse
 const BOT = q.get('bot') === '1';
+const WATCH = q.get('watch') === '1'; // a spectator: no slot, a camera that rides with any player
 
 const epoch = () => performance.timeOrigin + performance.now();
 const stateText = ['CONNECTING', 'CATCHING UP', '', 'DISCONNECTED'];
@@ -72,7 +73,7 @@ async function main() {
   };
   // an exception a worker's own timer throws reaches only its error event
   for (const w of [net, sim]) w.onerror = (e) => { error = String(e.message || e); e.preventDefault?.(); };
-  net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')) }, [ch.port1]);
+  net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch: WATCH }, [ch.port1]);
   sim.postMessage({ module, memory, netPort: ch.port2 }, [ch.port2]);
   addEventListener('pagehide', () => net.postMessage({ leave: true }));
 
@@ -86,7 +87,26 @@ async function main() {
   const aim = () => { set(L.CL_YAW, Math.round(yaw) & 0x3fff); set(L.CL_PITCH, Math.round(pitch)); };
   const setWeapon = (w) => { weapon = w; set(L.CL_WEAPON, w); };
   let locked = false;
-  if (BOT) {
+  let watched = -1; // the player a spectator rides with
+  const nextLive = (from, step) => {
+    for (let k = 1; k <= L.NPLAYER; k++) {
+      const p = (((from + step * k) % L.NPLAYER) + L.NPLAYER) % L.NPLAYER;
+      if (view.player(p).live) return p;
+    }
+    return -1;
+  };
+  if (WATCH) {
+    // ←/→, Space or a click: the next player; Tab the scores; N the net graph
+    const turn = (step) => { watched = nextLive(watched, step); };
+    canvas.addEventListener('click', () => turn(1));
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'ArrowRight' || e.code === 'Space') turn(1);
+      if (e.code === 'ArrowLeft') turn(-1);
+      if (e.code === 'Tab') { e.preventDefault(); held.add('Tab'); }
+      if (e.code === 'KeyN' && !e.repeat) showGraph = !showGraph;
+    });
+    document.addEventListener('keyup', (e) => { if (e.code === 'Tab') held.delete('Tab'); });
+  } else if (BOT) {
     const bot = new Worker(new URL('./botworker.mjs', import.meta.url), { type: 'module' });
     bot.postMessage({ module, memory, genome: q.get('genome') });
     // watching a bot play, Tab still shows the scores and N the net graph
@@ -133,7 +153,7 @@ async function main() {
   }
 
   const text = new Uint32Array(COLS * renderer.rows);
-  const netGraph = new NetGraph(memory);
+  const netGraph = new NetGraph(memory, { watch: WATCH });
   let showGraph = q.get('net') !== '0';
   let boardUp = false;
   const flashes = [];
@@ -151,7 +171,7 @@ async function main() {
   window.__qg = {
     hashes, keys, desyncs, syncs, fills, latency, net: () => netSeen,
     state: () => ({
-      slot: get(L.CL_SLOT), clState: get(L.CL_STATE), keys: get(L.CL_KEYS), repairs: get(L.CL_REPAIRS), hole: view.hole(), me, predicted: pme, nballs: view.nballs, error, welcome,
+      slot: get(L.CL_SLOT), watching: WATCH ? watched : null, clState: get(L.CL_STATE), keys: get(L.CL_KEYS), repairs: get(L.CL_REPAIRS), hole: view.hole(), me, predicted: pme, nballs: view.nballs, error, welcome,
       lead: f32[L.CL_LEAD >> 2], delay: f32[L.CL_DELAY >> 2], jitter: f32[L.CL_JITTER >> 2], queued: get(L.CL_QUEUED), next: get(L.CL_NEXT),
       play: readClock(i32, f64, L.CL_PLAY, epoch()), pred: readClock(i32, f64, L.CL_PRED, epoch()), room: get(L.CL_ROOM), net: netSeen,
     }),
@@ -231,6 +251,12 @@ async function main() {
     const dt = Math.max(0, Math.min(3, readClock(i32, f64, L.CL_PLAY, nowE) - room - h.tick)) * 0.008;
     me = slot >= 0 ? view.player(slot) : null;
     pme = null;
+    // a spectator rides with a live player, through their eyes
+    let tgt = null;
+    if (WATCH && st >= 1) {
+      if (watched < 0 || !view.player(watched).live) watched = nextLive(watched, 1);
+      tgt = watched >= 0 ? view.player(watched) : null;
+    }
     let dtPred = dt;
     if (me?.live && st === 2) {
       const n = predict(slot);
@@ -253,9 +279,10 @@ async function main() {
     let cam;
     if (pme) cam = [0, 1, 2].map((k) => pme.pos[k] + pme.vel[k] * dtPred + corr[k] + (k === 1 ? 1.6 : 0));
     else if (me?.live) cam = [me.pos[0] + me.vel[0] * dt, me.pos[1] + me.vel[1] * dt + 1.6, me.pos[2] + me.vel[2] * dt];
+    else if (tgt) cam = [tgt.pos[0] + tgt.vel[0] * dt, tgt.pos[1] + tgt.vel[1] * dt + 1.6, tgt.pos[2] + tgt.vel[2] * dt];
     else cam = [h.tee[0] - h.dir[0] * 25, h.tee[1] + 12, h.tee[2] - h.dir[1] * 25];
-    const camYaw = me?.live ? yaw / 16384 * 2 * Math.PI : Math.atan2(h.dir[1], h.dir[0]);
-    const camPitch = me?.live ? (pitch - 512) / 1024 * Math.PI : -0.12;
+    const camYaw = me?.live ? yaw / 16384 * 2 * Math.PI : tgt ? (tgt.input & 0x3fff) / 16384 * 2 * Math.PI : Math.atan2(h.dir[1], h.dir[0]);
+    const camPitch = me?.live ? (pitch - 512) / 1024 * Math.PI : tgt ? (((tgt.input >>> 14) & 0x3ff) - 512) / 1024 * Math.PI : -0.12;
 
     // how long a change of keys takes to show, predicted and confirmed
     // (only changes made and shown in play count: one made in the countdown waits for the tee-off)
@@ -304,12 +331,12 @@ async function main() {
       if (flashes[k].age > 0.6) flashes.splice(k, 1);
     }
 
-    hudText(text, { h, me: pme || me, slot, st, cam, now, fps, banner });
+    hudText(text, { h, me: tgt || pme || me, slot: tgt ? watched : slot, st, cam, now, fps, banner });
     netGraph.sample(now, hashes, keys);
     const graph = showGraph && !boardUp && st > 0 ? netGraph.build((x, y, s, c) => put(text, COLS, x, y, s, c), C) : null;
     last = {
-      cam, yaw: camYaw, pitch: camPitch, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, cup: h.cup, dir: h.dir, slot: slot < 0 ? 999 : slot,
-      myBall: me?.live ? me.ball : -1, nballs: view.nballs, flashes, text, graph,
+      cam, yaw: camYaw, pitch: camPitch, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, cup: h.cup, dir: h.dir,
+      slot: tgt ? watched : slot < 0 ? 999 : slot, myBall: me?.live ? me.ball : tgt ? tgt.ball : -1, nballs: view.nballs, flashes, text, graph,
     };
     renderer.frame(u8, last);
   }
@@ -348,16 +375,19 @@ async function main() {
     if (h.state === L.H_PLAY) centre(1, clock(left), left < 30 * 125 ? C.RED : C.WHITE);
     if (banner.until > now) centre(Math.floor(rows / 2) + 4, banner.text, C.GREEN);
     if (me?.live) {
-      put(t, COLS, 1, rows - 1, '1 ROCKET', get(L.CL_WEAPON) === 0 ? C.ORANGE : C.GREY);
-      put(t, COLS, 11, rows - 1, '2 GRENADE', get(L.CL_WEAPON) === 1 ? C.ORANGE : C.GREY);
+      if (!WATCH) {
+        put(t, COLS, 1, rows - 1, '1 ROCKET', get(L.CL_WEAPON) === 0 ? C.ORANGE : C.GREY);
+        put(t, COLS, 11, rows - 1, '2 GRENADE', get(L.CL_WEAPON) === 1 ? C.ORANGE : C.GREY);
+      }
       if (me.done) right(rows - 1, 'IN', C.GREEN);
       else if (me.ball >= 0) {
         const b = view.ball(me.ball).pos;
-        right(rows - 1, `BALL ${Math.round(Math.hypot(b[0] - h.cup[0], b[2] - h.cup[2]))}M TO CUP  YOU ${Math.round(Math.hypot(b[0] - cam[0], b[2] - cam[2]))}M`, C.CYAN);
+        right(rows - 1, `BALL ${Math.round(Math.hypot(b[0] - h.cup[0], b[2] - h.cup[2]))}M TO CUP  ${WATCH ? 'P' + (slot + 1) : 'YOU'} ${Math.round(Math.hypot(b[0] - cam[0], b[2] - cam[2]))}M`, C.CYAN);
       }
     }
-    put(t, COLS, 1, rows - 2, `${fps} FPS  LEAD ${f32[L.CL_LEAD >> 2].toFixed(1)}  DELAY ${f32[L.CL_DELAY >> 2].toFixed(1)}  SLACK ${f32[L.CL_PING >> 2].toFixed(1)}MS  REPAIRS ${get(L.CL_REPAIRS)}  KEYS ${get(L.CL_KEYS)}`, C.GREY);
-    if (!BOT && !locked && st === 2) centre(Math.floor(rows / 2) + 2, 'CLICK TO PLAY', C.WHITE);
+    put(t, COLS, 1, rows - 2, `${fps} FPS  ${WATCH ? '' : `LEAD ${f32[L.CL_LEAD >> 2].toFixed(1)}  `}DELAY ${f32[L.CL_DELAY >> 2].toFixed(1)}  SLACK ${f32[L.CL_PING >> 2].toFixed(1)}MS  REPAIRS ${get(L.CL_REPAIRS)}  KEYS ${get(L.CL_KEYS)}`, C.GREY);
+    if (!BOT && !WATCH && !locked && st === 2) centre(Math.floor(rows / 2) + 2, 'CLICK TO PLAY', C.WHITE);
+    if (WATCH && st === 2) put(t, COLS, 1, 2, `WATCHING P${slot + 1}  < >`, C.CYAN);
     boardUp = h.state === L.H_OVER || (held.has('Tab') && h.live);
     if (boardUp) {
       const list = [];

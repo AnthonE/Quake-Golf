@@ -28,7 +28,8 @@ self.onmessage = (e) => {
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 
 // impair: { delay, jitter, loss } on this client's own datagrams, both ways (?impair=)
-async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
+// watch: a spectator, with no slot and no words to send
+async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false }) {
   const imp = createImpair({ ...impair, seed: (Math.random() * 2 ** 32) >>> 0 });
   const i32 = new Int32Array(memory.buffer);
   const u32 = new Uint32Array(memory.buffer);
@@ -45,10 +46,10 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
   const bidi = await wt.createBidirectionalStream();
   const sw = bidi.writable.getWriter();
   const tHello = epoch();
-  await sw.write(W.encodeHello({ maxDatagram: wt.datagrams.maxDatagramSize, wasmPrefix: prefix, nonce: (Math.random() * 2 ** 32) >>> 0 }));
+  await sw.write(W.encodeHello({ maxDatagram: wt.datagrams.maxDatagramSize, wasmPrefix: prefix, nonce: (Math.random() * 2 ** 32) >>> 0, watch }));
   const sr = W.bufferedReader(bidi.readable.getReader());
   const head = await sr.read(4);
-  if (head[0] === W.T_REJECT) throw new Error(['', 'game.wasm differs from the server\'s: reload', 'the room is full', 'protocol mismatch'][head[1]] || 'rejected');
+  if (head[0] === W.T_REJECT) throw new Error(['', 'game.wasm differs from the server\'s: reload', 'the room is full', 'protocol mismatch', 'this relay only has a room to watch', 'nothing to watch yet'][head[1]] || 'rejected');
   const wb = new Uint8Array(32);
   wb.set(head, 0);
   wb.set(await sr.read(28), 4);
@@ -162,11 +163,24 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
     imp.send(() => dw.write(buf).catch(() => {}));
   };
   let lastTimer = epoch();
+  // a spectator's datagrams: only its acks and the newest hash, every second tick
+  const sendWatch = () => {
+    const r = report?.left > 0 ? report : null;
+    if (r) r.left--;
+    const buf = W.encodeInput({ seq: seq++, firstTick: 0, ...recv.ack(), words: [], report: r });
+    Atomics.add(i32, L.CL_TX >> 2, buf.length);
+    imp.send(() => dw.write(buf).catch(() => {}));
+  };
   const timer = setInterval(() => {
     const now = epoch();
     // how late this 4 ms timer runs: a starved worker samples, sends and acks late
     if (now - lastTimer > 50) seen.gaps.push(Math.round(now - lastTimer));
     lastTimer = now;
+    if (welcome.watch) {
+      const t = Math.floor(serverTick(now));
+      if (t - lastSent >= W.SEND_EVERY) { lastSent = t; sendWatch(); }
+      return;
+    }
     const predicted = Math.floor(serverTick(now) + lead);
     if (nextTick > predicted) return;
     while (nextTick <= predicted) {

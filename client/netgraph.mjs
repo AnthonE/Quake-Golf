@@ -5,7 +5,8 @@
 //             fills, stacked), and up (a line)
 //   REPAIRED  the share of ticks heard that needed a repair; LAG, from an input
 //             to the confirmed world: the lead and the delay, in ms
-//   LEAD      the input lead and the playout delay, in ticks (client/clock.mjs)
+//   LEAD      the input lead and the playout delay, in ticks (client/clock.mjs);
+//             a spectator sends no inputs, so its LAG is the delay alone
 //   SYNC      each interval hash sent to the relay (green), and each keyframe:
 //             a join (blue), a resync for a hole or a stall (purple), a desync (red)
 // The net worker counts the bytes and ticks in shared memory (L.CL_RX_*);
@@ -22,7 +23,8 @@ const nice = (x) => { const e = 10 ** Math.floor(Math.log10(Math.max(x, 1e-9)));
 const kb = (x) => (x >= 10000 ? (x / 1000).toFixed(0) : (x / 1000).toFixed(1));
 
 export class NetGraph {
-  constructor(memory) {
+  constructor(memory, { watch = false } = {}) {
+    this.watch = watch;
     this.u32 = new Uint32Array(memory.buffer);
     this.f32 = new Float32Array(memory.buffer);
     this.cols = [];
@@ -49,7 +51,7 @@ export class NetGraph {
       this.cols.push({
         bundle: d('bundle'), repair: d('repair'), stream: d('stream'), up: d('up'),
         heard: (c.heard - this.prev.heard) >>> 0, repaired: (c.repaired - this.prev.repaired) >>> 0,
-        lead: this.f32[L.CL_LEAD >> 2], delay: this.f32[L.CL_DELAY >> 2], hash: hashes.length > this.seenHashes ? 1 : 0, key,
+        lead: this.watch ? 0 : this.f32[L.CL_LEAD >> 2], delay: this.f32[L.CL_DELAY >> 2], hash: hashes.length > this.seenHashes ? 1 : 0, key,
       });
       if (this.cols.length > GRAPH_N) this.cols.shift();
     }

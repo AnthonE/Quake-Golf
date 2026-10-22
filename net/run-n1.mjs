@@ -177,7 +177,7 @@ report.natives = natives.map(({ name, code, s, qemu: q3 }) => s ? (() => {
   };
 })() : { name, code, error: 'no summary' });
 report.chrome = report.chrome.map((c) => ({ slot: c.slot, clState: c.clState, error: c.error, keys: c.keys, ...grade(c.hashes) }));
-const ses = (botRun?.sessions || []).filter((s) => s.slot >= 0);
+const ses = (botRun?.sessions || []).filter((s) => s.joined);
 const sum = (f) => ses.reduce((a, s) => a + f(s), 0);
 report.botHost = botRun && {
   joined: botRun.joined, rejected: botRun.rejected, errors: botRun.errors, cpuPctOfOneCore: botRun.cpuPctOfOneCore,
