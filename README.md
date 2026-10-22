@@ -16,7 +16,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 | N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
 | N3 · spectators | one room served through a tree of relays, two deep, to 600 spectators on lossy links: every edge's referee hashes the room as the root's does, every spectator's world too, Chrome watching two relays down, a player turned away at an edge | **passed** · [results](#n3-spectators) |
 | N1 · 256 players | one room filled to 256 over a lossy network (Chrome, the Xbox's network code, and a host of 252 AI golfers): every hash equals the referee's, the 257th turned away, a late join from a keyframe of the full room, a flipped bit healed, every bundle one datagram | **passed** · [results](#n1-256-players) |
-| M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); the blast still costs 4.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
+| M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); a contact walk 1.2 to 1.4 times faster, bit for bit again; the blast still costs 3.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
 | X2 · Xbox online | the Xbox build plays in the browser's rooms over a lossy network: every hash equals the referee's, a late join from a keyframe on the Pentium III's instruction set, a flipped bit healed | **passed** with the Xbox's network code on Linux and under QEMU, not yet in xemu · [results](#x2-xbox-online) |
 | X1 · original Xbox | the sim as Pentium III code equals V8 on every tick of 1M; an XBE builds; a match played on the Xbox build replays in V8 tick for tick | **passed** under QEMU's Pentium III, not yet on a console · [results](#x1-the-original-xbox) |
 | M3 · netcode | four players at 150 ms and 10% loss: your moves show next frame, a late join from a keyframe, a flipped bit caught and healed | **passed** · [results](#m3-netcode) |
@@ -606,15 +606,48 @@ Node, one thread unless stated, the build before against this one, run back to b
 | settling again (128 awake) | 0.19 ms | 0.07 ms |
 | Pentium III instructions a step (callgrind), quiet and in the storm | 2.43 M and 6.00 M | 0.50 M and 3.47 M |
 
+The second change is the contact walk's code, not its order. V8 did not
+inline `$cell` or `$bucket`, so each of the 27 bucket lookups was a call, with
+the ball's running sums spilled to the stack around it. `contacts` now does
+that arithmetic itself, unrolls the 9 rows and the 3 buckets in each (the
+`!unroll` macro), so each short walk has branches of its own for the
+predictor, and loads a row's three list heads before walking any of them.
+The neighbours are met in the same order, so the sums are the same bits:
+
+| Check | Result |
+| --- | --- |
+| every tick's region hash against the build before, on the pit, M1's 20,000-tick log and the 4-bot match, 1 and 4 threads, and the debug build | all equal |
+| `harness/matrix.mjs` on the pit: Node and Chrome x 3 tiers x 1, 2, 4 threads, and `x86` | all 19 agree on every tick |
+| the same on M1's log and the match, Node 1 and 4 threads and `x86` | all agree |
+
+Node, one thread unless stated, the build before against this one, run back to back:
+
+| | before | now |
+| --- | --- | --- |
+| a quiet tick (M1's log, ticks 16,000 to 24,000) | 0.053 ms | 0.038 ms |
+| the storm (1,359 awake), 1 and 4 threads | 0.56 and 0.35 ms | 0.39 and 0.28 ms |
+| the pit filling | 2.34 to 2.39 ms | 1.83 to 1.94 ms |
+| the heap, before the grenade | 1.00 to 1.04 ms | 0.82 to 0.90 ms |
+| **the grenade's first 4 s**, 1 and 4 threads | 3.5 to 4.1 and 1.45 to 1.64 ms | **2.95 and 1.12 to 1.31 ms** |
+| of which contacts, 1 thread | 3.15 to 3.74 ms | 2.62 ms |
+| the Pentium III code natively, the whole pit | 2.45 to 2.50 ms | 2.09 to 2.10 ms |
+
+Three more were tried and left out, each as exact and none faster. Skipping
+the edge and corner cells a contact can't reach (about a quarter of the
+candidates) cost more in tests than it saved in walking. A packed copy of
+each ball's position and next link, one cache line a candidate instead of
+four, gained 3%. And the approach test as a select instead of a branch
+changed nothing.
+
 Not done:
 
-- **The grenade on one thread.** 3.2 to 4.0 ms a tick across runs (p99 6.4
-  to 6.6) against 1.5. Four threads bring it to 1.14 ms, but the client's sim worker
-  and the referee step on one. Per awake ball, contacts spend 83 ns on the
-  27 bucket lookups, about 300 ns walking some 30 candidates, and 120 ns on
-  the 7 that touch. Sorting the awake list by bucket, so that neighbours come
-  one after another, changed nothing (501 ns a ball either way): the walk is
-  not waiting on memory, it is short lists of unpredictable length.
+- **The grenade on one thread.** 2.95 ms a tick against 1.5. Four threads
+  bring it to 1.1 to 1.3 ms, but the client's sim worker and the referee
+  step on one. Per awake ball, a walk of the 27 buckets alone costs about
+  three quarters of contacts and the 7 contacts the rest. Sorting the awake
+  list by bucket, so that neighbours come one after another, changed
+  nothing, and neither did the packed copy above: the walk is not waiting on
+  memory, it is short lists (mostly one or two balls) of unpredictable length.
 - **A heap never sleeps.** Before the grenade, 1,286 balls stay awake for as
   long as the pit stands, about 1 ms a tick. The bottom balls are squeezed
   out sideways from under the ones above (balls have no friction on each

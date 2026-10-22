@@ -146,11 +146,11 @@
 ;; Phase A over AWAKE[lo, hi).
 (func $contacts (export "contacts") (param $lo i32) (param $hi i32)
   (local $k i32) (local $i i32) (local $j i32) (local $s i32) (local $b i32)
-  (local $cx i32) (local $cy i32) (local $cz i32) (local $ox i32) (local $oy i32) (local $oz i32)
+  (local $cx i32) (local $cy i32) (local $cz i32) (local $oz i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vy f32) (local $vz f32)
   (local $dx f32) (local $dy f32) (local $dz f32) (local $d2 f32) (local $dist f32) (local $inv f32)
   (local $nx f32) (local $ny f32) (local $nz f32) (local $vrel f32) (local $pen f32) (local $coef f32)
-  (local $ax f32) (local $ay f32) (local $az f32)
+  (local $ax f32) (local $ay f32) (local $az f32) (local $bz i32) (local $byz i32) (local $h0 i32) (local $h1 i32) (local $h2 i32)
   (!for $k (local.get $lo) (local.get $hi)
     (local.set $i (!ld u16 @AWAKE (local.get $k)))
     (local.set $px (!ld f32 @PX (local.get $i)))
@@ -159,21 +159,28 @@
     (local.set $vx (!ld f32 @VX (local.get $i)))
     (local.set $vy (!ld f32 @VY (local.get $i)))
     (local.set $vz (!ld f32 @VZ (local.get $i)))
-    (call $cell (local.get $px) (local.get $py) (local.get $pz))
-    (local.set $cz) (local.set $cy) (local.set $cx)
+    ;; $cell and $bucket written out: V8 does not inline them, and a call in
+    ;; this loop spills the sums around it. The rows and their three buckets
+    ;; are unrolled, so each of the 27 short walks has branches of its own to
+    ;; predict, and a row's three heads are loaded together before any walk.
+    ;; The order is the loop's: by cell offset (z, y, x), then by index
+    (local.set $cx (i32.trunc_sat_f32_s (f32.floor (f32.mul (local.get $px) (f32.const @INV_CELL)))))
+    (local.set $cy (i32.trunc_sat_f32_s (f32.floor (f32.mul (local.get $py) (f32.const @INV_CELL)))))
+    (local.set $cz (i32.trunc_sat_f32_s (f32.floor (f32.mul (local.get $pz) (f32.const @INV_CELL)))))
     (local.set $ax (f32.const 0))
     (local.set $ay (f32.const 0))
     (local.set $az (f32.const 0))
     (local.set $oz (i32.const -1))
     (loop $lz
-      (local.set $oy (i32.const -1))
-      (loop $ly
-        (local.set $ox (i32.const -1))
-        (loop $lx
-          (local.set $b (call $bucket (i32.add (local.get $cx) (local.get $ox))
-                                      (i32.add (local.get $cy) (local.get $oy))
-                                      (i32.add (local.get $cz) (local.get $oz))))
-          (local.set $s (!ld u16 @HEAD (local.get $b)))
+      (local.set $bz (i32.shl (i32.and (i32.add (local.get $cz) (local.get $oz)) (i32.const 63)) (i32.const 9)))
+      (!unroll $oy (-1 0 1)
+        (local.set $byz (i32.or (local.get $bz)
+                                (i32.shl (i32.and (i32.add (local.get $cy) (local.get $oy)) (i32.const 7)) (i32.const 6))))
+        (local.set $h0 (!ld u16 @HEAD (i32.or (local.get $byz) (i32.and (i32.add (local.get $cx) (i32.const -1)) (i32.const 63)))))
+        (local.set $h1 (!ld u16 @HEAD (i32.or (local.get $byz) (i32.and (local.get $cx) (i32.const 63)))))
+        (local.set $h2 (!ld u16 @HEAD (i32.or (local.get $byz) (i32.and (i32.add (local.get $cx) (i32.const 1)) (i32.const 63)))))
+        (!unroll $ox (-1 0 1)
+          (local.set $s (select (local.get $h0) (select (local.get $h1) (local.get $h2) (i32.eqz (local.get $ox))) (i32.lt_s (local.get $ox) (i32.const 0))))
           (block $done
             (loop $scan
               (br_if $done (i32.eq (local.get $s) (i32.const 0xffff)))
@@ -222,11 +229,7 @@
               (local.set $ax (!madd (local.get $nx) (local.get $coef) (local.get $ax)))
               (local.set $ay (!madd (local.get $ny) (local.get $coef) (local.get $ay)))
               (local.set $az (!madd (local.get $nz) (local.get $coef) (local.get $az)))
-              (br $scan)))
-          (local.set $ox (i32.add (local.get $ox) (i32.const 1)))
-          (br_if $lx (i32.le_s (local.get $ox) (i32.const 1))))
-        (local.set $oy (i32.add (local.get $oy) (i32.const 1)))
-        (br_if $ly (i32.le_s (local.get $oy) (i32.const 1))))
+              (br $scan)))))
       (local.set $oz (i32.add (local.get $oz) (i32.const 1)))
       (br_if $lz (i32.le_s (local.get $oz) (i32.const 1))))
     (!st f32 @DVX (local.get $i) (local.get $ax))
