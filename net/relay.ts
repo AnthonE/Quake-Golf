@@ -67,10 +67,14 @@ const standby = argv.includes('--standby');
 let edge = upstreams.length > 0; // until a standby takes the room over
 const MAX_WATCHERS = Number(opt('watchers', '4096'));
 const replaysDir = opt('replays', '');
+// the referee's threads: a tick with many balls awake is split across them (net/team.mjs)
+const refereeThreads = Number(opt('referee-threads', '2'));
 
 const cert = await Deno.readTextFile('certs/cert.pem');
 const key = await Deno.readTextFile('certs/key.pem');
-const wasm = await Deno.readFile('build/game.wasm');
+// the sim the room runs: game.wasm, or the Xbox's (build/xbox/game.wasm) for a
+// room of Xboxes; a hello names its sim's hash, so the two never meet in a room
+const wasm = await Deno.readFile(opt('wasm', 'build/game.wasm'));
 const prefix = await W.wasmPrefix(wasm);
 
 type Slot = {
@@ -136,7 +140,7 @@ const stats = {
 
 // The referee: closed ticks go to it in batches; interval hashes and packed keyframes come back.
 const referee = new Worker(new URL('./referee-worker.mjs', import.meta.url).href, { type: 'module' });
-referee.postMessage({ wasm });
+referee.postMessage({ wasm, threads: refereeThreads });
 let toReferee: Uint8Array[][] = [];
 let refRoom = 0; // the referee's generation: a room's start, or an edge's restart from a keyframe
 const refIntervals = new Map<number, { hash: bigint; digests: Uint8Array }>(); // sim tick -> the referee's

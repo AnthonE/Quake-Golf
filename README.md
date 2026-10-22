@@ -16,7 +16,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 | N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
 | N3 · spectators | one room served through a tree of relays, two deep, to 600 spectators on lossy links: every edge's referee hashes the room as the root's does, every spectator's world too, Chrome watching two relays down, a player turned away at an edge | **passed** · [results](#n3-spectators) |
 | N1 · 256 players | one room filled to 256 over a lossy network (Chrome, the Xbox's network code, and a host of 252 AI golfers): every hash equals the referee's, the 257th turned away, a late join from a keyframe of the full room, a flipped bit healed, every bundle one datagram | **passed** · [results](#n1-256-players) |
-| M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); the blast still costs 4.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
+| M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); then contacts by sorted runs and SIMD, bit for bit still: the blast's first 4 s at 1.49 ms a tick on one thread (p99 2.3), from 3.9; the heap never sleeps · [results](#m4-the-pit) |
 | X2 · Xbox online | the Xbox build plays in the browser's rooms over a lossy network: every hash equals the referee's, a late join from a keyframe on the Pentium III's instruction set, a flipped bit healed | **passed** with the Xbox's network code on Linux and under QEMU, not yet in xemu · [results](#x2-xbox-online) |
 | X1 · original Xbox | the sim as Pentium III code equals V8 on every tick of 1M; an XBE builds; a match played on the Xbox build replays in V8 tick for tick | **passed** under QEMU's Pentium III, not yet on a console · [results](#x1-the-original-xbox) |
 | M3 · netcode | four players at 150 ms and 10% loss: your moves show next frame, a late join from a keyframe, a flipped bit caught and healed | **passed** · [results](#m3-netcode) |
@@ -95,8 +95,12 @@ the protocol, and `net/tiny-client.mjs` is a whole client in 128 lines.
 
 ## Play it on an original Xbox, or in xemu
 
-You need the ISO and a relay. Build them from the same commit: the relay
-refuses an Xbox whose sim differs from its own `game.wasm`.
+You need the ISO and a relay running the Xbox's sim. The Xbox has its own:
+`xbox/sim/`, a fork of `src/` frozen where it was, while the browsers' sim
+changes its bits for speed. So an Xbox plays in rooms of Xboxes, never with
+browsers, and the relay refuses an Xbox whose sim differs from the one it runs
+(`--wasm build/xbox/game.wasm`). Build the ISO and the relay from the same
+commit.
 
 **The ISO.** Every push builds it in CI: open the newest run of the
 `determinism` workflow on GitHub Actions and download the `quake-golf-xbox`
@@ -116,7 +120,7 @@ from Git Bash):
 
 ```sh
 npm ci
-node net/play.mjs    # Chrome players on UDP 4433, Xbox players on TCP and UDP 4434
+node net/play.mjs --xbox    # a room on the Xbox's sim: Xbox players on TCP and UDP 4434
 ```
 
 **xemu.** Open Settings, then Network: enable it and set it to NAT. Then
@@ -278,8 +282,8 @@ node net/run-m2.mjs [--impair delay=60,jitter=15,loss=0.05]   # two bot-played C
 node net/run-m3.mjs [--clients 4] [--impair delay=150,jitter=15,loss=0.1]   # four, a late join, a flipped bit
 node tools/x86.mjs                     # game.wasm -> Pentium III assembly, the native runner, the Xbox core's test driver (clang)
 node harness/matrix.mjs --ticks 20000 --runtimes node,x86,pentium3   # that code on this CPU and under qemu-i386 -cpu pentium3
-node net/run-x2.mjs [--chrome 1] [--seconds 60] [--late 15] [--flip 25] [--impair delay=100,jitter=15,loss=0.05]   # Xbox clients online
-node net/run-n1.mjs [--chrome 2] [--seconds 90] [--late 30] [--flip 45]   # 256 players: Chrome, Xbox clients and 252 AI golfers
+node net/run-x2.mjs [--seconds 60] [--late 15] [--flip 25] [--impair delay=100,jitter=15,loss=0.05]   # Xbox clients online, in a room on the Xbox's sim
+node net/run-n1.mjs [--chrome 2] [--seconds 90]   # 256 players: Chrome and 254 AI golfers
 node net/run-n3.mjs [--chrome 1] [--golfers 128] [--watchers 200]   # spectators through a tree of relays
 node net/run-n4.mjs [--chrome 1] [--kill 25] [--golfers 64]   # the root killed mid-match, a standby takes over; the replay checked
 node net/bot-host.mjs --relay 127.0.0.1:4434 --bots 250 [--seconds 0] [--impair ...]   # fill a running room with neural golfers
@@ -298,6 +302,14 @@ build/x86/xbox-headless --out traces/xbox --players 2   # a scripted hole on the
   `memory.grow`, data segments, mutable globals). wabt assembles the result.
 - `src/layout.mjs` is the one memory map: a 512 KiB region hashed in 128
   slices, scratch outside it, terrain regenerated from the seed.
+- There are two sims. `src/` is the browsers', Node's and the relays', built
+  to `build/game.wasm`, and free to change its bits for speed. `xbox/sim/` is
+  the Xbox's, a fork of `src/` frozen where it was, built to
+  `build/xbox/game.wasm` and translated to Pentium III code. Every platform
+  of a sim gets the same bits as the others, which CI checks for both; the two
+  sims meet in no room, since a hello carries its sim's hash. One relay,
+  referee and harness serve both, so the names they read must keep the same
+  places in both layouts (`test/fork.test.mjs`).
 - Contacts are Jacobi: phase A reads only start-of-tick state, phase B writes
   only its own balls, so any split across threads gives the same bits. The
   tests run random splits in shuffled order and real 2- and 4-thread runs.
@@ -452,7 +464,7 @@ What a bundle costs, the same runs before and since:
 | 64 bots that move their aim every tick (M0) | 1,052 B, 65 KB/s | 513 B, 32 KB/s |
 | 256 players (N1) | could not: 64 slots | 145 B, 9.0 KB/s |
 
-CI runs the gate without Chrome (254 golfers and the two Xbox clients) on every push.
+CI runs the gate without Chrome (256 golfers) on every push. The two Xbox clients that were in this room have left it: since the fork they play the Xbox's own sim, in rooms of their own ([X2](#x2-xbox-online)).
 
 ![The first hole with the room full, from a Chrome client](docs/n1-crowd.png)
 ![Its scoreboard: 256 players](docs/n1-scores.png)
@@ -606,15 +618,113 @@ Node, one thread unless stated, the build before against this one, run back to b
 | settling again (128 awake) | 0.19 ms | 0.07 ms |
 | Pentium III instructions a step (callgrind), quiet and in the storm | 2.43 M and 6.00 M | 0.50 M and 3.47 M |
 
+The second change is the contact walk's code, not its order. V8 did not
+inline `$cell` or `$bucket`, so each of the 27 bucket lookups was a call, with
+the ball's running sums spilled to the stack around it. `contacts` now does
+that arithmetic itself, unrolls the 9 rows and the 3 buckets in each (the
+`!unroll` macro), so each short walk has branches of its own for the
+predictor, and loads a row's three list heads before walking any of them.
+The neighbours are met in the same order, so the sums are the same bits:
+
+| Check | Result |
+| --- | --- |
+| every tick's region hash against the build before, on the pit, M1's 20,000-tick log and the 4-bot match, 1 and 4 threads, and the debug build | all equal |
+| `harness/matrix.mjs` on the pit: Node and Chrome x 3 tiers x 1, 2, 4 threads, and `x86` | all 19 agree on every tick |
+| the same on M1's log and the match, Node 1 and 4 threads and `x86` | all agree |
+
+Node, one thread unless stated, the build before against this one, run back to back:
+
+| | before | now |
+| --- | --- | --- |
+| a quiet tick (M1's log, ticks 16,000 to 24,000) | 0.053 ms | 0.038 ms |
+| the storm (1,359 awake), 1 and 4 threads | 0.56 and 0.35 ms | 0.39 and 0.28 ms |
+| the pit filling | 2.34 to 2.39 ms | 1.83 to 1.94 ms |
+| the heap, before the grenade | 1.00 to 1.04 ms | 0.82 to 0.90 ms |
+| **the grenade's first 4 s**, 1 and 4 threads | 3.5 to 4.1 and 1.45 to 1.64 ms | **2.95 and 1.12 to 1.31 ms** |
+| of which contacts, 1 thread | 3.15 to 3.74 ms | 2.62 ms |
+| the Pentium III code natively, the whole pit | 2.45 to 2.50 ms | 2.09 to 2.10 ms |
+
+Three more were tried and left out, each as exact and none faster. Skipping
+the edge and corner cells a contact can't reach (about a quarter of the
+candidates) cost more in tests than it saved in walking. A packed copy of
+each ball's position and next link, one cache line a candidate instead of
+four, gained 3%. And the approach test as a select instead of a branch
+changed nothing.
+
+A SIMD candidate test was tried too, also exact. Nearly every bucket holds
+two balls or fewer, so a row of three buckets is six slots, an empty one at
+x = inf. One f32x4 pass tests them all, `i32x4.bitmask` gives the hits, and a
+`ctz` loop takes them in walk order, with a row holding a third ball walked
+as before. It removes the walk's branches but loads every slot, about twice
+the positions the walk reads, and V8 compiles an f32 `select` as a branch and
+spilled much of the function: 3.36 ms of contacts a grenade tick against
+3.09 for the walk, measured on the same states.
+
+The third change is the data, once the Xbox had a sim of its own
+(`xbox/sim/`) and `src/` no longer had to be what the Pentium III
+translation can run. When 768 balls or more are awake, `tick_begin`
+counting-sorts every live ball by bucket into flat arrays, its position
+copied beside it. Buckets number x fastest, so a row of three cells is one
+run of the arrays (two where the grid wraps): a ball tests 9 runs, four
+balls at a time in f32x4, instead of walking 27 lists. A group's hits go on
+a small queue for its thread with no branch (all four lanes written, the
+count moved by the mask), and `$press` works out the queued contacts four at
+a time: each lane does what `touch.wat` does for one, an awake and a sleeping
+neighbour both, blended by the lane's kind, and the pushes are added to the
+sums lane by lane in queue order. A run is its buckets in turn, each
+ascending, which is the lists' order, and each lane computes what one at a
+time does, so the bits are still the old ones:
+
+| Check | Result |
+| --- | --- |
+| every tick's region hash against the build before the first change, on the pit, M1's 20,000-tick log and the 4-bot match, 1 and 4 threads, and the debug build under random splits (which also checks the sorted copy against the lists every tick) | all equal |
+| `harness/matrix.mjs` on the pit: Node, Deno and Chrome x 3 tiers x 1, 2, 4 threads | all 27 agree on every tick |
+
+Node, one thread unless stated:
+
+| | at the start of M4's contacts work | now |
+| --- | --- | --- |
+| a quiet tick (127 awake: the lists) | 0.053 ms | 0.040 ms |
+| the storm (1,359 awake), 1 and 4 threads | 0.56 and 0.35 ms | 0.36 and 0.39 ms |
+| the pit filling | 2.34 to 2.39 ms | 0.95 ms |
+| the heap, before the grenade | 1.00 to 1.04 ms | 0.48 ms |
+| **the grenade's first 4 s**, 1 and 4 threads | 3.5 to 4.1 and 1.45 to 1.64 ms | **1.49 and 0.78 ms** |
+| of which contacts, 1 thread | 3.15 to 3.74 ms | 1.09 ms |
+
+Of the grenade's 1.49 ms, testing the runs is about 0.7, the contacts 0.4,
+the settling of each ball after it moves 0.23, and the sort 0.08. Branches
+were the cost all along: taking a group's hits by a branchy loop instead of
+the queue cost 0.6 ms more. Two more were tried and left out. Always testing
+two groups a row, to drop the loop's branch, was slower; so was settling
+four balls at a time, where each lane takes every path and blends, which is
+twice the instructions of one ball's branches.
+
 Not done:
 
-- **The grenade on one thread.** 3.2 to 4.0 ms a tick across runs (p99 6.4
-  to 6.6) against 1.5. Four threads bring it to 1.14 ms, but the client's sim worker
-  and the referee step on one. Per awake ball, contacts spend 83 ns on the
-  27 bucket lookups, about 300 ns walking some 30 candidates, and 120 ns on
-  the 7 that touch. Sorting the awake list by bucket, so that neighbours come
-  one after another, changed nothing (501 ns a ball either way): the walk is
-  not waiting on memory, it is short lists of unpredictable length.
+The referee and the client's sim worker now split a tick across threads when
+the tick before had 1,024 balls or more awake (`net/team.mjs`): helper
+Workers wait in `worker_run`, and a quiet tick steps on one thread, which
+costs less than the barriers. Any split gives the same bits, so a client on
+four threads and a referee on two agree. The relay takes `--referee-threads`
+(2 by default); a page takes `?threads=`, by default 2 to 4 by its cores.
+Between ticks the helpers sleep, so `step_mt` wakes them as a tick starts,
+and they spin through `tick_begin` instead of waking at its end. The
+grenade's first 4 s, stepped as the relay steps them, one tick every 8 ms
+(Deno, `net/referee.mjs`):
+
+| | mean | p99 |
+| --- | --- | --- |
+| 1 thread | 1.8 to 1.9 ms | 3.3 to 4.5 ms |
+| 2 threads | 1.3 ms | 2.7 ms |
+| 4 threads | 1.1 to 1.2 ms | 2.0 to 2.9 ms |
+
+Stepped back to back, as perf.mjs does, a tick is quicker: the arrays stay
+in cache between ticks.
+
+Not done:
+
+- **The grenade at its p99.** 2 to 3 ms a tick on the relay's clock, even
+  on four threads: `tick_begin` with the sort and `tick_end` are serial.
 - **A heap never sleeps.** Before the grenade, 1,286 balls stay awake for as
   long as the pit stands, about 1 ms a tick. The bottom balls are squeezed
   out sideways from under the ones above (balls have no friction on each
@@ -637,14 +747,14 @@ Not done:
 
 ## X2, Xbox online
 
-`node net/run-x2.mjs` starts the relay, one Chrome client with the golf bot at
-the controls, and two native clients. Those run the Xbox's own network code
+`node net/run-x2.mjs` starts a relay on the Xbox's sim (`xbox/sim/`) and two
+native clients. Those run the Xbox's own network code
 (`xbox/online.c`) with scripted controllers: they line up a rocket drive,
 take it, follow the ball, walk and hop. One joins with the room; the other
 joins 15 s late, from a keyframe, running under `qemu-i386 -cpu pentium3`.
 Every datagram, both ways, has a 100 ms round trip, 15 ms jitter and 5% loss.
 25 s in, the first native client flips a bit of its own score total, as M3
-does to a browser client. CI runs the same without Chrome on every push.
+does to a browser client. CI runs the same on every push.
 
 | 60 s, 100 ms round trip, 15 ms jitter, 5% loss each way | |
 | --- | --- |

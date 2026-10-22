@@ -1,12 +1,12 @@
 // Sim threads 1..n-1: instantiate on the shared memory, then loop on the barrier
 // inside wasm until JOB_QUIT. A trap raises JOB_ABORT so every other thread
 // gives up instead of waiting forever. Works as a Node worker_thread and as a
-// web Worker.
+// web Worker (net/team.mjs's helpers, in Chrome and Deno), from bytes or a module.
 import { instantiate } from './core.mjs';
 import { JOB_ABORT, BAR_GEN } from '../src/layout.mjs';
 
-async function run({ bytes, memory, id, n }, post) {
-  const exports = await instantiate(await WebAssembly.compile(bytes), memory);
+async function run({ bytes, module, memory, id, n }, post) {
+  const exports = await instantiate(module || await WebAssembly.compile(bytes), memory);
   post({ ready: id });
   try {
     exports.worker_run(id, n);

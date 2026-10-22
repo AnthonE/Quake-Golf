@@ -30,6 +30,12 @@ export function makeMacros({ DEBUG }) {
       const top = fresh('top');
       return `(local.set ${v} ${from}) (block ${brk} (loop ${top} (br_if ${brk} (i32.ge_u (local.get ${v}) ${to})) ${body.join(' ')} (local.set ${v} (i32.add (local.get ${v}) (i32.const 1))) (br ${top})))`;
     },
+    // (!f32x4 a b c d): a vector of four scalars.
+    f32x4: (a, b, c, d) => `(f32x4.replace_lane 3 (f32x4.replace_lane 2 (f32x4.replace_lane 1 (f32x4.splat ${a}) ${b}) ${c}) ${d})`,
+    // (!unroll $v (k...) body...): body once per k, with (local.get $v) as the constant k.
+    // Sibling copies may share labels: a label is scoped to its own block.
+    unroll: (v, ks, ...body) => ks.slice(1, -1).trim().split(/\s+/)
+      .map((k) => body.join(' ').replaceAll(`(local.get ${v})`, `(i32.const ${k})`)).join(' '),
     inc: (v) => `(local.set ${v} (i32.add (local.get ${v}) (i32.const 1)))`,
 
     // Explicit multiply then add: wasm never fuses, and neither do we.

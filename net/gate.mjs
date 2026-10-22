@@ -73,9 +73,9 @@ export function native(name, { port, seconds, out, impair, rng, flip = 0, pentiu
 }
 
 // net/tiny-client.mjs, the smallest whole client: resolves to its summary (or null).
-export function tiny(port, seconds) {
+export function tiny(port, seconds, wasm = 'build/game.wasm') {
   const chunks = [];
-  const p = spawn(process.execPath, ['net/tiny-client.mjs', `127.0.0.1:${port}`, '--seconds', String(seconds)]);
+  const p = spawn(process.execPath, ['net/tiny-client.mjs', `127.0.0.1:${port}`, '--seconds', String(seconds), '--wasm', wasm]);
   p.stdout.on('data', (d) => chunks.push(d));
   p.stderr.on('data', (d) => process.stderr.write(`[tiny] ${d}`));
   return new Promise((ok) => p.on('exit', () => { try { ok(JSON.parse(Buffer.concat(chunks).toString())); } catch { ok(null); } }));

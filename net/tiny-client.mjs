@@ -6,7 +6,7 @@
 // it at the cup), and reports its world's interval hashes, which the relay's
 // referee checks against its own. Everything a real client adds is left out:
 // steering the input lead, pings, prediction, drawing.
-//   node net/tiny-client.mjs [127.0.0.1:4434] [--seconds 30]
+//   node net/tiny-client.mjs [127.0.0.1:4434] [--seconds 30] [--wasm build/game.wasm]
 // It prints a JSON summary when it leaves.
 import net from 'node:net';
 import dgram from 'node:dgram';
@@ -24,7 +24,8 @@ const seconds = Number(process.argv[process.argv.indexOf('--seconds') + 1] || 30
 const LEAD = 12; // ticks our words run ahead of the server's clock: a one-way trip and a margin
 
 // The world: game.wasm on a memory of its own, read through View.
-const bytes = readFileSync('build/game.wasm');
+const wasmAt = process.argv.indexOf('--wasm');
+const bytes = readFileSync(wasmAt >= 0 ? process.argv[wasmAt + 1] : 'build/game.wasm');
 const memory = new WebAssembly.Memory({ initial: L.PAGES, maximum: L.PAGES, shared: true });
 const sim = (await WebAssembly.instantiate(await WebAssembly.compile(bytes), { env: { mem: memory } })).exports;
 const u8 = new Uint8Array(memory.buffer), dv = new DataView(memory.buffer), view = new View(memory.buffer);

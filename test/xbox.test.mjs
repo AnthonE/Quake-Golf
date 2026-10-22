@@ -30,7 +30,7 @@ test('a scripted two-player hole on the Xbox game core replays in V8 tick for ti
     assert.equal(s.frames, 7);
 
     const native = decodeTrace(readFileSync(join(dir, 'match.qgh')));
-    const { trace } = await replay({ bytes: readFileSync('build/game.wasm'), log: parseLog(readFileSync(join(dir, 'match.qgl'))), ticks: 1800 });
+    const { trace } = await replay({ bytes: readFileSync('build/xbox/game.wasm'), log: parseLog(readFileSync(join(dir, 'match.qgl'))), ticks: 1800 });
     const c = compareTraces(decodeTrace(trace), native);
     assert.ok(c.ok, `V8 vs the Xbox core: ${c.what}`);
 
@@ -65,7 +65,7 @@ test('the neural golfer on the Xbox core: V8\'s brain bit for bit, and a hole V8
     const fl = (u) => { dv.setUint32(0, u); return dv.getFloat32(0); };
     const bits = (x) => { dv.setFloat32(0, x); return dv.getUint32(0); };
     const brain = new Brain(G);
-    const module = await WebAssembly.compile(readFileSync('build/game.wasm'));
+    const module = await WebAssembly.compile(readFileSync('build/xbox/game.wasm'));
     for (const h of c.holes) {
       const memory = newMemory();
       const sim = new Sim(await instantiate(module, memory), memory);
@@ -84,7 +84,7 @@ test('the neural golfer on the Xbox core: V8\'s brain bit for bit, and a hole V8
     assert.ok(s.strokes[0] >= 1 && s.strokes[0] <= 9, `${s.strokes[0]} strokes`);
     const native = decodeTrace(readFileSync(join(dir, 'match.qgh')));
     const log = parseLog(readFileSync(join(dir, 'match.qgl')));
-    const { trace } = await replay({ bytes: readFileSync('build/game.wasm'), log, ticks: log.ticks });
+    const { trace } = await replay({ bytes: readFileSync('build/xbox/game.wasm'), log, ticks: log.ticks });
     const r = compareTraces(decodeTrace(trace), native);
     assert.ok(r.ok, `V8 vs the Xbox core's neural golfer: ${r.what}`);
 

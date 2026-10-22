@@ -23,6 +23,7 @@ export const INTERVAL_TICK = 0x308;
 export const GRID_TICK = 0x310;
 export const GRID_N = 0x314;
 export const GRID_OK = 0x318;
+export const SORT_ON = 0x31c; // 1 when tick_begin built this tick's sorted copy (SBOUND...) for contacts
 export const DIGESTS = 0x400; // u64[128], slice s digested at tick K+s+1; the interval closes at K+128
 export const INBOX = 0x1000; // u32 count, then records
 export const INBOX_REC = 0x1010;
@@ -85,6 +86,22 @@ export const BLOCKS = 0x1dc000; // u16 list of 4-ball blocks
 export const HEAD = 0x1e0000; // u16[NCELL], the bucket's first ball, 0xffff for none
 export const NEXT = 0x1f0000; // u16[BALL_CAP], the next ball in the same bucket: always a higher index, or 0xffff
 export const CELLOF = 0x1f8000; // u16[BALL_CAP], the ball's bucket, 0xffff for none (sunk, or not yet spawned)
+
+// The live balls sorted by bucket, rebuilt by tick_begin when SORT_MIN or more
+// are awake, never hashed: bucket b's balls are SI[SBOUND[b], SBOUND[b + 1]),
+// in ascending index, with their positions copied beside them. Buckets number
+// x fastest, so a row of three cells is one run of the arrays. It sits past
+// the client's slots at NET, which use its first 2 KiB.
+export const SBOUND = 0x300000; // u16[NCELL + 2]
+export const SX = 0x320000; // f32[BALL_CAP] each, by sorted position
+export const SY = 0x330000;
+export const SZ = 0x340000;
+export const SI = 0x350000; // u16[BALL_CAP], the ball at each sorted position
+export const SORT_MIN = 768;
+// Per thread, the touching balls (sorted positions) one awake ball has met so
+// far: contacts take them four at a time. u16[HIT_CAP] for each of 32 threads.
+export const HITS = 0x358000;
+export const HIT_CAP = 64;
 
 // Terrain, regenerated from the seed.
 export const TERRAIN_H = 0x220000; // u16[512 * 512], 1/256 m

@@ -48,7 +48,8 @@
   (call $tick_end))
 
 ;; Generation barrier: spin briefly, then sleep on the generation word in
-;; 50 ms naps. Returns 0, or 1 if any thread raised JOB_ABORT, so a trap on
+;; 50 ms naps. Woken with the generation unchanged (step_mt's poke as a tick
+;; starts), spin again for a while: the barrier comes once tick_begin is done. Returns 0, or 1 if any thread raised JOB_ABORT, so a trap on
 ;; one thread fails the run instead of hanging the others.
 (func $barrier (export "barrier") (param $n i32) (result i32)
   (local $gen i32) (local $spin i32)
@@ -67,18 +68,26 @@
     (loop $waiting
       (br_if $go (i32.ne (i32.atomic.load (i32.const @BAR_GEN)) (local.get $gen)))
       (if (i32.atomic.load (i32.const @JOB_ABORT)) (then (return (i32.const 1))))
-      (drop (memory.atomic.wait32 (i32.const @BAR_GEN) (local.get $gen) (i64.const 50000000)))
+      (if (i32.eqz (memory.atomic.wait32 (i32.const @BAR_GEN) (local.get $gen) (i64.const 50000000)))
+        (then
+          (local.set $spin (i32.const 0))
+          (loop $hot
+            (br_if $go (i32.ne (i32.atomic.load (i32.const @BAR_GEN)) (local.get $gen)))
+            (local.set $spin (i32.add (local.get $spin) (i32.const 1)))
+            (br_if $hot (i32.lt_u (local.get $spin) (i32.const 0x80000))))))
       (br $waiting)))
   (i32.atomic.load (i32.const @JOB_ABORT)))
 
 ;; Thread 0, one tick across n threads. Returns 1 if the run was aborted.
 (func (export "step_mt") (param $n i32) (result i32)
   (local $lo i32) (local $hi i32)
+  ;; wake the sleeping threads now, so they are spinning by the first barrier
+  (drop (memory.atomic.notify (i32.const @BAR_GEN) (i32.const 0x7fffffff)))
   (drop (call $tick_begin))
   (if (call $barrier (local.get $n)) (then (return (i32.const 1))))
   (call $range (i32.load (i32.const @JOB_NA)) (i32.const 0) (local.get $n))
   (local.set $hi) (local.set $lo)
-  (call $contacts (local.get $lo) (local.get $hi))
+  (call $contacts_t (local.get $lo) (local.get $hi) (i32.const 0))
   (if (call $barrier (local.get $n)) (then (return (i32.const 1))))
   (call $range (i32.load (i32.const @JOB_NB)) (i32.const 0) (local.get $n))
   (local.set $hi) (local.set $lo)
@@ -95,7 +104,7 @@
     (if (i32.atomic.load (i32.const @JOB_QUIT)) (then (return)))
     (call $range (i32.load (i32.const @JOB_NA)) (local.get $id) (local.get $n))
     (local.set $hi) (local.set $lo)
-    (call $contacts (local.get $lo) (local.get $hi))
+    (call $contacts_t (local.get $lo) (local.get $hi) (local.get $id))
     (if (call $barrier (local.get $n)) (then (return)))
     (call $range (i32.load (i32.const @JOB_NB)) (local.get $id) (local.get $n))
     (local.set $hi) (local.set $lo)

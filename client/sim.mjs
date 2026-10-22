@@ -10,6 +10,7 @@ import * as L from '../src/layout.mjs';
 import * as W from '../net/wire.mjs';
 import { feedTick } from '../net/inbox.mjs';
 import { readClock } from './clock.mjs';
+import { startTeam, stepTeam } from '../net/team.mjs';
 
 const epoch = () => performance.timeOrigin + performance.now();
 const HOLE_TICKS = 56; // a repair can come until a hole is 64 ticks old
@@ -17,8 +18,10 @@ const BEHIND_TICKS = 250;
 
 self.onmessage = (e) => { if (e.data.module) run(e.data).catch((err) => self.postMessage({ error: String(err?.stack || err) })); };
 
-async function run({ module, memory, netPort }) {
+async function run({ module, memory, netPort, threads = 1 }) {
   const { exports: x } = await WebAssembly.instantiate(module, { env: { mem: memory } });
+  // a tick with many balls awake is split across these (net/team.mjs)
+  const team = await startTeam({ module, memory, n: threads });
   const i32 = new Int32Array(memory.buffer);
   const u8 = new Uint8Array(memory.buffer);
   const dv = new DataView(memory.buffer);
@@ -103,7 +106,7 @@ async function run({ module, memory, netPort }) {
       if (!d) break;
       store.delete(welcome.roomStart + k);
       const { events, words } = base.apply(d.parts);
-      changing(() => { feedTick(u8, dv, { ev: events, w: words }); x.step(); });
+      changing(() => { feedTick(u8, dv, { ev: events, w: words }); stepTeam(x, i32, team); });
       k++;
       if (i32[L.INTERVAL_TICK >> 2] === k) {
         const hash = dv.getBigUint64(L.INTERVAL_HASH, true).toString(16);

@@ -3,7 +3,11 @@
 //
 //   #include "file.wat"     splice another source file
 //   #if DEBUG / #else / #endif
-//   @NAME, @(expr)          layout constants from src/layout.mjs, folded at build time
+//   @NAME, @(expr)          layout constants from the sim's layout.mjs, folded at build time
+//
+// Two sims, each from its own directory: src/ (the browsers, Node and the
+// relays, build/) and xbox/sim/ (the Xbox's, frozen, translated to Pentium III
+// code: build/xbox/). Each has its own layout.mjs and macros.mjs.
 //   (!macro args...)        JS macros from src/macros.mjs; args are raw s-expressions
 //
 // It refuses anything the determinism rules ban: memory.grow, relaxed SIMD,
@@ -18,6 +22,7 @@ import { gzipSync } from 'node:zlib';
 import wabtInit from 'wabt';
 import * as layout from '../src/layout.mjs';
 import { makeMacros } from '../src/macros.mjs';
+import { pathToFileURL } from 'node:url';
 import { isMain } from './main.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -202,12 +207,12 @@ export function forbid(wat, where = 'source') {
   }
 }
 
-export function expand(file, { DEBUG = false } = {}) {
-  const scope = { ...layout, ...layout.PHYS, DEBUG: DEBUG ? 1 : 0 };
+export function expand(file, { DEBUG = false, layout: lay = layout, macros = makeMacros } = {}) {
+  const scope = { ...lay, ...lay.PHYS, DEBUG: DEBUG ? 1 : 0 };
   let src = include(file);
   src = conditionals(src, { DEBUG });
   src = stripComments(src);
-  src = expandMacros(src, makeMacros({ DEBUG }));
+  src = expandMacros(src, macros({ DEBUG }));
   src = constants(src, scope);
   forbid(src);
   return src;
@@ -256,13 +261,19 @@ async function binaryenSize(bin) {
   }
 }
 
-async function main() {
-  const out = join(ROOT, 'build');
+export const SIMS = [
+  { name: 'game', src: join(ROOT, 'src'), out: join(ROOT, 'build') },
+  { name: 'xbox', src: join(ROOT, 'xbox', 'sim'), out: join(ROOT, 'build', 'xbox') },
+];
+
+async function buildSim({ name, src, out }) {
   mkdirSync(out, { recursive: true });
-  const entry = join(ROOT, 'src', 'game.wat');
+  const lay = await import(pathToFileURL(join(src, 'layout.mjs')).href);
+  const { makeMacros: macros } = await import(pathToFileURL(join(src, 'macros.mjs')).href);
+  const entry = join(src, 'game.wat');
   const manifest = {};
   for (const debug of [false, true]) {
-    const wat = expand(entry, { DEBUG: debug });
+    const wat = expand(entry, { DEBUG: debug, layout: lay, macros });
     const base = debug ? 'game.debug' : 'game';
     writeAtomic(join(out, `${base}.wat`), wat);
     const bin = await assemble(wat, `${base}.wat`, { debugNames: debug });
@@ -276,8 +287,13 @@ async function main() {
   manifest.binaryen = await binaryenSize(readFileSync(join(out, 'game.wasm')));
   writeAtomic(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   const g = manifest.game;
-  console.log(`game.wasm ${g.raw} B, ${g.gzip} B gzip, sha256 ${g.sha256.slice(0, 16)}`);
-  if (manifest.binaryen.raw) console.log(`binaryen -O3 would give ${manifest.binaryen.raw} B, ${manifest.binaryen.gzip} B gzip (measurement only)`);
+  const where = out === join(ROOT, 'build') ? 'game.wasm' : `${name}/game.wasm`;
+  console.log(`${where} ${g.raw} B, ${g.gzip} B gzip, sha256 ${g.sha256.slice(0, 16)}`);
+  if (manifest.binaryen.raw) console.log(`  binaryen -O3 would give ${manifest.binaryen.raw} B, ${manifest.binaryen.gzip} B gzip (measurement only)`);
+}
+
+async function main() {
+  for (const sim of SIMS) await buildSim(sim);
 }
 
 if (isMain(import.meta.url)) {
