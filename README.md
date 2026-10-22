@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
 | N3 · spectators | one room served through a tree of relays, two deep, to 600 spectators on lossy links: every edge's referee hashes the room as the root's does, every spectator's world too, Chrome watching two relays down, a player turned away at an edge | **passed** · [results](#n3-spectators) |
 | N1 · 256 players | one room filled to 256 over a lossy network (Chrome, the Xbox's network code, and a host of 252 AI golfers): every hash equals the referee's, the 257th turned away, a late join from a keyframe of the full room, a flipped bit healed, every bundle one datagram | **passed** · [results](#n1-256-players) |
 | M4 · the pit | 10,000 balls heaped in one pit and a grenade into it: every tick equal in every configuration, and the confirmed tick within its 1.5 ms through the blast | **in progress**: a grid that moves only what moved, bit for bit with the old one (a quiet tick 3.3 times faster, a fifth of the Pentium III's instructions); the blast still costs 4.0 ms a tick on one thread, and the heap never sleeps · [results](#m4-the-pit) |
@@ -496,6 +497,67 @@ between relays have none. At the end, a player knocks at an edge.
 CI runs a smaller tree without Chrome (64 golfers, 100 spectators an edge) on every push.
 
 ![Watching P1 from Chrome, through edge C, two relays from the room](docs/n3-watch.png)
+
+## N4, failover and replays
+
+A room lives in one relay's record, and an edge relay keeps a copy of that
+record with a referee of its own. So an edge can take the room over. Start one
+with `--standby`, and if its upstream dies it closes the next ticks itself,
+from the newest it has, on the old clock's timeline. Every tick number and
+every client's clock stay as they were.
+
+Each player in the world keeps their slot. A ghost holds it, repeating their
+last word as the relay does for a player whose inputs are late, until they
+reconnect with a resume (a hello flag, their slot and the room). They get the
+slot back with no join, then a keyframe.
+
+Clients given several relays try the next when theirs goes quiet: Chrome, the
+bot host and edge relays. 1.5 s without a datagram counts as quiet, since a
+dead QUIC peer would idle for far longer. An edge given several upstreams
+follows the next one in the same way.
+
+The same record is the replay. A relay started with `--replays` writes each
+room to a file when it ends: the closed ticks as the wire codes them, plus the
+referee's interval hashes. A file plays in the page (`?replay=`) and in
+`tools/replay.mjs`, and both check every interval against the referee's as
+they go. A replay is proof as well as a recording: change one tick and every
+interval after it says so.
+
+`node net/run-n4.mjs` sets it up:
+- **The relays:** the root holds the room; a standby watches it; edge B
+  watches the root, or failing that the standby, and serves 64 spectators.
+- **The players:** 64 golfers from the bot host and a Chrome client with the
+  golf bot, all of them told about the root and the standby.
+- **The kill:** 25 s in, the root gets SIGKILL, so it says no goodbye.
+- **The replay:** when everyone has left, the standby writes the replay. The
+  gate checks it, then plays it in Chrome at 8x.
+
+| 60 s, 65 players, the root killed at 25 s, 100 ms round trip, 15 ms jitter, 5% loss | |
+| --- | --- |
+| the takeover | at sim tick 2,949, 3 ticks behind the dead root's clock, with 65 slots held |
+| the players | all 65 back in their own slots, none joined again; the slowest golfer back in 278 ms, Chrome within its 1.5 s of silence |
+| hash reports at the standby | 2,015 of 2,015 equal its referee's; the golfers' world 54 of 54 and Chrome 51 of 51 through the takeover |
+| edge B | followed the standby; its referee 54 of 54 equal to the standby's, its 64 spectators' reports all equal |
+| the replay | 37 KB for 56 s of 65 players, from sim tick 0 to the end, across both relays; 54 of 54 intervals equal, in Node and in Chrome |
+
+The first runs found a race. When the root's stream ended, the standby closed
+its socket at once and lost the root's last bundle, which the players had
+already received. It then closed those ticks again in its own way. Now an
+edge reads its socket for 100 ms more before it takes over. A failed-over
+client also restores the new relay's keyframe, so even a tick the standby
+never got can't split it from the room.
+
+CI runs a smaller room (32 golfers, the kill at 15 s) on every push.
+
+![A replay in Chrome at 8x: 33 of 54 intervals in and all equal so far](docs/n4-replay.png)
+
+Not done:
+
+- **The Xbox client doesn't fail over.** `xbox/online.c` takes one relay
+  and doesn't send a resume yet.
+- **Trusting a resume.** A standby gives a held slot to whoever asks for it
+  first, as a relay already gives a free slot to whoever joins. A ticket the
+  relays share would bind a slot to its player.
 
 ## M4, the pit
 
