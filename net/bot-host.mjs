@@ -179,7 +179,16 @@ class Session {
   // second, with this session's view of the room's ticks begun again.
   lost() {
     const now = performance.now();
-    if (this.leaving || this.slot === -1 && !watch || relays.length < 2) { this.closed = true; return; }
+    if (this.leaving) { this.closed = true; return; }
+    // a relay that isn't up yet: the same one again, for as long as a failover gets
+    if (this.joinTick0 === undefined) {
+      this.firstTry ??= now;
+      if (now - this.firstTry > FAILOVER_MS) { this.closed = true; return; }
+      this.rx = Buffer.alloc(0);
+      setTimeout(() => this.connect(), 250);
+      return;
+    }
+    if (this.slot === -1 && !watch || relays.length < 2) { this.closed = true; return; }
     if (this.lostAt < 0) this.lostAt = now;
     if (now - this.lostAt > FAILOVER_MS) { this.closed = true; return; }
     Object.assign(this, { joined: false, rx: Buffer.alloc(0), recv: new W.Received(), parts: new W.Parts(), lastBundleT: -1, inAck: 0, keys: 0 });

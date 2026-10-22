@@ -54,7 +54,7 @@ async function main() {
   const { exports: px } = await WebAssembly.instantiate(module, { env: { mem: memory } });
 
   const renderer = await createRenderer(canvas, { present: q.get('present') !== '0' });
-  const sound = createSound();
+  const sound = createSound({ music: q.get('music') !== '0' });
   const ch = new MessageChannel();
   const net = new Worker(new URL(REPLAY ? './replay.mjs' : './net.mjs', import.meta.url), { type: 'module' });
   const sim = new Worker(new URL('./sim.mjs', import.meta.url), { type: 'module' });
@@ -101,7 +101,7 @@ async function main() {
   const setMove = (m) => { if (m !== get(L.CL_MOVE)) { set(L.CL_MOVE, m); f64[L.CL_MOVEAT >> 3] = epoch(); } };
   const writeKeys = () => { let m = 0; for (const k of held) m |= MOVES[k] || 0; setMove(m); };
   const aim = () => { set(L.CL_YAW, Math.round(yaw) & 0x3fff); set(L.CL_PITCH, Math.round(pitch)); };
-  const setWeapon = (w) => { weapon = w; set(L.CL_WEAPON, w); };
+  const setWeapon = (w) => { if (w !== weapon) sound.weapon(); weapon = w; set(L.CL_WEAPON, w); };
   let locked = false;
   let watched = -1; // the player a spectator rides with
   const nextLive = (from, step) => {
@@ -161,6 +161,7 @@ async function main() {
       else if (e.code === 'Digit2') setWeapon(1);
       else if (e.code === 'KeyQ' && !e.repeat) setWeapon(weapon ^ 1);
       else if (e.code === 'KeyN' && !e.repeat) showGraph = !showGraph;
+      else if (e.code === 'KeyM' && !e.repeat) banner = { text: sound.toggleMusic() ? 'MUSIC ON' : 'MUSIC OFF', until: performance.now() + 1500 };
       else if (e.code === 'KeyF' && !e.repeat) {
         if (document.fullscreenElement) document.exitFullscreen();
         else document.documentElement.requestFullscreen().then(() => navigator.keyboard?.lock?.()).catch(() => {});
@@ -182,6 +183,8 @@ async function main() {
   let seed = -1;
   let faced = -1;
   let banner = { text: '', until: 0 };
+  let cue = -1; // hole state and seconds left, last frame
+  let feet = { ground: true, vy: 0 }; // your predicted player, last frame
   let frames = 0, fpsAt = performance.now(), fps = 0, lastFrame = performance.now();
   // input to screen, ms: when the move keys changed until a frame's predicted
   // player had them, and until the confirmed world had stepped the first tick
@@ -333,7 +336,7 @@ async function main() {
       if (f.kind === L.FX_SINK) {
         flashes.push({ pos: [f.pos[0], f.pos[1] + 0.5, f.pos[2]], born: now, size: 2.5, kind: 2 });
         sound.sink(d);
-        if (f.owner === slot) banner = { text: `IN THE HOLE IN ${f.shot}`, until: now + 4000 };
+        if (f.owner === slot) { banner = { text: `IN THE HOLE IN ${f.shot}`, until: now + 4000 }; sound.holed(); }
       }
     };
     const mine = (f) => f.owner === slot && (f.kind === L.FX_SHOT || f.kind === L.FX_BLAST);
@@ -349,6 +352,25 @@ async function main() {
       if (h.tick - f.tick > 60) continue;
       if (mine(f)) { if (!fresh(f)) continue; played[f.kind] = f.shot; }
       show(f);
+    }
+    // The hole's sounds, only in step with the room: a blip a second in the
+    // countdown, a higher one at the tee-off, a tick a second in the last ten,
+    // and the hole's own tune while it plays (rendered in the countdown).
+    const secs = Math.ceil(Math.max(0, h.until - h.tick) / 125);
+    const was = cue;
+    cue = st === 2 ? h.state * 1000 + secs : -1;
+    if (cue !== was && cue >= 0) {
+      if (h.state === L.H_COUNT && secs > 0) sound.count(secs);
+      else if (h.state === L.H_PLAY && Math.floor(was / 1000) === L.H_COUNT) sound.count(0);
+      else if (h.state === L.H_PLAY && secs <= 10) sound.tick();
+    }
+    const inHole = st === 2 && (h.state === L.H_COUNT || h.state === L.H_PLAY);
+    sound.music(inHole ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(h.hole + 1, 0x9e3779b9)) >>> 0 : null, h.state === L.H_PLAY);
+    // a hup for a jump, a thud for a landing over 5 m/s
+    if (pme) {
+      if (feet.ground && !pme.ground && pme.vel[1] > 1 && (pme.input >>> 28) & 1) sound.jump();
+      if (!feet.ground && pme.ground && feet.vy < -5) sound.land(-feet.vy);
+      feet = { ground: pme.ground, vy: pme.vel[1] };
     }
     for (let k = flashes.length - 1; k >= 0; k--) {
       flashes[k].age = (now - flashes[k].born) / 1000;

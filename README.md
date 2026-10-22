@@ -33,7 +33,7 @@ node net/play.mjs                    # the relay and the page; open the URL it p
 
 Click to play. The mouse aims, WASD runs, Space jumps, left click fires, 1/2
 or right click picks the rocket or the grenade, Tab shows scores, F goes
-fullscreen. Every shot is a stroke. The rocket is the club: a blast just
+fullscreen, M mutes the music. Every shot is a stroke. The rocket is the club: a blast just
 behind your ball drives it 200+ m with loft, one 4 m back rolls it a few
 metres, and the cup is a slipgate that swallows any ball under 8 m/s. The
 grenade bounces and pops after 2.5 s, for lobs. A rocket at your own feet is
@@ -48,7 +48,10 @@ input to the confirmed world; the input lead (yellow) and the playout delay
 the relay and a bar for each keyframe (blue a join, purple a resync, red a
 desync). To feel a
 bad network, add `&impair=delay=150,jitter=15,loss=0.1` to the URL: a 150 ms
-round trip with 10% loss each way.
+round trip with 10% loss each way. Each hole has its own tune, in
+bytebeat: one line of arithmetic per sample, 8000 samples a second, 8 bits,
+its notes picked by the room's seed and the hole number ([`client/sound.mjs`](client/sound.mjs));
+`&music=0` starts with it off.
 
 To play among 250 AI golfers, start the bot host beside it; it fills the room
 through the relay's native door, every golfer its own session:
