@@ -64,8 +64,17 @@ test('the referee hashes a match as its clients do; a joiner from its keyframe a
   // a client that has played since tick 0
   const a = await client(seed);
   assert.deepEqual(intervals(a, ticks, 0, ticks.length), refIntervals);
+  // the relay's record of it: each tick coded as the words that changed
+  let prev = new Uint32Array(W.NP);
+  const record = ticks.map((d) => {
+    const cur = new Uint32Array(W.NP);
+    for (const [p, w] of d.w) cur[p] = w;
+    const parts = W.encodeTick(d.ev, prev, cur);
+    prev = cur;
+    return parts;
+  });
   // the same match through the .qgl the relay would write on a desync
-  const dump = parseLog(recordLog(ticks.map((d) => W.encodeTick(d.ev, d.w)), seed));
+  const dump = parseLog(recordLog(record, seed));
   assert.equal(dump.courseSeed, seed);
   assert.equal(dump.ticks, ticks.length);
   const b = await client(seed);
@@ -86,6 +95,14 @@ test('the referee hashes a match as its clients do; a joiner from its keyframe a
   j.x.regrid();
   assert.equal(j.tick, key.tick);
   assert.deepEqual(intervals(j, ticks, key.tick, ticks.length), refIntervals.filter(([t]) => t > key.tick));
+  // and from the record, its base seeded from the keyframe's region, as a client's sim worker does
+  const j2 = await client(seed);
+  const region = await W.unpackKey(key.packed);
+  j2.u8.set(region, L.REGION);
+  j2.x.regrid();
+  const base = new W.TickBase().seed(region);
+  const coded = record.slice(key.tick).map((parts) => { const { events, words } = base.apply(parts); return { ev: events, w: words }; });
+  assert.deepEqual(intervals(j2, [...Array(key.tick).fill(null), ...coded], key.tick, ticks.length), refIntervals.filter(([t]) => t > key.tick));
   assert.ok(key.packed.length < 40000, `keyframe packs to ${key.packed.length} B`);
 });
 

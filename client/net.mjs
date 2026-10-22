@@ -3,7 +3,8 @@
 // input slots in shared memory into one word, kept in a ring the prediction
 // reads; every second tick it sends the words the relay hasn't closed, its
 // per-tick acks and the newest interval hash. Closed ticks from bundles,
-// repairs and fills go to the sim worker, keyframes too, unpacked. It keeps
+// repairs and fills go to the sim worker still coded, once all their parts
+// are in; keyframes go unpacked. It keeps
 // the playout clock: the earliest arrival less 2 ticks and the p95 jitter of
 // first arrivals, run up to 3% fast or slow to stay on that target.
 import * as W from '../net/wire.mjs';
@@ -97,6 +98,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
   setInterval(() => self.postMessage({ seen: { ...seen, rtt: bestRtt, lead } }), 1000);
   // The control stream: keyframes (unpacked here), the fills after them, pongs.
   const recv = new W.Received();
+  const parts = new W.Parts(); // ticks that came in parts, until each is whole
   let report = null; // the newest interval hash, sent on the next 8 datagrams
   simPort.onmessage = (e) => {
     if (e.data.sync) {
@@ -119,7 +121,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
       }
       if (m.type === W.T_FILL) {
         seen.fills++;
-        const ticks = W.decodeFillBody(m.from, m.n, m.body).map((t) => ({ t: t.tick, ev: t.events, w: t.words }));
+        const ticks = W.decodeFillBody(m.from, m.n, m.body).map((t) => ({ t: t.tick, parts: t.parts }));
         for (const t of ticks) recv.add(t.t);
         simPort.postMessage({ ticks, fill: true });
       }
@@ -204,30 +206,33 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {} }) {
 
   function onDatagram(buf) {
     const now = epoch();
-    if (buf[0] === W.T_REPAIR) {
-      const ticks = [];
-      for (const t of W.decodeRepair(buf) || []) {
-        repairedAt.set(t.tick, (repairedAt.get(t.tick) || 0) + 1);
-        if (t.tick >= welcome.roomStart && recv.add(t.tick)) { ticks.push({ t: t.tick, ev: t.events, w: t.words }); arrived(t.tick, now); }
-      }
+    const d = W.decodeTicks(buf);
+    if (!d) return;
+    const ticks = [];
+    let newestHere = -1;
+    for (const e of d.entries) {
+      newestHere = Math.max(newestHere, e.tick);
+      if (d.type === W.T_REPAIR) repairedAt.set(e.tick, (repairedAt.get(e.tick) || 0) + 1);
+      if (e.tick < welcome.roomStart || recv.has(e.tick)) continue;
+      const whole = parts.add(e);
+      if (!whole || !recv.add(e.tick)) continue;
+      arrived(e.tick, now);
+      ticks.push({ t: e.tick, parts: whole });
+    }
+    parts.forget(recv.newest - 512);
+    if (d.type === W.T_REPAIR) {
       for (const t of repairedAt.keys()) if (t < recv.newest - 512) repairedAt.delete(t);
       seen.repairs++;
       if (ticks.length) { simPort.postMessage({ ticks }); Atomics.add(i32, L.CL_REPAIRS >> 2, ticks.length); }
       return;
     }
-    const b = W.decodeBundle(buf);
-    if (!b) return;
     seen.bundles++;
-    const ticks = [];
-    for (let k = 0; k < b.nb; k++) {
-      const t = b.T - k;
-      if (t < welcome.roomStart || !recv.add(t)) continue;
-      arrived(t, now);
-      ticks.push({ t, ev: b.events.filter((e) => e.tick === t).map(({ slot, kind }) => ({ slot, kind })), w: b.rows[k] });
-    }
     if (ticks.length) simPort.postMessage({ ticks });
     steer(now);
-    lastBundleT = Math.max(lastBundleT, b.T);
+    // a bundle that needed several datagrams stamps the same trailer on each: take it once, with its newest tick
+    if (newestHere <= lastBundleT) return;
+    const b = d.trailer;
+    lastBundleT = newestHere;
     inAck = Math.max(inAck, b.inAck);
     // The lead: the relay's slack (how early our words land) toward its own
     // jitter plus a send interval, at most 0.02 ticks a tick (2% fast or slow).

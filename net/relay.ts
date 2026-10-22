@@ -1,9 +1,10 @@
 // The relay: one isolate owns the QUIC endpoint, the 8 ms clock and the
 // bundles. Deadlines run from a fixed epoch; an input counts only if it was
 // read before its tick's deadline, so a late timer adds latency, never unfairness.
-// Bundles go out first, every second tick, four ticks deep, with a
-// per-recipient trailer. Every closed tick is also recorded from the room's
-// start and handed to the referee (net/referee-worker.mjs), a Worker stepping
+// Each closed tick is coded once, as the words that changed (net/wire.mjs);
+// bundles go out first, every second tick, the newest four ticks in as many
+// datagrams as they need, with a per-recipient trailer. Every closed tick is
+// also recorded from the room's start and handed to the referee (net/referee-worker.mjs), a Worker stepping
 // the same game.wasm: it is the truth for interval hashes and keyframes. A
 // joiner gets the newest keyframe and the record since; a tick a client's
 // acks lack comes back in a repair datagram; a hash a client reports that
@@ -66,15 +67,16 @@ const E = performance.now();
 const deadline = (t: number) => E + W.TICK_MS * (t + 1);
 let closed = -1;
 const slots: (Slot | null)[] = new Array(W.NP).fill(null);
-const rows = Array.from({ length: W.RING }, () => new Uint32Array(W.NP));
+// every slot's word on the newest closed tick (0 for a slot nobody holds): what the next tick is coded against
+let prevWords = new Uint32Array(W.NP);
 let events: { slot: number; kind: number; tick: number }[] = [];
 // The room: its sim began at roomStart (-1 while nobody is in it) on roomSeed,
-// and record[T - roomStart] is closed tick T as a fill carries it.
+// and record[T - roomStart] is closed tick T, its parts as encodeTick gives them.
 let roomStart = -1;
 let roomSeed = newSeed();
-let record: Uint8Array[] = [];
+let record: Uint8Array[][] = [];
 const stats = {
-  ticks: 0, closeLate: [] as number[], stallEvents: [] as number[][], sent: 0, sentBytes: 0, maxBundle: 0, oversize: 0, lateArrivals: 0,
+  ticks: 0, closeLate: [] as number[], stallEvents: [] as number[][], sent: 0, sentBytes: 0, maxBundle: 0, bundles: 0, bundleBytes: 0, tickBytes: 0, maxTick: 0, lateArrivals: 0,
   recv: 0, recvBytes: 0, onTime: 0, substituted: 0, sessions: 0, rejected: 0, slack: [] as number[], activeTicks: 0, activeSlotTicks: 0, silent: 0, warmup: 0,
   leaves: {} as Record<string, number>, leaveAt: [] as number[],
   serverMaxDatagram: [] as number[], clientMaxDatagram: [] as number[], cc, fills: 0, fillTicks: 0,
@@ -86,7 +88,7 @@ const stats = {
 // The referee: closed ticks go to it in batches; interval hashes and packed keyframes come back.
 const referee = new Worker(new URL('./referee-worker.mjs', import.meta.url).href, { type: 'module' });
 referee.postMessage({ wasm });
-let toReferee: Uint8Array[] = [];
+let toReferee: Uint8Array[][] = [];
 const refIntervals = new Map<number, { hash: bigint; digests: Uint8Array }>(); // sim tick -> the referee's
 let keyId = 0;
 const keyWaiters = new Map<number, (k: { tick: number; raw: number; packed: Uint8Array }) => void>();
@@ -184,26 +186,21 @@ function repair(s: Slot, ackTick: number, ackBits: bigint, now: number) {
     const i = t & (W.RING - 1);
     return s.repairTick[i] !== t || now - s.repairAt[i] >= REPAIR_MS;
   });
-  let sent = 0;
-  for (let k = 0; k < due.length && sent < 4;) {
-    let e = k + 1;
-    while (e < due.length && due[e] === due[e - 1] + 1) e++;
-    const from = due[k];
-    const { buf, n } = W.encodeRepair(from, record.slice(from - roomStart, due[e - 1] + 1 - roomStart), Math.min(W.MAX_DATAGRAM, s.maxDatagram));
-    if (!n) break;
-    for (let t = from; t < from + n; t++) { s.repairTick[t & (W.RING - 1)] = t; s.repairAt[t & (W.RING - 1)] = now; }
+  if (!due.length) return;
+  const list = due.map((t: number) => ({ tick: t, parts: record[t - roomStart] }));
+  for (const buf of W.encodeTicks(W.T_REPAIR, list, Math.min(W.MAX_DATAGRAM, s.maxDatagram)).slice(0, 4)) {
+    const ticks = new Set(W.decodeTicks(buf)!.entries.map((e: { tick: number }) => e.tick));
+    for (const t of ticks) { s.repairTick[t & (W.RING - 1)] = t; s.repairAt[t & (W.RING - 1)] = now; }
     s.writer.write(buf).catch(() => {});
     stats.repairs++;
-    stats.repairTicks += n;
-    sent++;
-    k += n;
+    stats.repairTicks += ticks.size;
   }
 }
 
 function freeSlot() { return slots.findIndex((s) => s === null); }
 
-// At most 8 join/leave events per tick, so four ticks of events (+64 B) keep
-// a bundle inside the 1,161 B budget even when a whole room joins at once.
+// At most 8 join/leave events per tick, so a room that fills at once fills
+// over 32 ticks, and the keyframes its joiners ask for come in turn.
 const EVENTS_PER_TICK = 8;
 const eventsAt = new Map<number, number>();
 function scheduleEvent(slot: number, kind: number, earliest: number) {
@@ -267,16 +264,13 @@ function onInput(s: Slot, buf: Uint8Array, now: number) {
 function closeTick(T: number, now: number) {
   stats.ticks++;
   stats.closeLate.push(now - deadline(T));
-  const row = rows[T & (W.RING - 1)];
-  row.fill(0);
+  const row = new Uint32Array(W.NP);
   const dl = deadline(T);
   let active = 0;
-  const words: [number, number][] = [];
   for (let p = 0; p < W.NP; p++) {
     const s = slots[p];
     if (!s || T < s.joinTick) continue;
     if (T >= s.leaveTick) { stats.silent += s.pendingLate; slots[p] = null; continue; }
-    words.push([p, 0]);
     if (s.leaveTick === Infinity && now - Math.max(s.lastRecv, stallEnd) > SILENT_MS) {
       stats.leaves.silent = (stats.leaves.silent || 0) + 1;
       stats.leaveAt.push(Number(((now - E) / 1000).toFixed(2)));
@@ -307,11 +301,14 @@ function closeTick(T: number, now: number) {
     }
   }
   if (active) { stats.activeTicks++; stats.activeSlotTicks += active; }
-  for (const w of words) w[1] = row[w[0]];
+  const parts = W.encodeTick(events.filter((e) => e.tick === T).map(({ slot, kind }) => ({ slot, kind })), prevWords, row);
+  prevWords = row;
   if (roomStart >= 0 && T >= roomStart) {
-    const tick = W.encodeTick(events.filter((e) => e.tick === T), words);
-    record.push(tick);
-    toReferee.push(tick);
+    const bytes = parts.reduce((a: number, p: Uint8Array) => a + p.length, 0);
+    stats.tickBytes += bytes;
+    stats.maxTick = Math.max(stats.maxTick, bytes);
+    record.push(parts);
+    toReferee.push(parts);
     // the last one out: the next joiner starts a new room
     if (!slots.some((x) => x)) { roomStart = -1; record = []; toReferee = []; roomSeed = newSeed(); }
   }
@@ -321,24 +318,32 @@ function closeTick(T: number, now: number) {
 
 function broadcast(T: number) {
   if (toReferee.length) { referee.postMessage({ room: roomStart, ticks: toReferee }); toReferee = []; }
-  const r = [0, 1, 2, 3].map((k) => rows[(T - k) & (W.RING - 1)]);
   events = events.filter((e) => e.tick > T - W.NB - 4);
   for (const t of eventsAt.keys()) if (t <= T - W.NB) eventsAt.delete(t);
-  const evs = events.filter((e) => e.tick <= T && e.tick > T - W.NB);
-  // the body is the same for everyone: encode it once, then copy and stamp each trailer
-  const body = W.encodeBundle({ T, rows: r, events: evs, inAck: 0, slack: 0, late: 0 });
+  if (roomStart < 0) return;
+  const ticks = [];
+  for (let t = Math.max(roomStart, T - W.NB + 1); t <= T; t++) ticks.push({ tick: t, parts: record[t - roomStart] });
+  // the datagrams are the same for everyone with the same size limit: encode
+  // them once per limit, then copy and stamp each recipient's trailer
+  const byMax = new Map<number, Uint8Array[]>();
   for (const s of slots) {
     if (!s) continue;
+    const max = Math.min(W.MAX_DATAGRAM, s.maxDatagram);
+    let dgs = byMax.get(max);
+    if (!dgs) byMax.set(max, dgs = W.encodeTicks(W.T_BUNDLE, ticks, max));
     // the worst slack since the last bundle, late arrivals included, so the
     // client's lead controller reacts to lateness it would otherwise never see
     const slack = Number.isFinite(s.periodSlack) ? s.periodSlack : s.lastSlack;
     s.periodSlack = Infinity;
-    const buf = W.stampTrailer(body.slice(), { inAck: s.contig, slack, late: s.late });
-    if (buf.length > Math.min(W.MAX_DATAGRAM, s.maxDatagram)) { stats.oversize++; continue; }
-    stats.maxBundle = Math.max(stats.maxBundle, buf.length);
-    stats.sent++;
-    stats.sentBytes += buf.length;
-    s.writer.write(buf).catch(() => { /* Deno resolves datagram writes; failures show up as closes */ });
+    stats.bundles++;
+    for (const d of dgs) {
+      const buf = W.stampTrailer(d.slice(), { inAck: s.contig, slack, late: s.late });
+      stats.maxBundle = Math.max(stats.maxBundle, buf.length);
+      stats.sent++;
+      stats.sentBytes += buf.length;
+      stats.bundleBytes += buf.length;
+      s.writer.write(buf).catch(() => { /* Deno resolves datagram writes; failures show up as closes */ });
+    }
   }
 }
 
@@ -491,7 +496,9 @@ function summary() {
     inputSlackMs: { p5: pct(sl, 0.05), p50: pct(sl, 0.5) },
     onTime: stats.onTime, substituted: stats.substituted, warmupSubstituted: stats.warmup, silentTicks: stats.silent,
     substitutedPct: stats.onTime + stats.substituted ? Number((100 * stats.substituted / (stats.onTime + stats.substituted)).toFixed(3)) : 0,
-    bundlesSent: stats.sent, maxBundle: stats.maxBundle, oversize: stats.oversize, lateArrivals: stats.lateArrivals,
+    bundlesSent: stats.bundles, bundleDatagrams: stats.sent, maxDatagramSent: stats.maxBundle, lateArrivals: stats.lateArrivals,
+    bytesPerBundle: stats.bundles ? Math.round(stats.bundleBytes / stats.bundles) : 0,
+    tickBytes: { mean: stats.activeTicks ? Number((stats.tickBytes / stats.activeTicks).toFixed(1)) : 0, max: stats.maxTick },
     fills: stats.fills, fillTicks: stats.fillTicks, repairs: stats.repairs, repairTicks: stats.repairTicks, pongs: stats.pongs,
     keys: stats.keys, compared: stats.compared, agreed: stats.agreed, mismatches: stats.mismatches, dumps: stats.dumps,
     refLagMax: stats.refLagMax, refErrors: stats.refErrors, refHashes: stats.refHashes, reports: stats.reports,

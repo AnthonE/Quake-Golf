@@ -1,5 +1,7 @@
 // One M0 client: handshake, then send seeded input words two ticks per
-// datagram and read bundles. Web APIs only, so the same code runs as a Deno
+// datagram and read bundles, decoding its own slot's word from each tick in
+// order (a slot's word is coded against its own last one, so the others'
+// don't matter to it). Web APIs only, so the same code runs as a Deno
 // bot and in the Chrome client page. Lead control is dilation-style: the
 // predicted tick moves continuously and every tick number gets one input.
 import * as W from './wire.mjs';
@@ -66,6 +68,10 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
   let inAck = 0;
   let seq = 0;
   const recv = new W.Received(); // closed ticks heard, for the acks
+  const parts = new W.Parts();
+  const base = new W.TickBase();
+  const pending = new Map(); // whole ticks waiting their turn to decode
+  let nextDecode = welcome.joinTick;
 
   const st = {
     seed, slot: welcome.slot, joinTick: welcome.joinTick, maxDatagram, serverMaxDatagram: welcome.maxDatagram,
@@ -83,7 +89,7 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
     const first = Math.max(from, welcome.joinTick, nextTick - W.MAX_INPUTS);
     const words = [];
     for (let t = first; t < nextTick; t++) words.push(wordFor.get(t));
-    for (const t of wordFor.keys()) if (t < lastBundleT - 8) wordFor.delete(t); else break;
+    for (const t of wordFor.keys()) if (t < nextDecode - 8) wordFor.delete(t); else break;
     if (!words.length) return;
     const buf = W.encodeInput({ seq: seq++, firstTick: first, ...recv.ack(), words });
     st.sent++;
@@ -93,22 +99,35 @@ export async function runBot({ url, certHash, wasmPrefix, seed = 1, durationMs =
   };
 
   const onBundle = (buf, now) => {
-    const b = W.decodeBundle(buf);
-    if (!b) return;
-    st.bundles++;
+    const d = W.decodeTicks(buf);
+    if (!d) return;
     st.recvBytes += buf.length;
-    st.maxBundle = Math.max(st.maxBundle, buf.length);
-    st.arrivals.push([b.T, now - tWelcome]);
-    for (let k = 0; k < b.nb; k++) {
-      const t = b.T - k;
-      recv.add(t);
-      if (t < welcome.joinTick || st.seen.has(t)) continue;
-      st.seen.add(t);
-      const sent = wordFor.get(t);
-      if (sent !== undefined) { st.mine++; if (b.rows[k][welcome.slot] === sent) st.mineMatched++; }
+    let T = -1;
+    for (const e of d.entries) {
+      T = Math.max(T, e.tick);
+      const whole = parts.add(e);
+      if (!whole || e.tick < welcome.joinTick || !recv.add(e.tick)) continue;
+      // delivery counts bundles only; a repair just lets the decoding go on
+      if (d.type === W.T_BUNDLE) st.seen.add(e.tick);
+      pending.set(e.tick, whole);
     }
-    for (const e of b.events) if (e.slot === welcome.slot && e.kind === W.EV_JOIN) st.joinSeen = true;
-    lastBundleT = Math.max(lastBundleT, b.T);
+    parts.forget(nextDecode);
+    while (pending.has(nextDecode)) {
+      const { events } = base.apply(pending.get(nextDecode));
+      pending.delete(nextDecode);
+      const sent = wordFor.get(nextDecode);
+      if (sent !== undefined) { st.mine++; if (base.w[welcome.slot] === sent) st.mineMatched++; }
+      for (const e of events) if (e.slot === welcome.slot && e.kind === W.EV_JOIN) st.joinSeen = true;
+      nextDecode++;
+    }
+    if (d.type !== W.T_BUNDLE) return;
+    st.maxBundle = Math.max(st.maxBundle, buf.length);
+    // a bundle in several datagrams stamps the same trailer on each: take it once, with its newest tick
+    if (T <= lastBundleT) return;
+    st.bundles++;
+    st.arrivals.push([T, now - tWelcome]);
+    const b = d.trailer;
+    lastBundleT = T;
     inAck = Math.max(inAck, b.inAck);
     st.slack.push(b.slack);
     st.late = b.late;
