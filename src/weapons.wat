@@ -122,7 +122,13 @@
         (local.set $dy (f32.sub (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (f32.const 0.9)) (local.get $y)))
         (local.set $dz (f32.sub (!at f32 @(PLAYERS + P_PZ) (local.get $pb)) (local.get $z)))
         (local.set $d2 (!dot3 (local.get $dx) (local.get $dy) (local.get $dz) (local.get $dx) (local.get $dy) (local.get $dz)))
+#if ARENA
+        ;; not through a wall
+        (if (i32.and (f32.lt (local.get $d2) (f32.mul (local.get $r) (local.get $r)))
+                     (call $clear (local.get $x) (local.get $y) (local.get $z) (f32.add (local.get $x) (local.get $dx)) (f32.add (local.get $y) (local.get $dy)) (f32.add (local.get $z) (local.get $dz))))
+#else
         (if (f32.lt (local.get $d2) (f32.mul (local.get $r) (local.get $r)))
+#endif
           (then
             (local.set $d (f32.sqrt (f32.max (local.get $d2) (f32.const 1e-6))))
             (local.set $f (f32.div (f32.mul (f32.sub (f32.const 1) (f32.div (local.get $d) (local.get $r))) (local.get $s)) (local.get $d)))
@@ -184,6 +190,12 @@
   (local.set $vy (!at f32 @(PROJ + J_VY) (local.get $jb)))
   (local.set $vz (!at f32 @(PROJ + J_VZ) (local.get $jb)))
   (!for $k (i32.const 0) (i32.const 2)
+#if ARENA
+    ;; into a box: it goes off where it was, outside it
+    (if (call $box_in (!madd (local.get $vx) (f32.const 0.004) (local.get $px)) (!madd (local.get $vy) (f32.const 0.004) (local.get $py))
+                      (!madd (local.get $vz) (f32.const 0.004) (local.get $pz)) (f32.const 0))
+      (then (call $explode (local.get $jb) (local.get $d) (local.get $px) (local.get $py) (local.get $pz)) (return)))
+#endif
     (local.set $px (!madd (local.get $vx) (f32.const 0.004) (local.get $px)))
     (local.set $py (!madd (local.get $vy) (f32.const 0.004) (local.get $py)))
     (local.set $pz (!madd (local.get $vz) (f32.const 0.004) (local.get $pz)))
@@ -212,6 +224,9 @@
 (func $grenade (param $jb i32) (param $d i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vy f32) (local $vz f32)
   (local $h f32) (local $nx f32) (local $ny f32) (local $nz f32) (local $vn f32) (local $b i32) (local $dist f32) (local $surf i32)
+#if ARENA
+  (local $ox f32) (local $oy f32) (local $oz f32)
+#endif
   (local.set $px (!at f32 @(PROJ + J_PX) (local.get $jb)))
   (local.set $py (!at f32 @(PROJ + J_PY) (local.get $jb)))
   (local.set $pz (!at f32 @(PROJ + J_PZ) (local.get $jb)))
@@ -226,6 +241,31 @@
   (if (f32.lt (local.get $pz) (f32.const @LO)) (then (local.set $pz (f32.const @LO)) (local.set $vz (f32.abs (local.get $vz)))))
   (if (f32.gt (local.get $pz) (f32.const @HI)) (then (local.set $pz (f32.const @HI)) (local.set $vz (f32.neg (f32.abs (local.get $vz))))))
   (if (f32.gt (local.get $py) (f32.const @CEIL)) (then (local.set $py (f32.const @CEIL)) (local.set $vy (f32.min (local.get $vy) (f32.const 0)))))
+#if ARENA
+  ;; off a box: back on the side it came from, the speed across that face
+  ;; turned and kept at 40%, along it at 90%
+  (local.set $b (call $box_in (local.get $px) (local.get $py) (local.get $pz) (f32.const @GREN_R)))
+  (if (local.get $b)
+    (then
+      (local.set $ox (!at f32 @(PROJ + J_PX) (local.get $jb)))
+      (local.set $oy (!at f32 @(PROJ + J_PY) (local.get $jb)))
+      (local.set $oz (!at f32 @(PROJ + J_PZ) (local.get $jb)))
+      (if (i32.or (f32.le (local.get $ox) (f32.sub (f32.load (local.get $b)) (f32.const @GREN_R)))
+                  (f32.ge (local.get $ox) (f32.add (f32.load offset=12 (local.get $b)) (f32.const @GREN_R))))
+        (then (local.set $px (local.get $ox)) (local.set $vx (f32.mul (local.get $vx) (f32.const -0.4)))
+              (local.set $vy (f32.mul (local.get $vy) (f32.const 0.9))) (local.set $vz (f32.mul (local.get $vz) (f32.const 0.9))))
+        (else
+          (if (i32.or (f32.le (local.get $oz) (f32.sub (f32.load offset=8 (local.get $b)) (f32.const @GREN_R)))
+                      (f32.ge (local.get $oz) (f32.add (f32.load offset=20 (local.get $b)) (f32.const @GREN_R))))
+            (then (local.set $pz (local.get $oz)) (local.set $vz (f32.mul (local.get $vz) (f32.const -0.4)))
+                  (local.set $vx (f32.mul (local.get $vx) (f32.const 0.9))) (local.set $vy (f32.mul (local.get $vy) (f32.const 0.9))))
+            (else
+              ;; a top or an underside (or it was already in): out the nearer
+              (local.set $py (select (f32.add (f32.load offset=16 (local.get $b)) (f32.const @GREN_R)) (f32.sub (f32.load offset=4 (local.get $b)) (f32.const @GREN_R))
+                                     (f32.ge (local.get $oy) (f32.mul (f32.add (f32.load offset=4 (local.get $b)) (f32.load offset=16 (local.get $b))) (f32.const 0.5)))))
+              (local.set $vy (f32.mul (local.get $vy) (f32.const -0.4)))
+              (local.set $vx (f32.mul (local.get $vx) (f32.const 0.9))) (local.set $vz (f32.mul (local.get $vz) (f32.const 0.9)))))))))
+#endif
   (call $ground (local.get $px) (local.get $pz))
   (local.set $surf) (local.set $nz) (local.set $ny) (local.set $nx) (local.set $h)
   (if (f32.lt (local.get $py) (f32.add (local.get $h) (f32.const @GREN_R)))

@@ -60,3 +60,57 @@ View.prototype.pads = function pads() {
   }
   return out;
 };
+
+// The map as init laid it out (layout.mjs, MAP): where fighters can go, the
+// boxes in their groups, the teleporters and the spawn points. Read once per
+// world and kept: the map never changes after init.
+View.prototype.map = function map() {
+  const d = this.dv;
+  const key = `${d.getUint32(L.HDR_SEED, true)}:${d.getUint32(L.MAP_NBOX, true)}:${d.getUint32(L.MAP_NGROUP, true)}`;
+  if (this._map?.key === key) return this._map;
+  const f = (a) => d.getFloat32(a, true);
+  const box = (a) => [0, 1, 2, 3, 4, 5].map((k) => f(a + 4 * k));
+  const groups = [], boxes = [], teleporters = [], spawns = [];
+  for (let g = 0; g < d.getUint32(L.MAP_NGROUP, true); g++) {
+    const a = L.MAP_GROUPS + 32 * g;
+    groups.push({ box: box(a), first: d.getUint32(a + 24, true), count: d.getUint32(a + 28, true) });
+  }
+  for (let k = 0; k < d.getUint32(L.MAP_NBOX, true); k++) {
+    const a = L.MAP_BOXES + L.BOX_SIZE * k;
+    boxes.push({ box: box(a), material: d.getUint32(a + 24, true), group: d.getUint32(a + 28, true) });
+  }
+  for (let k = 0; k < d.getUint32(L.MAP_NTELE, true); k++) {
+    const a = L.MAP_TELE + L.TELE_SIZE * k;
+    teleporters.push({ from: [f(a), f(a + 4), f(a + 8)], radius: f(a + 12), to: [f(a + 16), f(a + 20), f(a + 24)] });
+  }
+  for (let k = 0; k < d.getUint32(L.MAP_NSPAWN, true); k++) {
+    const a = L.SPAWNS + L.SPAWN_SIZE * k;
+    spawns.push([f(a), f(a + 4), f(a + 8)]);
+  }
+  this._map = { key, bounds: [0, 1, 2, 3].map((k) => f(L.MAP_BOUNDS + 4 * k)), groups, boxes, teleporters, spawns };
+  return this._map;
+};
+
+// Where the ray o + t dir enters box b (t in [0, tmax]), or Infinity: the sim's slab test.
+export function slab(b, o, dir, tmax) {
+  let t0 = 0, t1 = tmax;
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(dir[k]) < 1e-9) { if (o[k] <= b[k] || o[k] >= b[k + 3]) return Infinity; continue; }
+    const ta = (b[k] - o[k]) / dir[k], tb = (b[k + 3] - o[k]) / dir[k];
+    t0 = Math.max(t0, Math.min(ta, tb)); t1 = Math.min(t1, Math.max(ta, tb));
+  }
+  return t0 <= t1 ? t0 : Infinity;
+}
+
+// How far the ray o + t dir goes before one of the map's boxes, out to tmax.
+export function boxRay(map, o, dir, tmax) {
+  let best = tmax;
+  for (const g of map.groups) {
+    if (slab(g.box, o, dir, best) > best) continue;
+    for (let k = g.first; k < g.first + g.count; k++) best = Math.min(best, slab(map.boxes[k].box, o, dir, best));
+  }
+  return best;
+}
+
+// Nothing of the map's boxes between a and b.
+export const boxClear = (map, a, b) => boxRay(map, a, [b[0] - a[0], b[1] - a[1], b[2] - a[2]], 1) >= 1;

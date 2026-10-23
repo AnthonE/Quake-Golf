@@ -4,16 +4,19 @@
 // lag and wobble, strafes, picks the gun that suits the range, throws a
 // frag now and then, butts anyone too close, and when nobody is in sight
 // walks to a weapon pad and picks up what's on it. Deterministic from its
-// seed and what it sees, so a match of bots is an ordinary event log.
+// seed and what it sees, so a match of bots is an ordinary event log. Walls
+// it can't see through; one in its way it goes round, sidling and jumping
+// until it moves again.
 import * as L from '../src/layout.mjs';
-import { arenaWord, arenaFrame, frameDue } from '../src/arena-view.mjs';
+import { arenaWord, arenaFrame, frameDue, boxClear } from '../src/arena-view.mjs';
 import { aimAt } from './bot.mjs';
 
 const EYE = 1.6;
 const TURN = 16384;
 
-// Can an eye at a see a point at b over the ground? Steps of a metre.
+// Can an eye at a see a point at b over the ground and past the map's boxes? Steps of a metre.
 export function sees(view, a, b) {
+  if (!boxClear(view.map(), a, b)) return false;
   const d = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
   const n = Math.ceil(d);
   for (let k = 1; k < n; k++) {
@@ -56,6 +59,7 @@ export class Fighter {
     this.lastFire = -1e9;
     this.wantUse = false; this.wantReload = false;
     this.lag = 0;
+    this.stuck = 0; this.detour = 0; this.detourUntil = 0; this.was = null;
   }
 
   rand() { let x = this.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.rng = x >>> 0; return this.rng / 4294967296; }
@@ -147,9 +151,8 @@ export class Fighter {
           const p = pads[Math.floor(this.rand() * Math.min(3, pads.length))];
           this.goal = p.pos;
         } else {
-          const k = Math.floor(this.rand() * L.NSPAWN);
-          const a = L.SPAWNS + 8 * k;
-          this.goal = [view.dv.getFloat32(a, true), 0, view.dv.getFloat32(a + 4, true)];
+          const spawns = view.map().spawns;
+          this.goal = spawns[Math.floor(this.rand() * spawns.length)];
         }
         this.goalUntil = t + 1500;
       }
@@ -159,6 +162,12 @@ export class Fighter {
       if (me.mag[this.slotOut] < (L.ARMS[me.weapon]?.mag || 0) / 2 && me.res[this.slotOut] > 0 && !me.reload) this.wantReload = true;
       if (this.rand() < 0.003) jump = 1;
     }
+    // walking into something: sidle one way, jumping, for a while
+    const ran = this.was && Math.hypot(me.pos[0] - this.was[0], me.pos[2] - this.was[2]);
+    this.was = me.pos;
+    this.stuck = (move & 3) && ran < 0.02 ? this.stuck + 1 : 0;
+    if (this.stuck > 20 && t >= this.detourUntil) { this.detour = this.rand() < 0.5 ? 4 : 8; this.detourUntil = t + 80 + Math.floor(this.rand() * 80); this.stuck = 0; }
+    if (t < this.detourUntil) { move = this.detour | (this.rand() < 0.6 ? 2 : 0); if (this.rand() < 0.04) jump = 1; }
     return this.word({ move, jump, serial });
   }
 

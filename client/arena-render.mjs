@@ -1,5 +1,8 @@
 // The arena's WebGPU renderer: golf's look (the terrain ray-marched per pixel
-// at 320x200, bodies as depth-tested splats, a 3x5 HUD font) with what a
+// at 320x200, bodies as depth-tested splats, a 3x5 HUD font), the map's
+// boxes ray-traced in the same pass (walls, roofs, the cave's roof: a slab
+// test per box, a group's bounds first, and a ray to the sun from whatever a
+// pixel lands on for its shadow), with what a
 // shooter needs on top: tracers as beams, sprites for blasts, sparks and
 // weapon pads, and a HUD of rectangles under the text for the gun in your
 // hands, the shield and health bars, the crosshair, the scope and the
@@ -24,6 +27,7 @@ struct U {
   hud: vec4f,     // rows, rects, crosshair kind, hit marker (0..1)
   fx: vec4f,      // damage flash (0..1), scope (1), net graph shown (1), crosshair gap (px)
   pred: vec4f,    // extrapolate my projectiles (s); the motion tracker's centre x, y and radius (px)
+  map: vec4f,     // boxes, groups
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var hmap: texture_2d<f32>;
@@ -36,6 +40,8 @@ struct U {
 @group(0) @binding(8) var<storage, read> hud: array<u32>;
 @group(0) @binding(9) var<storage, read> font: array<u32>;
 @group(0) @binding(10) var<storage, read> graph: array<vec4f>;
+@group(0) @binding(11) var<storage, read> boxes: array<vec4f>;  // two a box: x0, y0, z0, material | x1, y1, z1, 0
+@group(0) @binding(12) var<storage, read> groups: array<vec4f>; // two a group: x0, y0, z0, first box | x1, y1, z1, count
 
 const SKY_LO = vec3f(0.74, 0.8, 0.88);
 const SKY_HI = vec3f(0.22, 0.42, 0.72);
@@ -79,6 +85,69 @@ fn ground(w: vec2f) -> vec3f {
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+// The boxes' materials (tools/map.mjs's MATERIALS): metal, rock, dark metal, red, blue, light.
+var<private> MATERIAL: array<vec3f, 6> = array<vec3f, 6>(vec3f(0.56, 0.6, 0.64), vec3f(0.47, 0.42, 0.36), vec3f(0.24, 0.27, 0.31),
+  vec3f(0.62, 0.17, 0.14), vec3f(0.17, 0.27, 0.64), vec3f(0.75, 0.95, 1.0));
+
+struct Hit { t: f32, n: vec3f, k: u32 };
+
+// The nearest box the ray o + t d enters past t = 0 and before tmax (k = 0xffffffff for none).
+// A box the ray starts inside isn't seen, so a camera in a wall sees out.
+fn traceBoxes(o: vec3f, d: vec3f, tmax: f32) -> Hit {
+  var h: Hit;
+  h.t = tmax;
+  h.k = 0xffffffffu;
+  let inv = 1.0 / select(d, vec3f(1e-9), abs(d) < vec3f(1e-9));
+  for (var g = 0u; g < u32(u.map.y); g++) {
+    let gl = groups[2u * g];
+    let gh = groups[2u * g + 1u];
+    let ga = (gl.xyz - o) * inv;
+    let gb = (gh.xyz - o) * inv;
+    let gn = min(ga, gb);
+    let gf = max(ga, gb);
+    if (max(max(gn.x, gn.y), max(gn.z, 0.0)) > min(min(gf.x, gf.y), min(gf.z, h.t))) { continue; }
+    let first = u32(gl.w);
+    for (var k = first; k < first + u32(gh.w); k++) {
+      let ta = (boxes[2u * k].xyz - o) * inv;
+      let tb = (boxes[2u * k + 1u].xyz - o) * inv;
+      let tn = min(ta, tb);
+      let tf = max(ta, tb);
+      let t0 = max(max(tn.x, tn.y), tn.z);
+      if (t0 <= min(min(tf.x, tf.y), tf.z) && t0 > 0.0 && t0 < h.t) {
+        h.t = t0;
+        h.k = k;
+        if (t0 == tn.x) { h.n = vec3f(-sign(d.x), 0.0, 0.0); } else if (t0 == tn.y) { h.n = vec3f(0.0, -sign(d.y), 0.0); } else { h.n = vec3f(0.0, 0.0, -sign(d.z)); }
+      }
+    }
+  }
+  return h;
+}
+
+// 0 where a box stands between p and the sun, else 1.
+fn sunlit(p: vec3f) -> f32 {
+  if (u.map.x < 0.5) { return 1.0; }
+  return select(1.0, 0.0, traceBoxes(p, SUN, 400.0).k != 0xffffffffu);
+}
+
+// A box's face at w: its material, panel seams on metal, a dark line on every edge.
+fn boxColor(k: u32, w: vec3f, n: vec3f) -> vec3f {
+  let lo = boxes[2u * k];
+  let hi = boxes[2u * k + 1u].xyz;
+  let m = min(u32(lo.w), 5u);
+  // the two axes across the face
+  var uv = w.xy;
+  var e = min(min(w.x - lo.x, hi.x - w.x), min(w.y - lo.y, hi.y - w.y));
+  if (abs(n.x) > 0.5) { uv = w.zy; e = min(min(w.z - lo.z, hi.z - w.z), min(w.y - lo.y, hi.y - w.y)); }
+  if (abs(n.y) > 0.5) { uv = w.xz; e = min(min(w.x - lo.x, hi.x - w.x), min(w.z - lo.z, hi.z - w.z)); }
+  var c = MATERIAL[m];
+  if (m == 1u) { c *= 0.75 + 0.4 * hash2(floor(uv * 1.5)); }
+  else if (m != 5u) {
+    let seam = min(abs(fract(uv.x / 2.0) - 0.5), abs(fract(uv.y / 1.0) - 0.5)) > 0.47;
+    c *= select(1.0, 0.82, seam) * (0.94 + 0.08 * hash2(floor(uv * 0.5)));
+  }
+  return c * select(1.0, 0.6, e < 0.06);
+}
+
 fn sky(sy: f32) -> vec3f {
   let t = clamp((u.view.z - sy) / u.screen.y * 1.6, 0.0, 1.0);
   return mix(SKY_LO, SKY_HI, t);
@@ -110,6 +179,9 @@ struct TOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
   var hit = false;
   // zoomed, the steps stretch with the focal length so far things stay sharp
   let k = 0.012 * 240.0 / u.cam.w;
+  // the boxes first: the ground is marched only as far as the nearest
+  let ray = vec3f(dir.x, rise, dir.y);
+  let bh = traceBoxes(u.cam.xyz, ray, u.screen.z);
   loop {
     let w = u.cam.xz + dir * z;
     let ry = u.cam.y + rise * z;
@@ -117,7 +189,18 @@ struct TOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
     if (rise >= 0.0 && ry > u.misc.z) { break; }
     prev = z;
     z += 0.04 + z * k;
-    if (z > u.screen.z) { break; }
+    if (z > min(u.screen.z, bh.t)) { break; }
+  }
+  if (bh.k != 0xffffffffu && (!hit || bh.t < z)) {
+    let w = u.cam.xyz + ray * bh.t;
+    var c = boxColor(bh.k, w, bh.n);
+    if (u32(boxes[2u * bh.k].w) != 5u) {
+      c *= 0.42 + 0.68 * max(dot(bh.n, SUN), 0.0) * sunlit(w + bh.n * 0.01) + 0.06 * bh.n.y;
+    }
+    c = mix(c, SKY_LO, 1.0 - exp(-bh.t / 420.0));
+    o.color = vec4f(dither(c, p.xy), 1.0);
+    o.depth = bh.t / u.screen.z;
+    return o;
   }
   if (!hit) {
     var c = sky(p.y);
@@ -147,7 +230,7 @@ struct TOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
   var c = ground(w);
   // steep ground is rock whatever it's painted
   c = mix(c, vec3f(0.46, 0.41, 0.35) * (0.8 + 0.3 * hash2(floor(w * 0.5))), smoothstep(0.82, 0.7, n.y));
-  c *= 0.45 + 0.65 * max(dot(n, SUN), 0.0);
+  c *= 0.45 + 0.65 * max(dot(n, SUN), 0.0) * select(1.0, sunlit(vec3f(w.x, u.cam.y + rise * z + 0.05, w.y)), z < 160.0);
   let fog = 1.0 - exp(-z / 420.0);
   c = mix(c, SKY_LO, fog);
   o.color = vec4f(dither(c, p.xy), 1.0);
@@ -360,7 +443,7 @@ fn graphPx(p: vec2i) -> vec4f {
 }
 
 // crosshairs: 0 a ring and dot (rifles), 1 a dot (precision), 2 a wide ring (shotgun),
-// 3 a big circle (rocket), 4 a chevron (plasma, needles), 5 a sword's brackets
+// 3 a big circle (rocket), 4 a chevron (plasma, needles), 5 a sword's brackets, 7 none
 fn cross(d: vec2f, kind: u32, gap: f32) -> bool {
   let r = length(d);
   switch kind {
@@ -369,6 +452,7 @@ fn cross(d: vec2f, kind: u32, gap: f32) -> bool {
     case 2u: { return abs(r - 11.0) < 0.6 || r < 0.8; }
     case 3u: { return abs(r - 14.0) < 0.6 || (r < 0.8) || (abs(d.y) < 0.5 && abs(d.x) < 3.0); }
     case 4u: { return (abs(abs(d.x) - (d.y + 5.0) * 0.8) < 0.7 && d.y > -5.0 && d.y < 2.0) || r < 0.8; }
+    case 7u: { return false; }
     default: { return (abs(abs(d.x) - 7.0) < 0.7 && abs(d.y) < 6.0) || r < 0.8; }
   }
 }
@@ -438,7 +522,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
   const errs = info.messages.filter((m) => m.type === 'error');
   if (errs.length) throw new Error('WGSL: ' + errs.map((m) => `${m.lineNum}:${m.linePos} ${m.message}`).join('; '));
 
-  const ubuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const ubuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const storage = (size) => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const playerBuf = storage(L.NPLAYER * L.PSIZE);
   const projBuf = storage(L.NPROJ * L.JSIZE);
@@ -448,6 +532,9 @@ export async function createRenderer(canvas, { present = true } = {}) {
   const hudBuf = storage(COLS * rows * 4);
   const fontBuf = storage(FONT.length * 4);
   const graphBuf = storage(GRAPH_PANELS * GRAPH_N * 16);
+  const boxBuf = storage(L.NBOX * 32);
+  const groupBuf = storage(L.NGROUP * 32);
+  let nbox = 0, ngroup = 0;
   device.queue.writeBuffer(fontBuf, 0, FONT);
   const hmap = device.createTexture({ size: [512, 512], format: 'r32float', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
   const smap = device.createTexture({ size: [512, 512], format: 'r8uint', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
@@ -458,7 +545,8 @@ export async function createRenderer(canvas, { present = true } = {}) {
       { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'uint' } },
-      ...[3, 4, 5, 6, 7, 8, 9, 10].map((b) => ({ binding: b, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } })),
+      // the bodies, projectiles, sprites and beams are read by the vertex stage, the rest by the fragment's: at most 8 a stage
+      ...[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((b) => ({ binding: b, visibility: b <= 6 ? GPUShaderStage.VERTEX : GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } })),
     ],
   });
   const bind = device.createBindGroup({
@@ -467,7 +555,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
       { binding: 0, resource: { buffer: ubuf } },
       { binding: 1, resource: hmap.createView() },
       { binding: 2, resource: smap.createView() },
-      ...[playerBuf, projBuf, spriteBuf, beamBuf, rectBuf, hudBuf, fontBuf, graphBuf].map((buffer, k) => ({ binding: 3 + k, resource: { buffer } })),
+      ...[playerBuf, projBuf, spriteBuf, beamBuf, rectBuf, hudBuf, fontBuf, graphBuf, boxBuf, groupBuf].map((buffer, k) => ({ binding: 3 + k, resource: { buffer } })),
     ],
   });
   const pl = device.createPipelineLayout({ bindGroupLayouts: [layout] });
@@ -486,7 +574,7 @@ export async function createRenderer(canvas, { present = true } = {}) {
   const beam = pipe('vs_beam', 'fs_beam', { depthWrite: false, depthCompare: 'less', blend: add });
   const hudPipe = pipe('vs_full', 'fs_hud', { depthWrite: false, depthCompare: 'always', blend: over });
 
-  const uf = new Float32Array(28);
+  const uf = new Float32Array(32);
   const hud = new Uint32Array(COLS * rows);
   const spriteData = new Float32Array(MAX_SPRITE * 12);
   const beamData = new Float32Array(MAX_BEAM * 12);
@@ -504,6 +592,17 @@ export async function createRenderer(canvas, { present = true } = {}) {
       device.queue.writeTexture({ texture: smap }, u8.slice(L.TERRAIN_S, L.TERRAIN_S + 512 * 512), { bytesPerRow: 512 }, [512, 512]);
     },
 
+    // map: a View's map() (src/arena-view.mjs): its boxes and their groups
+    setMap(map) {
+      const b = new Float32Array(L.NBOX * 8), g = new Float32Array(L.NGROUP * 8);
+      map.boxes.forEach((x, k) => b.set([x.box[0], x.box[1], x.box[2], x.material, x.box[3], x.box[4], x.box[5], 0], 8 * k));
+      map.groups.forEach((x, k) => g.set([x.box[0], x.box[1], x.box[2], x.first, x.box[3], x.box[4], x.box[5], x.count], 8 * k));
+      device.queue.writeBuffer(boxBuf, 0, b);
+      device.queue.writeBuffer(groupBuf, 0, g);
+      nbox = map.boxes.length;
+      ngroup = map.groups.length;
+    },
+
     // s: { cam, yaw, pitch, fov (focal multiplier), time, dt, dtPred, proj, slot,
     //      solid: [{ pos, size, aspect, color: [r,g,b], kind, minpx }] (pads), glow: [... kind 3, 5, 6, color [r,g,b,a]],
     //      beams: [{ a, b, width, color: [r,g,b,a] }], rects: [[x0, y0, x1, y1, r, g, b, a]],
@@ -514,7 +613,8 @@ export async function createRenderer(canvas, { present = true } = {}) {
       const sprites = [...s.solid, ...s.glow].slice(0, MAX_SPRITE);
       uf.set([s.cam[0], s.cam[1], s.cam[2], focal, Math.cos(s.yaw), Math.sin(s.yaw), H / 2 + Math.tan(Math.max(-1.35, Math.min(1.35, s.pitch))) * focal, s.time,
         W, H, FAR, s.dt, s.slot, sprites.length, hmax + 2, Math.min(s.beams.length, MAX_BEAM),
-        rows, Math.min(s.rects.length, MAX_RECT), s.crosshair, s.marker, s.hurt, s.scope ? 1 : 0, s.graph ? 1 : 0, s.gap, s.dtPred ?? s.dt, ...(s.tracker || [0, 0, 0])]);
+        rows, Math.min(s.rects.length, MAX_RECT), s.crosshair, s.marker, s.hurt, s.scope ? 1 : 0, s.graph ? 1 : 0, s.gap, s.dtPred ?? s.dt, ...(s.tracker || [0, 0, 0]),
+        nbox, ngroup, 0, 0]);
       if (s.graph) device.queue.writeBuffer(graphBuf, 0, s.graph);
       device.queue.writeBuffer(ubuf, 0, uf);
       device.queue.writeBuffer(playerBuf, 0, u8, L.PLAYERS, L.NPLAYER * L.PSIZE);

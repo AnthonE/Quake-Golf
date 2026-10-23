@@ -7,6 +7,7 @@ import { playArena } from '../tools/genarena.mjs';
 import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import * as L from '../src/layout.mjs';
+import { compileMap } from '../tools/map.mjs';
 
 async function arena(seed = 7, n = 2) {
   const sim = await newArena(true);
@@ -66,27 +67,123 @@ test('the arena is its own sim: another wasm, the same engine', async () => {
   for (const name of ['init', 'step', 'step_mt', 'worker_run', 'predict', 'snapshot', 'restore', 'regrid', 'hash_region']) assert.equal(typeof s.x[name], 'function', name);
 });
 
-test('every seed lays out a walled gulch: spawns on its floor, walls above it, no guns on it in Fiesta', async () => {
+test('every seed lays out the map from maps/: its ground, its boxes, spawns clear of them, walls round it, no guns in Fiesta', async () => {
   const s = await newArena();
   const v = new View(s.memory.buffer);
+  const want = compileMap();
   for (const seed of [1, 2, 7, 99, 0xdeadbeef]) {
     s.init(seed);
+    const m = v.map();
+    assert.deepEqual(m.bounds, want.bounds);
+    assert.equal(m.boxes.length, want.boxes.length);
+    assert.equal(m.groups.length, want.groups.length);
+    assert.deepEqual(m.boxes.map((b) => b.box), want.boxes.map((b) => b.box));
+    assert.equal(m.teleporters.length, 2);
+    // the height image, sample for sample
+    const [gx, gz] = want.origin.map((o) => o / L.SPACING);
+    const h16 = new Uint16Array(s.memory.buffer, L.TERRAIN_H, L.GRID * L.GRID);
+    for (let j = 0; j < want.size[1]; j += 7) for (let i = 0; i < want.size[0]; i += 5) assert.equal(h16[(gz + j) * L.GRID + gx + i], want.heights[j * want.size[0] + i]);
     const pads = v.pads();
-    assert.equal(pads.length, L.FIESTA ? 0 : L.NPAD);
+    assert.equal(pads.length, L.FIESTA ? 0 : want.pads.length);
+    const [x0, x1, z0, z1] = m.bounds;
+    assert.equal(m.spawns.length, want.spawns.length);
+    let roof = 0;
+    for (const [x, y, z] of m.spawns) {
+      assert.ok(x >= x0 && x <= x1 && z >= z0 && z <= z1, `seed ${seed}: spawn at ${x}, ${z}`);
+      assert.ok(y >= v.height(x, z) - 1e-3, 'not under the ground');
+      for (const { box: b } of m.boxes) assert.ok(!(x - 0.5 < b[3] && x + 0.5 > b[0] && y < b[4] && y + 1.8 > b[1] && z - 0.5 < b[5] && z + 0.5 > b[2]), `spawn ${x}, ${y}, ${z} in a box`);
+      if (y > v.height(x, z) + 3) roof++;
+    }
+    assert.equal(roof, 4, 'two spawns on each roof');
+    // past the bounds the walls stand well over the floor
     const floor = v.height(512, 512);
-    for (const p of pads) {
-      assert.ok(p.pos[0] > L.A_BOX[0] && p.pos[0] < L.A_BOX[1] && p.pos[2] > L.A_BOX[2] && p.pos[2] < L.A_BOX[3], `seed ${seed}: pad off the floor`);
-      assert.ok(Math.abs(p.pos[1] - v.height(p.pos[0], p.pos[2])) < 0.01);
-    }
-    for (let k = 0; k < L.NSPAWN; k++) {
-      const x = s.memory && v.dv.getFloat32(L.SPAWNS + 8 * k, true), z = v.dv.getFloat32(L.SPAWNS + 8 * k + 4, true);
-      assert.ok(x > L.A_BOX[0] && x < L.A_BOX[1] && z > L.A_BOX[2] && z < L.A_BOX[3], `seed ${seed}: spawn ${k} at ${x}, ${z}`);
-    }
-    // past the box, the walls stand well over the floor
-    for (const [x, z] of [[512, L.A_SPAN[2]], [512, L.A_SPAN[3]], [L.A_SPAN[0], 512], [L.A_SPAN[1], 512]]) {
+    for (const [x, z] of [[512, z0 - 12], [512, z1 + 12], [x0 - 12, 512], [x1 + 12, 512], [100, 100], [1000, 900]]) {
       assert.ok(v.height(x, z) > floor + 10, `seed ${seed}: wall at ${x}, ${z} only ${v.height(x, z) - floor} m up`);
     }
   }
+});
+
+// Ticks of slot p's word (the rest of the world idle); its positions after each.
+function run(g, p, word, ticks) {
+  const path = [];
+  for (let i = 0; i < ticks; i++) { g.step([[L.EV_INPUT, p, word]]); path.push(g.v.fighter(p).pos); }
+  return path;
+}
+const WEST = 8192, SOUTH = 12288, EAST = 0; // yaws: -x, -z, +x
+
+test('structures: a wall stops a runner, a door lets one in, a roof stops a rise, stairs climb to the hatch and the roof', async () => {
+  const g = await arena(7, 1);
+  // the red base: front wall at x 401.2..402, a door at z 510.25..513.75
+  put(g, 0, 410, 506);
+  let path = run(g, 0, arenaWord({ yaw: WEST, move: 1 }), 200);
+  assert.ok(Math.abs(path.at(-1)[0] - 402.5) < 1e-3, `stopped at ${path.at(-1)[0]}`);
+  assert.ok(Math.abs(path.at(-1)[2] - 506) < 1e-3);
+  put(g, 0, 410, 512);
+  path = run(g, 0, arenaWord({ yaw: WEST, move: 1 }), 170);
+  const [x, y] = path.at(-1);
+  assert.ok(x < 400 && x > 384, `in through the door: ${x}`);
+  assert.ok(Math.abs(y - 21) < 0.01, `on the floor: ${y}`);
+  // thrown up inside, the head stops at the roof's underside (4 m)
+  put(g, 0, 395, 506);
+  g.dv.setFloat32(L.PLAYERS + L.P_VY, 25, true);
+  path = run(g, 0, arenaWord({}), 100);
+  const top = Math.max(...path.map((q) => q[1]));
+  assert.ok(Math.abs(top - (21 + 4 - 1.8)) < 1e-3, `the head reached ${top + 1.8}`);
+  // the stairs up the +z wall: twelve steps to the hatch, out onto the roof, to the back parapet
+  put(g, 0, 400.6, 519.2);
+  path = run(g, 0, arenaWord({ yaw: WEST, move: 1 }), 400);
+  const end = path.at(-1);
+  assert.ok(Math.abs(end[1] - 25.8) < 1e-3, `on the roof: ${end[1]}`);
+  assert.ok(Math.abs(end[0] - 383) < 1e-3, `at the parapet: ${end[0]}`);
+  for (let k = 1; k < path.length; k++) assert.ok(path[k][1] - path[k - 1][1] <= 0.5 + 1e-4, 'a step at a time');
+});
+
+test('the cave: through the ridge under its roof, and over it on top', async () => {
+  const g = await arena(7, 1);
+  put(g, 0, 484, 574);
+  const path = run(g, 0, arenaWord({ yaw: EAST, move: 1 }), 800);
+  assert.ok(path.at(-1)[0] > 540, `through: ${path.at(-1)[0]}`);
+  for (const [x, y] of path) if (x > 490 && x < 535) assert.ok(y < 21.6, `under the roof at ${x}: ${y}`);
+  put(g, 0, 512, 574, 29);
+  const on = run(g, 0, arenaWord({ yaw: EAST, move: 1 }), 60);
+  assert.ok(on.every((q) => Math.abs(q[1] - 29) < 1e-3), 'walks on the roof');
+});
+
+test('a teleporter: the pad behind the red base to the far side of the field, moving as before', async () => {
+  const g = await arena(7, 1);
+  const { teleporters: [tp] } = g.v.map();
+  put(g, 0, tp.from[0], tp.from[2] + 3);
+  const before = fxs(g.v, L.FX_TELE).length;
+  const path = run(g, 0, arenaWord({ yaw: SOUTH, move: 1 }), 80);
+  const k = path.findIndex((q) => Math.hypot(q[0] - tp.to[0], q[2] - tp.to[2]) < 2);
+  assert.ok(k > 0, 'came out at the other end');
+  assert.equal(fxs(g.v, L.FX_TELE).length, before + 1);
+  assert.ok(path.at(-1)[2] < tp.to[2] - 1, 'still running');
+});
+
+test('walls stop bullets and blasts', async () => {
+  const g = await arena(7, 2);
+  // inside the red base, just behind its front wall; outside, a rifle and a rocket
+  put(g, 0, 414, 506); put(g, 1, 400.5, 506);
+  const n = fire(g, 0, 1, { max: 150, done: () => false });
+  assert.equal(n, -1);
+  assert.deepEqual([g.v.fighter(1).sh, g.v.fighter(1).hp], [100, 100], 'the rifle never got through');
+  const ends = fxs(g.v, L.FX_TRACER).slice(-20);
+  assert.ok(ends.length && ends.every((f) => f.pos[0] > 401.9 && f.pos[0] < 402.1), `the tracers end on the wall: ${ends.map((f) => f.pos[0].toFixed(2))}`);
+  loadout(g, 0, L.W_ROCKET, L.W_AR);
+  for (let i = 0; i < 120; i++) g.step();
+  fire(g, 0, 1, { max: 1, done: () => false });
+  for (let i = 0; i < 80; i++) g.step();
+  const blast = fxs(g.v, L.FX_BLAST).at(-1);
+  assert.ok(blast && blast.pos[0] > 401.9 && blast.pos[0] < 402.6, `the rocket went off on the wall at ${blast?.pos}`);
+  assert.deepEqual([g.v.fighter(1).sh, g.v.fighter(1).hp], [100, 100], 'the blast stopped at the wall');
+  // a frag thrown at the wall bounces back off it
+  put(g, 0, 406, 506);
+  g.step([[L.EV_INPUT, 0, arenaWord({ yaw: WEST, pitch: 540, gren: 1 })]]);
+  for (let i = 0; i < L.A_FUSE + 4; i++) g.step([[L.EV_INPUT, 0, arenaWord({ yaw: WEST, pitch: 540, gren: 1 })]]);
+  const frag = fxs(g.v, L.FX_BLAST).at(-1);
+  assert.ok(frag !== blast && frag.pos[0] > 402, `the frag went off on this side, at ${frag.pos}`);
+  assert.deepEqual([g.v.fighter(1).sh, g.v.fighter(1).hp], [100, 100]);
 });
 
 test('a fight: shields, then health, a kill, and three seconds later a respawn on full shields', async () => {
@@ -333,17 +430,9 @@ test('Fiesta: random guns at every spawn; ten minutes, no frag limit, the clock 
   assert.equal(g.v.fighter(1).deaths, 0);
 });
 
-test('the prediction matches the confirmed arena bit for bit: runs, bursts, a swap, a reload, a frag, a butt', async () => {
-  const g = await arena(7, 1);
-  const k0 = g.v.tick;
-  const inputs = [];
-  const fr = arenaFrame({ lag: 9, reload: 1 });
-  for (let k = 0; k < 400; k++) {
-    const t = k0 + k;
-    const serial = k >= 200 && k < 208 + ((8 - (k0 & 7)) & 7) ? (fr >> (t & 7)) & 1 : (arenaFrame({ lag: 9 }) >> (t & 7)) & 1;
-    inputs.push(arenaWord({ yaw: 1000 + 20 * k, pitch: 500, move: k < 100 ? 1 : 4, jump: k === 50 ? 1 : 0, shot: (k >> 1) & 3,
-      slot: k >= 120 && k < 300 ? 1 : 0, gren: k >= 330 ? 1 : 0, melee: k >= 370 ? 1 : 0, serial }));
-  }
+// Predicts slot 0 through `inputs` from every tick (1 ahead, and 6 and 30 every
+// 7th) and compares each with the confirmed world when it gets there.
+function predicted(g, inputs) {
   const due = new Map();
   let compared = 0;
   for (let k = 0; k < inputs.length; k++) {
@@ -361,11 +450,40 @@ test('the prediction matches the confirmed arena bit for bit: runs, bursts, a sw
       compared++;
     }
   }
-  assert.ok(compared > 400);
+  return compared;
+}
+
+test('the prediction matches the confirmed arena bit for bit: runs, bursts, a swap, a reload, a frag, a butt', async () => {
+  const g = await arena(7, 1);
+  const k0 = g.v.tick;
+  const inputs = [];
+  const fr = arenaFrame({ lag: 9, reload: 1 });
+  for (let k = 0; k < 400; k++) {
+    const t = k0 + k;
+    const serial = k >= 200 && k < 208 + ((8 - (k0 & 7)) & 7) ? (fr >> (t & 7)) & 1 : (arenaFrame({ lag: 9 }) >> (t & 7)) & 1;
+    inputs.push(arenaWord({ yaw: 1000 + 20 * k, pitch: 500, move: k < 100 ? 1 : 4, jump: k === 50 ? 1 : 0, shot: (k >> 1) & 3,
+      slot: k >= 120 && k < 300 ? 1 : 0, gren: k >= 330 ? 1 : 0, melee: k >= 370 ? 1 : 0, serial }));
+  }
+  assert.ok(predicted(g, inputs) > 400);
   const me = g.v.fighter(0);
   assert.ok(me.shots > 20, `${me.shots} shots`);
   assert.equal(me.grens, 1, 'the frag');
   assert.equal(me.lag, 9);
+});
+
+test('the prediction matches the confirmed arena through the map: a wall, a door, the stairs, a jump under the roof, a teleporter', async () => {
+  const g = await arena(7, 1);
+  const word = (yaw, k, jump = 0) => arenaWord({ yaw, pitch: 512, move: 1, jump, serial: (arenaFrame({ lag: 3 }) >> ((g.v.tick + k) & 7)) & 1 });
+  put(g, 0, 410, 506);
+  assert.ok(predicted(g, Array.from({ length: 160 }, (_, k) => word(k < 80 ? WEST : 6000, k, k === 120 ? 1 : 0))) > 160);
+  put(g, 0, 400.6, 519.2);
+  assert.ok(predicted(g, Array.from({ length: 260 }, (_, k) => word(WEST, k, k === 30 ? 1 : 0))) > 260);
+  assert.ok(Math.abs(g.v.fighter(0).pos[1] - 25.8) < 1e-3, 'up on the roof');
+  const { teleporters: [tp] } = g.v.map();
+  put(g, 0, tp.from[0], tp.from[2] + 3);
+  const tele = fxs(g.v, L.FX_TELE).length;
+  assert.ok(predicted(g, Array.from({ length: 90 }, (_, k) => word(SOUTH, k))) > 90);
+  assert.equal(fxs(g.v, L.FX_TELE).length, tele + 1, 'through the teleporter');
 });
 
 test('an arena match of AI fighters replays to the same hash on every tick, on 1 and 4 threads', async () => {

@@ -89,6 +89,9 @@
   (local $s f32) (local $c f32) (local $fwd f32) (local $side f32) (local $wx f32) (local $wz f32) (local $len f32) (local $wish f32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vy f32) (local $vz f32)
   (local $speed f32) (local $drop f32) (local $h f32) (local $sp f32) (local $scale f32)
+#if ARENA
+  (local $t f32) (local $lo f32) (local $floor f32) (local $ceil f32) (local $went i32)
+#endif
   (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
   (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
   (local.set $in (!at i32 @(PLAYERS + P_IN) (local.get $pb)))
@@ -152,15 +155,33 @@
       (local.set $vx (f32.mul (local.get $vx) (local.get $scale)))
       (local.set $vy (f32.mul (local.get $vy) (local.get $scale)))
       (local.set $vz (f32.mul (local.get $vz) (local.get $scale)))))
+#if ARENA
+  ;; through the map's boxes an axis at a time: x, z, then up or down. On the
+  ;; ground the body's band starts a step up, so it walks onto what is lower
+  ;; and is kept from stepping where its head wouldn't fit.
+  (local.set $lo (f32.add (local.get $py) (select (f32.const @STEP) (f32.const 0) (i32.and (local.get $fl) (i32.const @PF_GROUND)))))
+  (local.set $t (!madd (local.get $vx) (f32.const @DT) (local.get $px)))
+  (local.set $px (call $hull_axis (i32.const 0) (local.get $px) (local.get $t) (local.get $pz) (local.get $lo) (f32.add (local.get $lo) (f32.const @P_TOP))))
+  (if (f32.ne (local.get $px) (local.get $t)) (then (local.set $vx (f32.const 0))))
+  (if (f32.lt (local.get $px) (f32.load (i32.const @MAP_BOUNDS))) (then (local.set $px (f32.load (i32.const @MAP_BOUNDS))) (local.set $vx (f32.max (local.get $vx) (f32.const 0)))))
+  (if (f32.gt (local.get $px) (f32.load (i32.const @(MAP_BOUNDS + 4)))) (then (local.set $px (f32.load (i32.const @(MAP_BOUNDS + 4)))) (local.set $vx (f32.min (local.get $vx) (f32.const 0)))))
+  (local.set $t (!madd (local.get $vz) (f32.const @DT) (local.get $pz)))
+  (local.set $pz (call $hull_axis (i32.const 8) (local.get $pz) (local.get $t) (local.get $px) (local.get $lo) (f32.add (local.get $lo) (f32.const @P_TOP))))
+  (if (f32.ne (local.get $pz) (local.get $t)) (then (local.set $vz (f32.const 0))))
+  (if (f32.lt (local.get $pz) (f32.load (i32.const @(MAP_BOUNDS + 8)))) (then (local.set $pz (f32.load (i32.const @(MAP_BOUNDS + 8)))) (local.set $vz (f32.max (local.get $vz) (f32.const 0)))))
+  (if (f32.gt (local.get $pz) (f32.load (i32.const @(MAP_BOUNDS + 12)))) (then (local.set $pz (f32.load (i32.const @(MAP_BOUNDS + 12)))) (local.set $vz (f32.min (local.get $vz) (f32.const 0)))))
+  ;; what it can land on (a box top it was over, or a step up from the ground) and hit its head on
+  (call $hull_y (local.get $px) (local.get $pz)
+                (f32.add (local.get $py) (select (f32.const @STEP) (f32.const 0.01) (i32.and (local.get $fl) (i32.const @PF_GROUND))))
+                (f32.sub (f32.add (local.get $py) (f32.const @P_TOP)) (f32.const 0.01)))
+  (local.set $ceil) (local.set $floor)
+  (local.set $py (!madd (local.get $vy) (f32.const @DT) (local.get $py)))
+  (if (f32.gt (f32.add (local.get $py) (f32.const @P_TOP)) (local.get $ceil))
+    (then (local.set $py (f32.sub (local.get $ceil) (f32.const @P_TOP))) (local.set $vy (f32.min (local.get $vy) (f32.const 0)))))
+#else
   (local.set $px (!madd (local.get $vx) (f32.const @DT) (local.get $px)))
   (local.set $py (!madd (local.get $vy) (f32.const @DT) (local.get $py)))
   (local.set $pz (!madd (local.get $vz) (f32.const @DT) (local.get $pz)))
-#if ARENA
-  (if (f32.lt (local.get $px) (f32.const @(A_BOX[0]))) (then (local.set $px (f32.const @(A_BOX[0]))) (local.set $vx (f32.max (local.get $vx) (f32.const 0)))))
-  (if (f32.gt (local.get $px) (f32.const @(A_BOX[1]))) (then (local.set $px (f32.const @(A_BOX[1]))) (local.set $vx (f32.min (local.get $vx) (f32.const 0)))))
-  (if (f32.lt (local.get $pz) (f32.const @(A_BOX[2]))) (then (local.set $pz (f32.const @(A_BOX[2]))) (local.set $vz (f32.max (local.get $vz) (f32.const 0)))))
-  (if (f32.gt (local.get $pz) (f32.const @(A_BOX[3]))) (then (local.set $pz (f32.const @(A_BOX[3]))) (local.set $vz (f32.min (local.get $vz) (f32.const 0)))))
-#else
   (if (f32.lt (local.get $px) (f32.const 1)) (then (local.set $px (f32.const 1)) (local.set $vx (f32.max (local.get $vx) (f32.const 0)))))
   (if (f32.gt (local.get $px) (f32.const 1021)) (then (local.set $px (f32.const 1021)) (local.set $vx (f32.min (local.get $vx) (f32.const 0)))))
   (if (f32.lt (local.get $pz) (f32.const 1)) (then (local.set $pz (f32.const 1)) (local.set $vz (f32.max (local.get $vz) (f32.const 0)))))
@@ -170,6 +191,9 @@
   (call $ground (local.get $px) (local.get $pz))
   (drop) (drop) (drop) (drop)
   (local.set $h)
+#if ARENA
+  (local.set $h (f32.max (local.get $h) (local.get $floor)))
+#endif
   ;; walking feet follow the ground; a fall or a blast lifts them off it
   (if (i32.and (i32.ne (i32.and (local.get $fl) (i32.const @PF_GROUND)) (i32.const 0)) (f32.le (local.get $vy) (f32.const 0)))
     (then
@@ -183,6 +207,11 @@
           (local.set $vy (f32.const 0))
           (local.set $fl (i32.or (local.get $fl) (i32.const @PF_GROUND))))
         (else (local.set $fl (i32.and (local.get $fl) (i32.const @(255 ^ PF_GROUND))))))))
+#if ARENA
+  (call $a_tele (local.get $p) (local.get $d) (local.get $px) (local.get $py) (local.get $pz))
+  (local.set $went) (local.set $pz) (local.set $py) (local.set $px)
+  (if (local.get $went) (then (local.set $fl (i32.and (local.get $fl) (i32.const @(255 ^ PF_GROUND))))))
+#endif
   (!chk (local.get $px) 11 (local.get $p))
   (!chk (local.get $py) 12 (local.get $p))
   (!chk (local.get $pz) 13 (local.get $p))

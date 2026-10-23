@@ -40,21 +40,28 @@ test('comments are stripped, strings kept', () => {
 });
 
 test('the determinism rules are enforced by the assembler', () => {
-  for (const bad of ['(memory.grow (i32.const 1))', '(f32x4.relaxed_madd)', '(data (i32.const 0) "x")', '(global $g (mut i32) (i32.const 0))', '(global $g (export "g") (mut i32) (i32.const 0))']) {
+  for (const bad of ['(memory.grow (i32.const 1))', '(f32x4.relaxed_madd)', '(data (i32.const 0) "x")', '(data $m (i32.const 0) "x")', '(data (memory 0) (i32.const 0) "x")', '(global $g (mut i32) (i32.const 0))', '(global $g (export "g") (mut i32) (i32.const 0))']) {
     assert.throws(() => forbid(bad), /forbidden/, bad);
   }
   forbid('(global $g i32 (i32.const 0))');
+  // a passive segment is only bytes until memory.init copies them: the arena's map
+  forbid('(data $map "\\00x") (data "y") (func (memory.init $map (i32.const 0) (i32.const 0) (i32.const 1)) (data.drop $map))');
 });
 
 test('the binary is checked too, so no spelling sneaks a banned construct through', async () => {
   for (const bad of [
     '(module (memory 1) (func (drop (memory.grow (i32.const 1)))))',
     '(module (memory 1) (data (i32.const 0) "x"))',
+    '(module (memory 1) (data $d (i32.const 0) "x"))',
     '(module (global (mut i32) (i32.const 0)))',
     '(module (import "e" "g" (global (mut i32))))',
   ]) {
     await assert.rejects(assemble(bad), /forbidden in the sim \(binary\)/, bad);
   }
+});
+
+test('a passive data segment assembles and passes the binary check', async () => {
+  await assemble('(module (memory 1) (data $d "x") (func (memory.init $d (i32.const 0) (i32.const 0) (i32.const 1))))');
 });
 
 test('wabt assembles shared memory and atomics', async () => {
