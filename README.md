@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| A1 · the arena | a deathmatch on the same engine: Chrome and AI fighters in one room over the real relay, every session's interval hashes equal to the referee's, kills, respawns and pickups; a match of fighters equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads | **passed** · [the arena](#the-arena) |
 | N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
 | N3 · spectators | one room served through a tree of relays, two deep, to 600 spectators on lossy links: every edge's referee hashes the room as the root's does, every spectator's world too, Chrome watching two relays down, a player turned away at an edge | **passed** · [results](#n3-spectators) |
 | N1 · 256 players | one room filled to 256 over a lossy network (Chrome, the Xbox's network code, and a host of 252 AI golfers): every hash equals the referee's, the 257th turned away, a late join from a keyframe of the full room, a flipped bit healed, every bundle one datagram | **passed** · [results](#n1-256-players) |
@@ -23,6 +24,116 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 | M2 · first hole | a full hole plays end to end, two players over the real server | **passed** · [results](#m2-the-first-hole) |
 | M1 · determinism harness | zero hash mismatches over 1M ticks | **passed** · [results](#results) |
 | M0 · net skeleton | a 64-player bundle fits one datagram | **passed** · [results](#results) |
+
+## The arena
+
+Not a golfer? The same engine runs a deathmatch: `src/` built with `ARENA`
+set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
+prediction, spectators and replays. Slayer to 25 kills (or 10 minutes) in
+a walled gulch with a base at each end, rocks for cover and weapon pads
+about the floor.
+
+```sh
+npm ci && sh tools/install-deno.sh   # once
+node net/play.mjs --arena            # the relay on the arena's sim, 5 AI fighters, the page; open the URL it prints
+node net/play.mjs --arena --bots 0   # just people
+```
+
+![The arena in Chrome, against AI fighters](docs/a1-arena.png)
+
+Click to play. The mouse aims, WASD runs, Space jumps, left click fires
+(hold it for the automatics), right click zooms the guns that have a scope,
+1/2, X or the wheel swap your two guns, Q melee, G throws a frag, R reloads,
+E picks up the gun on the pad you stand on, Tab shows the scores, F goes
+fullscreen, N the net graph. `?bot=1` hands your slot to an AI fighter;
+`?watch=1` spectates. More fighters for a running room:
+`node net/arena-bots.mjs 127.0.0.1:4434 --bots 7 [--skill 0.6]`.
+
+You spawn with an assault rifle out, a magnum on your back and two frags,
+under 100 points of shields and 100 of health. Shields take damage first and
+come back five seconds after the last hit; health comes back once they're
+full. A kill gives the killer a frag (up to four). Three seconds after a
+death you're back, at the spawn point farthest from the nearest enemy of
+four drawn. The guns, with a nod to Halo's ([`ARMS` in src/layout.mjs](src/layout.mjs)):
+
+| Gun | Fires | Damage | Notes |
+| --- | --- | --- | --- |
+| Assault rifle | auto, 11 rounds/s, 32 a magazine | 8 | spread ±0.9°, 90 m |
+| Battle rifle | 3-round bursts | 9 a round | a head shot kills once the shields are down: four bursts; 2x zoom |
+| Magnum | semi-auto | 28 | head shot kills once the shields are down: four shots; 2x zoom |
+| Sniper rifle | semi-auto, 4 a magazine | 120 | a head shot always kills, two to the body; 5x scope, 420 m |
+| Shotgun | 15 pellets, spread ±5.7° | 15 each | falls off past 8 m, a fifth by 28 |
+| Rocket launcher | 2 rockets, 36 m/s | 230 splash, 5 m | the whole of it within 1.75 m; half to yourself; rocket jumps |
+| Plasma rifle | auto bolts, 70 m/s, a battery of 100 | 10 | no reload |
+| Needler | auto needles, 34 m/s, home within 12° | 6 | seven stuck at once go off together and kill |
+| Energy sword | a lunge | kills within 5 m | 10 swings |
+| Frag grenade | thrown (G) | 150 splash | goes off 1.8 s after the throw |
+| Melee (Q) | any gun | 70 | lunges 2.4 m; from behind, it kills |
+
+The rocket launcher sits on the middle pad, a sniper rifle on each base;
+shotguns, battle rifles, a sword, a needler and plasma rifles are about the
+floor. A gun you carry is ammo when you walk over its pad; any other is
+yours with E, in place of the one in your hands. A pad comes back 30 s after
+(60 s for the sniper, the rocket and the sword).
+
+**How it fits on the engine.** `src/arena.wat` is the fight: guns, damage,
+melee, pickups, spawns and the match, all serial and in slot order like the
+rest of the sim; the golf files keep their code behind `#if !ARENA` where
+the two differ (the input word, the clamp to the map, joins, the end-of-tick
+rules). The arena's input word gives up three bits of yaw (11 bits, 0.18°,
+as fine as the pitch) for melee, grenade and gun-slot bits, and its top bit
+carries an 8-tick frame a bit a tick: the fighter's view lag in ticks, a
+reload and a pickup request. Hitscan shots are lag-compensated inside the
+lockstep: the sim keeps where every fighter stood after each of the last 32
+ticks (in the balls' place in the region, so it is hashed and in every
+keyframe), and a shot is checked against the targets where the shooter saw
+them, by the lag the shooter's own frames sent. Spread comes from a hash of
+the fighter, the shot and the pellet rather than the room's PRNG, so the
+prediction layer fires your shots exactly as the confirmed world will:
+your tracers, muzzle flash, recoil, reloads and swaps show on the next
+frame, and hits and kills a round trip later. Projectiles (rockets, bolts,
+needles, frags) are checked where things are now, as in Halo.
+
+`client/arena.html` is the page: the same net and sim workers, the arena's
+renderer (`client/arena-render.mjs`: golf's ray-marched terrain and splats,
+plus tracers as beams, glowing sprites, and a HUD of rectangles for the gun
+in your hands, shields and health, a motion tracker that shows enemies
+within 25 m who move or fire, a reticle that turns red over an enemy in
+range, the scope, the hit marker and a kill feed with medals).
+`client/arena-bot.mjs` is the AI fighter: the nearest enemy it can see over
+the ground, a settling aim with a human's wobble, the gun for the range,
+strafing, frags, melee up close, and pads when nobody is in sight.
+
+**Results.** `test/arena.test.mjs` (13 tests): the map on five seeds; an
+assault-rifle fight through shields to a kill and the respawn on its tick;
+shields and health coming back; the magnum's four-shot and the sniper's
+one-shot head kills; lag compensation (a sniper shot at where a running
+target stood 12 and 25 ticks before lands when the frames say so, and the
+same aim claiming no lag misses); reload and pickup frames; the sword, a
+butt to the front and an assassination; rocket splash killing two and a
+rocket jump at half damage; the frag's fuse; a needler supercombine; the
+match from the frag limit through the scoreboard to a new one; the
+prediction equal to the confirmed world bit for bit through runs, bursts, a
+swap, a reload, a frag and a butt; and a match of eight AI fighters equal
+on every tick on 1 and 4 threads. `tools/genarena.mjs` records such a match
+(each fighter seeing the world 12 ticks old and saying so in its frames)
+and the determinism matrix replays it: 27 configurations (Node, Deno,
+Chrome x JIT tiers x 1, 2 and 4 threads), 20,000 ticks each, equal on every
+tick, at 0.04 to 0.15 ms a tick on TurboFan. `net/run-arena.mjs` is the
+online gate: a relay on the arena's sim, seven AI fighters through its
+native door and Chrome with a fighter at its controls; 8 sessions, 311
+interval hashes checked by the referee, all equal; 16 bytes a closed tick
+on average, about 6 KB/s down and 5 KB/s up a session.
+
+```sh
+node --test test/arena.test.mjs
+node tools/genarena.mjs --bots 8 --ticks 20000 --out logs/arena.qgl
+node harness/matrix.mjs --ticks 20000 --log logs/arena.qgl --wasm build/arena/game.wasm
+node net/run-arena.mjs [--bots 7] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05]
+```
+
+Not done yet: teams, vehicles, dropped weapons, a manual reload while firing,
+and a second map.
 
 ## Play it
 

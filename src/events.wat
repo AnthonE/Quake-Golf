@@ -31,8 +31,12 @@
   (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE)) (then (return)))
   (memory.fill (i32.add (i32.const @PLAYERS) (local.get $pb)) (i32.const 0) (i32.const @PSIZE))
   (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.const @PF_LIVE))
+#if ARENA
+  (call $a_spawn (local.get $p))
+#else
   ;; a join during the scoreboard gets its ball at the restart
   (call $to_tee (local.get $p) (i32.ne (i32.load (i32.const @HDR_STATE)) (i32.const @H_OVER)))
+#endif
   (if (i32.eq (i32.load (i32.const @HDR_STATE)) (i32.const @H_IDLE))
     (then
       (i32.store (i32.const @HDR_STATE) (i32.const @H_COUNT))

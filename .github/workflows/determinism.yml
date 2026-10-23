@@ -39,6 +39,10 @@ jobs:
         run: |
           node tools/genlog.mjs --pit --out logs/pit.qgl
           node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --runtimes node,deno,chromium
+      - name: The arena (build/arena/), a match of eight AI fighters
+        run: |
+          node tools/genarena.mjs --bots 8 --ticks 20000 --out logs/arena.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/arena.qgl --wasm build/arena/game.wasm --runtimes node,deno,chromium
       - name: The Xbox's sim (xbox/sim/), its Pentium III build natively and under qemu, against V8
         run: |
           node harness/matrix.mjs --ticks 20000 --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
@@ -46,6 +50,8 @@ jobs:
           node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
       - name: Xbox clients online (a relay on the Xbox's sim, a native client and a late one under qemu, impaired, a flipped bit healed, and the tiny client)
         run: node net/run-x2.mjs --seconds 40 --late 10 --flip 20
+      - name: The arena online (a relay on the arena's sim, eight AI fighters through its native door, every hash checked)
+        run: node net/run-arena.mjs --chrome 0 --bots 8 --seconds 40
       - name: 256 players in one room (the bot host's golfers, impaired, the 257th refused)
         run: node net/run-n1.mjs --chrome 0 --seconds 60
       - name: Spectators through a tree of relays (two edges on the root, a third two deep, 100 verifying spectators each, a player turned away at an edge)

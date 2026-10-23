@@ -13,7 +13,8 @@
 import * as W from '../net/wire.mjs';
 import * as L from '../src/layout.mjs';
 import { createImpair } from '../net/impair.js';
-import { writeClock } from './clock.mjs';
+import { writeClock, readClock } from './clock.mjs';
+import { arenaWord, arenaFrame } from '../src/arena-view.mjs';
 
 const epoch = () => performance.timeOrigin + performance.now();
 
@@ -56,7 +57,8 @@ const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.mi
 // of a session that went away, to resume. Returns this session's, once it ends.
 // failover: a relay silent for SILENT_MS is gone (a dead one's QUIC session would idle for far longer)
 const SILENT_MS = 1500;
-async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false, back = null, failover = false }) {
+// arena: the arena's input words (src/layout.mjs), with its frames
+async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false, back = null, failover = false, arena = false }) {
   const imp = createImpair({ ...impair, seed: (Math.random() * 2 ** 32) >>> 0 });
   const i32 = new Int32Array(memory.buffer);
   const u32 = new Uint32Array(memory.buffer);
@@ -167,14 +169,33 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
   Atomics.store(i32, L.CL_SENT >> 2, sentPresses);
   let inAck = 0, lastBundleT = -1, seq = 0;
   let lastMove = -1;
+  // the arena's: presses sampled, a bit flipping per press; the frame, latched every 8 ticks
+  const sent = { [L.CL_MELEE]: rd(L.CL_MELEE), [L.CL_GREN]: rd(L.CL_GREN), [L.CL_RELOAD]: rd(L.CL_RELOAD), [L.CL_USE]: rd(L.CL_USE) };
+  let frame = 0;
+  const take = (a) => { if (((rd(a) - sent[a]) | 0) > 0) { sent[a]++; return true; } return false; };
   const sample = (t) => {
+    // an automatic held: a shot asked for every tick, so it fires as fast as it can
+    if (arena && rd(L.CL_AUTO) && ((rd(L.CL_PRESSES) - sentPresses) | 0) <= 0) Atomics.store(i32, L.CL_PRESSES >> 2, sentPresses + 1);
     // a press advances the counter one step a tick, so quick clicks never merge
     if (((rd(L.CL_PRESSES) - sentPresses) | 0) > 0) sentPresses++;
     Atomics.store(i32, L.CL_SENT >> 2, sentPresses);
     const mv = rd(L.CL_MOVE);
     // the first tick with new move bits, and when they changed, for the latency figures
     if ((mv & 15) !== lastMove) { lastMove = mv & 15; f64[L.CL_MOVESEEN >> 3] = f64[L.CL_MOVEAT >> 3]; Atomics.store(i32, L.CL_MOVETICK >> 2, t); }
-    return W.packInput({ yaw: rd(L.CL_YAW), pitch: rd(L.CL_PITCH), move: mv & 15, jump: (mv >> 4) & 1, shot: sentPresses & 3, weapon: rd(L.CL_WEAPON) });
+    if (!arena) return W.packInput({ yaw: rd(L.CL_YAW), pitch: rd(L.CL_PITCH), move: mv & 15, jump: (mv >> 4) & 1, shot: sentPresses & 3, weapon: rd(L.CL_WEAPON) });
+    take(L.CL_MELEE);
+    take(L.CL_GREN);
+    Atomics.store(i32, L.CL_MSENT >> 2, sent[L.CL_MELEE]);
+    Atomics.store(i32, L.CL_GSENT >> 2, sent[L.CL_GREN]);
+    const st = t - welcome.roomStart;
+    if ((st & 7) === 0) {
+      // the view lag: this word's tick less the confirmed tick on screen now
+      const lag = t - readClock(i32, f64, L.CL_PLAY, epoch()) + 1;
+      frame = arenaFrame({ lag, reload: take(L.CL_RELOAD), use: take(L.CL_USE) });
+      Atomics.store(i32, L.CL_FRAME >> 2, frame);
+    }
+    return arenaWord({ yaw: rd(L.CL_YAW), pitch: rd(L.CL_PITCH), move: mv & 15, jump: (mv >> 4) & 1, shot: sentPresses & 3,
+      melee: sent[L.CL_MELEE] & 1, gren: sent[L.CL_GREN] & 1, slot: rd(L.CL_WEAPON), serial: (frame >> (st & 7)) & 1 });
   };
   const dw = wt.datagrams.writable.getWriter();
   const send = () => {

@@ -134,6 +134,16 @@ export const CL_STATE = NET + 64; // u32 0 connecting, 1 catching up, 2 playing,
 export const CL_SEQ = NET + 68; // u32, odd while the sim worker is stepping or restoring
 export const CL_QUEUED = NET + 72; // u32 ticks received, not yet stepped
 export const CL_KEYS = NET + 76; // u32 keyframes restored: the join's, then one per resync
+// The arena's input, written by the main thread (presses counted like CL_PRESSES):
+export const CL_MELEE = NET + 96; // u32 melee presses
+export const CL_GREN = NET + 100; // u32 grenade presses
+export const CL_RELOAD = NET + 104; // u32 reload presses
+export const CL_USE = NET + 108; // u32 pickup presses
+export const CL_AUTO = NET + 112; // u32 1 while an automatic's trigger is held: a shot asked for every tick
+// and by the net worker, for the prediction's word in progress:
+export const CL_MSENT = NET + 116; // u32 melee presses sampled; its bit is the low bit
+export const CL_GSENT = NET + 120; // u32 grenade presses sampled
+export const CL_FRAME = NET + 124; // u32 the frame being sent, a bit a tick
 // Clocks (client/clock.mjs), 32 B each, written by the net worker:
 export const CL_PLAY = NET + 128; // the playout clock, in server ticks: the confirmed world steps up to it
 export const CL_PRED = NET + 160; // the predicted clock: the server tick plus the input lead
@@ -306,3 +316,132 @@ export function describeSlice(s) {
   }
   return parts.join(' + ');
 }
+
+// ---- The arena: src/ built with ARENA (build/arena/game.wasm). The same
+// world, netcode and lockstep, a deathmatch on it: shields and health, two
+// guns carried, frag grenades, melee, pickups on pads, respawns. Golf's
+// balls, cup and hole clock are left out; the hole states run the match
+// (H_COUNT before it, H_PLAY during it, H_OVER for the scoreboard).
+//
+// Its input word: yaw b0-10 (1/2048 turn) | pitch b11-20 (512 level) | move
+// b21-24 (forward, back, left, right) | jump b25 | shot counter b26-27 |
+// melee b28 and grenade b29 (each flips once a press) | gun slot b30 |
+// b31 one bit of an 8-tick frame, bit (tick & 7): view lag in ticks b0-4,
+// reload b5, use (pick up) b6.
+export const AW_PITCH = 11;
+export const AW_MOVE = 21;
+export const AW_JUMP = 25;
+export const AW_SHOT = 26;
+export const AW_MELEE = 28;
+export const AW_GREN = 29;
+export const AW_SLOT = 30;
+export const AW_SERIAL = 31;
+export const AF_LAG = 31; // the frame's bits
+export const AF_RELOAD = 32;
+export const AF_USE = 64;
+export const LAG_MAX = 31;
+
+// A fighter's fields in the player record, where golf keeps its own.
+export const A_NEEDT = 29; // u8 ticks until stuck needles fall out
+export const A_RELOAD = 31; // u8 ticks of reload left
+export const A_HP = 34; // u8 health, 0..100
+export const A_SH = 35; // u8 shields, 0..100
+export const A_SHT = 36; // u16 ticks until the shields recharge
+export const A_GUN = 38; // u8 x 2, the weapon in each slot (W_*), 0 for none
+export const A_MAG = 40; // u8 x 2, rounds in each
+export const A_RES = 42; // u16 x 2, rounds in reserve
+export const A_GRENS = 46; // u8 frag grenades
+export const A_ACT = 47; // u8 AB_*: the last melee and grenade bits, the slot, a pending use
+export const A_KILLS = 48; // u16
+export const A_DEATHS = 50; // u16
+export const A_RESPAWN = 54; // u16 ticks until a dead fighter comes back
+export const A_COOL = 56; // u16 ticks until the next melee or grenade
+export const A_BURST = 58; // u8 rounds left in a burst
+export const A_LAG = 59; // u8 view lag in ticks, from the last whole frame
+export const A_FRAME = 60; // u8 the frame so far
+export const A_NEEDLES = 61; // u8 needles stuck in this fighter
+export const A_NEEDLER = 62; // u8 whose
+export const A_HITBY = 63; // u8 who hit this fighter last
+export const AB_MELEE = 1;
+export const AB_GREN = 2;
+export const AB_SLOT = 4;
+export const AB_USE = 8;
+export const PF_DEAD = 8;
+export const J_TGT = 27; // u8 a needle's target
+export const J_HOME = 29; // u8 1 when it has one
+export const K_BOLT = 3;
+export const K_NEEDLE = 4;
+
+// Arena state past the projectiles (not in the prediction's copy): weapon
+// pads and spawn points, laid out at init from the seed.
+export const ARENA = REGION + 0xc100;
+export const NPAD = 12;
+export const PAD = ARENA; // 12 x 16 B: f32 x, y, z | u8 weapon | u8 0 | u16 ticks until it's back
+export const PAD_SIZE = 16;
+export const NSPAWN = 32;
+export const SPAWNS = ARENA + 0x100; // 32 x 8 B: f32 x, z
+// Where every fighter stood after each of the last 32 ticks, for shots
+// checked where the shooter saw their target: 32 x 256 x 16 B (f32 x, y, z,
+// u32 0), slot tick & 31. It takes the balls' place.
+export const HIST = REGION + 0x10000;
+export const HIST_TICK = NPLAYER * 16;
+
+// The match: slayer to FRAG_LIMIT, or the clock.
+export const FRAG_LIMIT = 25;
+export const MATCH_TICKS = 75000; // 10 min
+export const RESPAWN_TICKS = 375; // 3 s
+export const SHIELD_DELAY = 625; // 5 s without a hit before the shields come back
+export const NEEDLE_TICKS = 250; // 2 s
+export const SUPERCOMBINE = 7; // needles in one fighter at once
+export const COOL_TICKS = 80;
+export const SWAP_TICKS = 40;
+export const A_FUSE = 225; // 1.8 s
+export const A_SPAN = [352, 672, 440, 584]; // x0, x1, z0, z1: the gulch the map is laid out in
+export const A_BOX = [371, 653, 456, 568]; // where fighters can go: the floor and the feet of its walls
+
+// Weapons, by W_* (index 0 is none). Reloads fit a u8 of ticks. type: 0 hitscan, 1 projectile, 2 sword.
+// head: 0 none, 1 a headshot kills once the shields are down, 2 it always
+// kills. spread in yaw units (1/16384 turn). The sim reads this through the
+// (!arm field w) macro, the client for the HUD.
+export const W_AR = 1;
+export const W_BR = 2;
+export const W_MAGNUM = 3;
+export const W_SNIPER = 4;
+export const W_SHOTGUN = 5;
+export const W_ROCKET = 6;
+export const W_PLASMA = 7;
+export const W_NEEDLER = 8;
+export const W_SWORD = 9;
+export const ARMS = [
+  null,
+  { name: 'ASSAULT RIFLE', type: 0, auto: 1, refire: 11, mag: 32, res: 192, dmg: 8, head: 0, spread: 40, pellets: 1, range: 90, reload: 220, zoom: 1 },
+  { name: 'BATTLE RIFLE', type: 0, auto: 0, refire: 44, mag: 36, res: 108, dmg: 9, head: 1, spread: 6, pellets: 1, range: 160, reload: 220, zoom: 2, burst: 3 },
+  { name: 'MAGNUM', type: 0, auto: 0, refire: 22, mag: 8, res: 40, dmg: 28, head: 1, spread: 4, pellets: 1, range: 110, reload: 160, zoom: 2 },
+  { name: 'SNIPER RIFLE', type: 0, auto: 0, refire: 75, mag: 4, res: 20, dmg: 120, head: 2, spread: 0, pellets: 1, range: 420, reload: 240, zoom: 5 },
+  { name: 'SHOTGUN', type: 0, auto: 0, refire: 105, mag: 6, res: 18, dmg: 15, head: 0, spread: 260, pellets: 15, range: 28, reload: 250, zoom: 1 },
+  { name: 'ROCKET LAUNCHER', type: 1, auto: 0, refire: 110, mag: 2, res: 6, dmg: 230, head: 0, spread: 0, pellets: 1, range: 0, reload: 250, zoom: 2, kind: 1, speed: 36 },
+  { name: 'PLASMA RIFLE', type: 1, auto: 1, refire: 13, mag: 100, res: 0, dmg: 10, head: 0, spread: 40, pellets: 1, range: 0, reload: 0, zoom: 1, kind: 3, speed: 70 },
+  { name: 'NEEDLER', type: 1, auto: 1, refire: 14, mag: 20, res: 60, dmg: 6, head: 0, spread: 70, pellets: 1, range: 0, reload: 230, zoom: 1, kind: 4, speed: 34 },
+  { name: 'ENERGY SWORD', type: 2, auto: 0, refire: 70, mag: 10, res: 0, dmg: 255, head: 0, spread: 0, pellets: 1, range: 5, reload: 0, zoom: 1 },
+];
+export const MELEE_DMG = 70;
+export const GREN_DMG = 150;
+export const SUPER_DMG = 250;
+// kill feed causes past the weapons
+export const KILL_GREN = 10;
+export const KILL_MELEE = 11;
+export const KILL_BEHIND = 12;
+export const KILL_SUPER = 13;
+export const KILL_FALL = 14;
+
+// More FX kinds, for the arena. A tracer's record is its end (the hit, or
+// where the ray gave out), the weapon as its size, the shot number; a hit's is
+// where it landed, the victim as `shot`, and what it struck as its size
+// (1 shields, 2 health, 3 the head); a kill's, the killer as owner, the victim
+// as `shot`, the cause (W_* or KILL_*) as its size.
+export const FX_TRACER = 4;
+export const FX_HIT = 5;
+export const FX_KILL = 6;
+export const FX_SPAWN = 7;
+export const FX_PICKUP = 8;
+export const FX_MELEE = 9;

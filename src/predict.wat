@@ -23,7 +23,11 @@
       (then
         (i32.store (i32.const @(HDR_STATE + PRED_D)) (i32.const @H_PLAY))
         (i32.store (i32.const @(HDR_START + PRED_D)) (local.get $t))
+#if ARENA
+        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @MATCH_TICKS)))))
+#else
         (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @LIMIT_TICKS)))))
+#endif
     (local.set $t (i32.add (local.get $t) (i32.const 1)))
     (i32.store (i32.const @(HDR_TICK + PRED_D)) (local.get $t))
     (local.set $o (i32.add (i32.const @PTRACK) (i32.shl (local.get $k) (i32.const 4))))

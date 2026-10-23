@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quake Arena</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d14; color: #cfd3e0; font: 14px/1.4 ui-monospace, monospace; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; image-rendering: pixelated; }
+  #note { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; }
+</style>
+<canvas id="screen"></canvas>
+<div id="note">loading…</div>
+<script type="module" src="./arena.mjs"></script>
