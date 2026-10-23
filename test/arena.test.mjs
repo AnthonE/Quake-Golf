@@ -16,7 +16,17 @@ async function arena(seed = 7, n = 2) {
   const step = (recs = []) => { sim.feedPlayers(recs); sim.x.step(); };
   step(Array.from({ length: n }, (_, p) => [L.EV_JOIN, p]));
   while (v.hole().state !== L.H_PLAY) step();
-  return { sim, v, dv, step };
+  const g = { sim, v, dv, step };
+  // Fiesta deals random guns: these tests start everyone on slayer's rifle and magnum
+  for (let p = 0; p < n; p++) loadout(g, p, L.W_AR, L.W_MAGNUM);
+  return g;
+}
+
+function loadout(g, p, w0, w1) {
+  const b = L.PLAYERS + p * L.PSIZE;
+  g.dv.setUint8(b + L.A_GUN, w0); g.dv.setUint8(b + L.A_GUN + 1, w1);
+  g.dv.setUint8(b + L.A_MAG, L.ARMS[w0].mag); g.dv.setUint8(b + L.A_MAG + 1, L.ARMS[w1].mag);
+  g.dv.setUint16(b + L.A_RES, L.ARMS[w0].res, true); g.dv.setUint16(b + L.A_RES + 2, L.ARMS[w1].res, true);
 }
 
 function put(g, p, x, z, y = g.v.height(x, z)) {
@@ -56,14 +66,13 @@ test('the arena is its own sim: another wasm, the same engine', async () => {
   for (const name of ['init', 'step', 'step_mt', 'worker_run', 'predict', 'snapshot', 'restore', 'regrid', 'hash_region']) assert.equal(typeof s.x[name], 'function', name);
 });
 
-test('every seed lays out a walled gulch: pads and spawns on its floor, walls above it', async () => {
+test('every seed lays out a walled gulch: spawns on its floor, walls above it, no guns on it in Fiesta', async () => {
   const s = await newArena();
   const v = new View(s.memory.buffer);
   for (const seed of [1, 2, 7, 99, 0xdeadbeef]) {
     s.init(seed);
     const pads = v.pads();
-    assert.equal(pads.length, L.NPAD);
-    assert.deepEqual([...new Set(pads.map((p) => p.weapon))].sort(), [2, 4, 5, 6, 7, 8, 9]);
+    assert.equal(pads.length, L.FIESTA ? 0 : L.NPAD);
     const floor = v.height(512, 512);
     for (const p of pads) {
       assert.ok(p.pos[0] > L.A_BOX[0] && p.pos[0] < L.A_BOX[1] && p.pos[2] > L.A_BOX[2] && p.pos[2] < L.A_BOX[3], `seed ${seed}: pad off the floor`);
@@ -99,7 +108,8 @@ test('a fight: shields, then health, a kill, and three seconds later a respawn o
   assert.ok(g.v.fighter(1).dead, 'still dead at 3 s less a tick');
   g.step();
   const back = g.v.fighter(1);
-  assert.deepEqual([back.dead, back.hp, back.sh, back.gun, back.mag], [false, 100, 100, [L.W_AR, L.W_MAGNUM], [32, 8]]);
+  assert.deepEqual([back.dead, back.hp, back.sh, back.grens], [false, 100, 100, 2]);
+  assert.deepEqual(back.mag, back.gun.map((w) => L.ARMS[w].mag), 'two full guns');
 });
 
 test('shields come back after five quiet seconds, health once they are full', async () => {
@@ -192,13 +202,17 @@ test('frames: a reload asked for refills the magazine from the reserve; a use pi
   };
   // the frame starts on a tick that's a multiple of 8
   while (g.v.tick & 7) send(0, 1);
-  send(arenaFrame({ reload: 1 }), 8);
+  send(arenaFrame({ lag: 5, reload: 1 }), 8);
+  assert.equal(g.v.fighter(0).lag, 5);
   assert.equal(g.v.fighter(0).reload, L.ARMS[L.W_AR].reload - 1);
   send(0, L.ARMS[L.W_AR].reload);
   const after = g.v.fighter(0);
+  assert.equal(after.lag, 5, 'windows with no frame in them keep the lag');
   assert.equal(after.mag[0], 32);
   assert.equal(after.res[0], before.res[0] - (32 - before.mag[0]));
-  // walk onto the sword's pad: nothing without a use, the sword with one
+  // walk onto a sword's pad (laid by hand: Fiesta has none): nothing without a use, the sword with one
+  g.dv.setFloat32(L.PAD, 520, true); g.dv.setFloat32(L.PAD + 4, g.v.height(520, 530), true); g.dv.setFloat32(L.PAD + 8, 530, true);
+  g.dv.setUint8(L.PAD + 12, L.W_SWORD);
   const pad = g.v.pads().find((p) => p.weapon === L.W_SWORD);
   put(g, 0, pad.pos[0], pad.pos[2]);
   send(0, 16);
@@ -281,22 +295,40 @@ test('needles home on their target, and seven at once go off together', async ()
   assert.ok(20 - g.v.fighter(0).mag[0] <= 11, `${20 - g.v.fighter(0).mag[0]} needles fired`);
 });
 
-test('the match: first to the frag limit ends it, the scoreboard, then a new one from zero', async () => {
-  const g = await arena();
-  const b0 = L.PLAYERS;
-  g.dv.setUint16(b0 + L.A_KILLS, L.FRAG_LIMIT - 1, true);
-  put(g, 0, 500, 510); put(g, 1, 503, 510);
-  g.dv.setUint8(L.PLAYERS + L.A_GUN, L.W_SWORD);
-  g.dv.setUint8(L.PLAYERS + L.A_MAG, 10);
-  fire(g, 0, 1, { max: 5 });
+test('Fiesta: random guns at every spawn; ten minutes, no frag limit, the clock ends it, then a new match from zero', async () => {
+  const g = await arena(7, 4);
+  // spawns deal two different guns, full, and every gun turns up
+  const seen = new Set();
+  for (let k = 0; k < 60; k++) {
+    for (let p = 0; p < 4; p++) g.dv.setUint8(L.PLAYERS + p * L.PSIZE + L.P_FL, L.PF_LIVE | L.PF_DEAD), g.dv.setUint16(L.PLAYERS + p * L.PSIZE + L.A_RESPAWN, 1, true);
+    g.step();
+    for (let p = 0; p < 4; p++) {
+      const f = g.v.fighter(p);
+      assert.ok(!f.dead && f.gun[0] !== f.gun[1] && f.gun.every((w) => w >= 1 && w < L.ARMS.length), `slot ${p}: ${f.gun}`);
+      assert.deepEqual(f.mag, f.gun.map((w) => L.ARMS[w].mag));
+      f.gun.forEach((w) => seen.add(w));
+    }
+  }
+  assert.equal(seen.size, L.ARMS.length - 1, 'every gun dealt');
+  // kills past slayer's limit don't end it
+  g.dv.setUint16(L.PLAYERS + L.A_KILLS, L.FRAG_LIMIT + 5, true);
+  g.dv.setUint16(L.PLAYERS + L.PSIZE + L.A_KILLS, 3, true);
+  for (let i = 0; i < 10; i++) g.step();
+  assert.equal(g.v.hole().state, L.H_PLAY);
+  const h0 = g.v.hole();
+  assert.equal(h0.until - h0.start, L.MATCH_TICKS, 'ten minutes');
+  // the clock does: the scoreboard, then a new match
+  g.dv.setUint32(L.HDR_UNTIL, g.v.tick + 5, true);
+  for (let i = 0; i < 8; i++) g.step();
   assert.equal(g.v.hole().state, L.H_OVER);
+  assert.equal(g.v.fighter(0).kills, L.FRAG_LIMIT + 5, 'the scores stand on the scoreboard');
   for (let i = 0; i < L.OVER_TICKS; i++) g.step();
   const h = g.v.hole();
   assert.deepEqual([h.state, h.hole], [L.H_COUNT, 1]);
-  assert.deepEqual([g.v.fighter(0).kills, g.v.fighter(1).deaths, g.v.fighter(0).gun[0]], [0, 0, L.W_AR]);
+  assert.deepEqual([g.v.fighter(0).kills, g.v.fighter(1).kills], [0, 0]);
   // no damage until play starts again
   put(g, 0, 500, 510); put(g, 1, 503, 510);
-  g.dv.setUint8(L.PLAYERS + L.A_GUN, L.W_SWORD);
+  loadout(g, 0, L.W_SWORD, L.W_AR);
   fire(g, 0, 1, { max: 100 });
   assert.equal(g.v.fighter(1).deaths, 0);
 });
@@ -338,10 +370,10 @@ test('the prediction matches the confirmed arena bit for bit: runs, bursts, a sw
 
 test('an arena match of AI fighters replays to the same hash on every tick, on 1 and 4 threads', async () => {
   const bytes = arenaBytes();
-  const { log, scores } = await playArena({ bytes, bots: 8, ticks: 3000, leaveAt: 1000 });
+  const { log, scores } = await playArena({ bytes, bots: 8, ticks: 6000, leaveAt: 1000 });
   assert.ok(scores.reduce((s, f) => s + f.kills, 0) > 0, 'someone scored');
   const parsed = parseLog(log);
-  const a = await replay({ bytes, log: parsed, ticks: 3000, threads: 1, tag: 'a1' });
-  const b = await replay({ bytes, log: parsed, ticks: 3000, threads: 4, tag: 'a4', startWorkers });
+  const a = await replay({ bytes, log: parsed, ticks: 6000, threads: 1, tag: 'a1' });
+  const b = await replay({ bytes, log: parsed, ticks: 6000, threads: 4, tag: 'a4', startWorkers });
   assert.deepEqual([...decodeTrace(a.trace).tickHashes], [...decodeTrace(b.trace).tickHashes]);
 });

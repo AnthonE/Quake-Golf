@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| A2 · 256 fighters | one arena room full: Chrome and 255 AI fighters, Fiesta, every session's interval hashes equal to the referee's | **passed** · [results](#256-in-one-room) |
 | A1 · the arena | a deathmatch on the same engine: Chrome and AI fighters in one room over the real relay, every session's interval hashes equal to the referee's, kills, respawns and pickups; a match of fighters equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads | **passed** · [the arena](#the-arena) |
 | N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
 | N3 · spectators | one room served through a tree of relays, two deep, to 600 spectators on lossy links: every edge's referee hashes the room as the root's does, every spectator's world too, Chrome watching two relays down, a player turned away at an edge | **passed** · [results](#n3-spectators) |
@@ -29,9 +30,11 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 Not a golfer? The same engine runs a deathmatch: `src/` built with `ARENA`
 set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
-prediction, spectators and replays. Slayer to 25 kills (or 10 minutes) in
-a walled gulch with a base at each end, rocks for cover and weapon pads
-about the floor.
+prediction, spectators and replays, up to 256 in a room. The mode is
+Fiesta: ten minutes, everyone spawns with two guns drawn at random, the
+most kills at the end wins, in a walled gulch with a base at each end and
+rocks for cover. (Set `FIESTA = 0` in `src/layout.mjs` for slayer instead:
+an assault rifle and a magnum, guns on pads about the floor, first to 25.)
 
 ```sh
 npm ci && sh tools/install-deno.sh   # once
@@ -46,11 +49,12 @@ Click to play. The mouse aims, WASD runs, Space jumps, left click fires
 1/2, X or the wheel swap your two guns, Q melee, G throws a frag, R reloads,
 E picks up the gun on the pad you stand on, Tab shows the scores, F goes
 fullscreen, N the net graph. `?bot=1` hands your slot to an AI fighter;
-`?watch=1` spectates. More fighters for a running room:
-`node net/arena-bots.mjs 127.0.0.1:4434 --bots 7 [--skill 0.6]`.
+`?watch=1` spectates. More fighters for a running room (up to 255, one
+process, one shared copy of the world):
+`node net/bot-host.mjs --arena --relay 127.0.0.1:4434 --bots 50 [--skill 0.6]`.
 
-You spawn with an assault rifle out, a magnum on your back and two frags,
-under 100 points of shields and 100 of health. Shields take damage first and
+You spawn with two different guns of the nine, drawn at random, full, and
+two frags, under 100 points of shields and 100 of health. Shields take damage first and
 come back five seconds after the last hit; health comes back once they're
 full. A kill gives the killer a frag (up to four). Three seconds after a
 death you're back, at the spawn point farthest from the nearest enemy of
@@ -70,9 +74,9 @@ four drawn. The guns, with a nod to Halo's ([`ARMS` in src/layout.mjs](src/layou
 | Frag grenade | thrown (G) | 150 splash | goes off 1.8 s after the throw |
 | Melee (Q) | any gun | 70 | lunges 2.4 m; from behind, it kills |
 
-The rocket launcher sits on the middle pad, a sniper rifle on each base;
-shotguns, battle rifles, a sword, a needler and plasma rifles are about the
-floor. A gun you carry is ammo when you walk over its pad; any other is
+In slayer, the rocket launcher sits on the middle pad, a sniper rifle on
+each base; shotguns, battle rifles, a sword, a needler and plasma rifles
+are about the floor. A gun you carry is ammo when you walk over its pad; any other is
 yours with E, in place of the one in your hands. A pad comes back 30 s after
 (60 s for the sniper, the rocket and the sword).
 
@@ -80,10 +84,15 @@ yours with E, in place of the one in your hands. A pad comes back 30 s after
 melee, pickups, spawns and the match, all serial and in slot order like the
 rest of the sim; the golf files keep their code behind `#if !ARENA` where
 the two differ (the input word, the clamp to the map, joins, the end-of-tick
-rules). The arena's input word gives up three bits of yaw (11 bits, 0.18°,
-as fine as the pitch) for melee, grenade and gun-slot bits, and its top bit
-carries an 8-tick frame a bit a tick: the fighter's view lag in ticks, a
-reload and a pickup request. Hitscan shots are lag-compensated inside the
+rules); Fiesta and slayer differ only behind `#if FIESTA`. The arena's
+input word gives up three bits of yaw (11 bits, 0.18°, as fine as the
+pitch) for melee, grenade and gun-slot bits, and its top bit carries an
+8-tick frame a bit a tick: the fighter's view lag in ticks, a reload and a
+pickup request. The word sits on golf's fields (yaw low, pitch, then a high
+byte of the bits that change least), which wire v4 codes tightest, and a
+frame goes only when there is news (a request, the lag 2 ticks off, or a
+second gone), so between them a still player's word doesn't change and
+costs nothing. Hitscan shots are lag-compensated inside the
 lockstep: the sim keeps where every fighter stood after each of the last 32
 ticks (in the balls' place in the region, so it is hashed and in every
 keyframe), and a shot is checked against the targets where the shooter saw
@@ -109,10 +118,11 @@ assault-rifle fight through shields to a kill and the respawn on its tick;
 shields and health coming back; the magnum's four-shot and the sniper's
 one-shot head kills; lag compensation (a sniper shot at where a running
 target stood 12 and 25 ticks before lands when the frames say so, and the
-same aim claiming no lag misses); reload and pickup frames; the sword, a
+same aim claiming no lag misses); reload and pickup frames (and windows without a frame keeping the lag); the sword, a
 butt to the front and an assassination; rocket splash killing two and a
 rocket jump at half damage; the frag's fuse; a needler supercombine; the
-match from the frag limit through the scoreboard to a new one; the
+Fiesta's random loadouts (two different guns, full, every gun dealt), its
+clock ending the match whatever the kills and a new one from zero; the
 prediction equal to the confirmed world bit for bit through runs, bursts, a
 swap, a reload, a frag and a butt; and a match of eight AI fighters equal
 on every tick on 1 and 4 threads. `tools/genarena.mjs` records such a match
@@ -121,9 +131,10 @@ and the determinism matrix replays it: 27 configurations (Node, Deno,
 Chrome x JIT tiers x 1, 2 and 4 threads), 20,000 ticks each, equal on every
 tick, at 0.04 to 0.15 ms a tick on TurboFan. `net/run-arena.mjs` is the
 online gate: a relay on the arena's sim, seven AI fighters through its
-native door and Chrome with a fighter at its controls; 8 sessions, 311
-interval hashes checked by the referee, all equal; 16 bytes a closed tick
-on average, about 6 KB/s down and 5 KB/s up a session.
+native door and Chrome with a fighter at its controls; 8 sessions, 352
+interval hashes checked by the referee, all equal; 8.6 bytes a closed tick
+on average, about 4 KB/s down and 2 KB/s up a session. CI runs it full:
+256 fighters, 9,481 hashes checked here, all equal.
 
 ```sh
 node --test test/arena.test.mjs
@@ -131,6 +142,35 @@ node tools/genarena.mjs --bots 8 --ticks 20000 --out logs/arena.qgl
 node harness/matrix.mjs --ticks 20000 --log logs/arena.qgl --wasm build/arena/game.wasm
 node net/run-arena.mjs [--bots 7] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05]
 ```
+
+### 256 in one room
+
+The sim isn't what limits a room. 256 fighters all holding the trigger, on
+one thread, step in 0.36 ms a tick at the median and 0.94 ms at p99, of the
+8 ms a tick has; a room of 256 AI fighters, their thinking included, in
+0.76 ms. So `node net/run-arena.mjs --bots 255 --seconds 60` filled a room:
+a relay on the arena's sim, the bot host's 255 fighters through its native
+door (one process, one shared world, 45% of one core) and Chrome with a
+fighter at its controls, all on one 4-core machine.
+
+![256 in one room: Chrome's view in a Fiesta of 256](docs/a2-fiesta-256.png)
+
+| | 256 fighters, Fiesta, 60 s |
+| --- | --- |
+| sessions in, of 256 | 256, none refused |
+| interval hashes the referee checked | 14,605, all equal |
+| kills in the minute | 2,224 |
+| a closed tick | 271 B mean, 663 max |
+| down / up a session | 71 KB/s / 2 KB/s |
+| inputs the relay had to stand in for (late) | 1.2% |
+| Chrome | kept up, 0 kills, 11 deaths |
+
+The bytes are the cost of a crowd that never stops turning: every fighter
+aiming is a changed word every tick: about 8.5 bits a fighter a tick. On the golf
+layout of the word the same room took 491 B a tick and 129 KB/s; and every
+bundle fits one datagram again. The late inputs and the relay's few stalls
+are this one machine running the relay, the referee, 255 bots and a headless
+Chrome at once.
 
 Not done yet: teams, vehicles, dropped weapons, a manual reload while firing,
 and a second map.

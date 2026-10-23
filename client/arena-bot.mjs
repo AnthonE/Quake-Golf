@@ -6,7 +6,7 @@
 // walks to a weapon pad and picks up what's on it. Deterministic from its
 // seed and what it sees, so a match of bots is an ordinary event log.
 import * as L from '../src/layout.mjs';
-import { arenaWord, arenaFrame } from '../src/arena-view.mjs';
+import { arenaWord, arenaFrame, frameDue } from '../src/arena-view.mjs';
 import { aimAt } from './bot.mjs';
 
 const EYE = 1.6;
@@ -52,6 +52,7 @@ export class Fighter {
     this.target = -1; this.err = [0, 0];
     this.goal = null; this.goalUntil = 0;
     this.frame = 0;
+    this.sent = {}; // the last frame's lag and tick
     this.lastFire = -1e9;
     this.wantUse = false; this.wantReload = false;
     this.lag = 0;
@@ -63,24 +64,34 @@ export class Fighter {
   think(view, t, lag = 0) {
     const me = view.fighter(this.slot);
     const h = view.hole();
-    // the frame: latched every 8 ticks, a bit a tick
+    // the frame: latched every 8 ticks, a bit a tick, when there's news
     if ((t & 7) === 0) {
-      this.frame = arenaFrame({ lag, reload: this.wantReload, use: this.wantUse });
+      const ask = this.wantReload || this.wantUse;
+      this.frame = frameDue(this.sent, t, lag, ask) ? arenaFrame({ lag, reload: this.wantReload, use: this.wantUse }) : 0;
       this.wantReload = this.wantUse = false;
     }
     const serial = (this.frame >> (t & 7)) & 1;
     if (!me.live || me.dead || h.state === L.H_OVER) return this.word({ serial });
     const eye = [me.pos[0], me.pos[1] + EYE, me.pos[2]];
 
-    // the nearest enemy in sight, kept a while once chosen
-    let best = -1, bestD = 150;
-    for (let q = 0; q < L.NPLAYER; q++) {
-      if (q === this.slot) continue;
-      const f = view.player(q);
-      if (!f.live || view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & L.PF_DEAD) continue;
-      const d = Math.hypot(f.pos[0] - me.pos[0], f.pos[2] - me.pos[2]) - (q === this.target ? 15 : 0);
-      if (d < bestD && sees(view, eye, [f.pos[0], f.pos[1] + 1.2, f.pos[2]])) { best = q; bestD = d; }
-    }
+    // the nearest enemy in sight, looked for every 16 ticks (each bot on its own
+    // tick of the 16, so a room of them spreads the work); between looks the
+    // one chosen is kept while it lives and, checked every 4 ticks, is in sight
+    const alive = (q) => q >= 0 && view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] === (L.PF_LIVE | (view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & L.PF_GROUND));
+    const chest = (q) => { const b = L.PLAYERS + q * L.PSIZE; return [view.dv.getFloat32(b + L.P_PX, true), view.dv.getFloat32(b + L.P_PY, true) + 1.2, view.dv.getFloat32(b + L.P_PZ, true)]; };
+    let best = this.target;
+    if (((t + this.slot) & 15) === 0 || !alive(best)) {
+      const near = [];
+      for (let q = 0; q < L.NPLAYER; q++) {
+        if (q === this.slot || !alive(q)) continue;
+        const c = chest(q);
+        const d = Math.hypot(c[0] - me.pos[0], c[2] - me.pos[2]) - (q === this.target ? 15 : 0);
+        if (d < 150) near.push([d, q]);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+      best = -1;
+      for (const [, q] of near.slice(0, 6)) if (sees(view, eye, chest(q))) { best = q; break; }
+    } else if (((t + this.slot) & 3) === 0 && !sees(view, eye, chest(best))) best = -1;
     if (best !== this.target) {
       this.target = best;
       // a new target: the aim starts off by up to 20 degrees and settles

@@ -14,7 +14,7 @@ import * as W from '../net/wire.mjs';
 import * as L from '../src/layout.mjs';
 import { createImpair } from '../net/impair.js';
 import { writeClock, readClock } from './clock.mjs';
-import { arenaWord, arenaFrame } from '../src/arena-view.mjs';
+import { arenaWord, arenaFrame, frameDue } from '../src/arena-view.mjs';
 
 const epoch = () => performance.timeOrigin + performance.now();
 
@@ -172,6 +172,7 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
   // the arena's: presses sampled, a bit flipping per press; the frame, latched every 8 ticks
   const sent = { [L.CL_MELEE]: rd(L.CL_MELEE), [L.CL_GREN]: rd(L.CL_GREN), [L.CL_RELOAD]: rd(L.CL_RELOAD), [L.CL_USE]: rd(L.CL_USE) };
   let frame = 0;
+  const lastFrame = {}; // the last frame sent: its lag and tick
   const take = (a) => { if (((rd(a) - sent[a]) | 0) > 0) { sent[a]++; return true; } return false; };
   const sample = (t) => {
     // an automatic held: a shot asked for every tick, so it fires as fast as it can
@@ -190,8 +191,9 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
     const st = t - welcome.roomStart;
     if ((st & 7) === 0) {
       // the view lag: this word's tick less the confirmed tick on screen now
-      const lag = t - readClock(i32, f64, L.CL_PLAY, epoch()) + 1;
-      frame = arenaFrame({ lag, reload: take(L.CL_RELOAD), use: take(L.CL_USE) });
+      const lag = Math.round(t - readClock(i32, f64, L.CL_PLAY, epoch()) + 1);
+      const reload = take(L.CL_RELOAD), use = take(L.CL_USE);
+      frame = frameDue(lastFrame, st, lag, reload || use) ? arenaFrame({ lag, reload, use }) : 0;
       Atomics.store(i32, L.CL_FRAME >> 2, frame);
     }
     return arenaWord({ yaw: rd(L.CL_YAW), pitch: rd(L.CL_PITCH), move: mv & 15, jump: (mv >> 4) & 1, shot: sentPresses & 3,

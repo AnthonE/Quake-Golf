@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A1, the arena online: a relay on the arena's sim, AI fighters through its
-// native door (net/arena-bots.mjs), and Chrome playing the arena's page with
+// native door (net/bot-host.mjs --arena, one world shared by them all), and Chrome playing the arena's page with
 // a fighter at its controls, over a lossy network if asked. Passes when the
 // referee checked interval hashes from every session and none differed,
 // someone was killed, and Chrome kept up. Screenshots go to traces/.
@@ -30,7 +30,11 @@ rmSync(summaryPath, { force: true });
 const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--seed', '7',
   '--wasm', 'build/arena/game.wasm', '--duration', String(seconds + 40), '--summary', summaryPath, '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
 await new Promise((ok) => setTimeout(ok, 1500));
-const bots = nbots ? spawn(process.execPath, ['net/arena-bots.mjs', '127.0.0.1:4434', '--bots', String(nbots), '--seconds', String(seconds + 10)], { stdio: ['ignore', 'inherit', 'inherit'] }) : null;
+const botsPath = 'traces/arena.bots.json';
+rmSync(botsPath, { force: true });
+const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--arena', '--relay', '127.0.0.1:4434', '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
+  { stdio: ['ignore', 'inherit', 'inherit'] }) : null;
+const botsDone = bots ? new Promise((ok) => bots.once('exit', ok)) : null;
 
 const require = createRequire(import.meta.url);
 const { chromium } = (() => { for (const n of ['playwright', 'playwright-core']) { try { return require(n); } catch { /* next */ } } throw new Error('playwright not found'); })();
@@ -72,15 +76,20 @@ try {
   await browser.close();
   server.close();
   bots?.kill('SIGINT');
+  await Promise.race([botsDone, new Promise((ok) => setTimeout(ok, 5000))]);
   relay.kill('SIGTERM');
   await new Promise((ok) => setTimeout(ok, 1500));
 }
 const r = existsSync(summaryPath) ? JSON.parse(readFileSync(summaryPath, 'utf8')) : null;
 report.relay = r && { sessions: r.sessions, compared: r.compared, agreed: r.agreed, mismatches: r.mismatches, keys: r.keys, repairs: r.repairs, downKBpsPerSession: r.downKBpsPerSession, upKBpsPerSession: r.upKBpsPerSession, tickBytes: r.tickBytes };
+const b = existsSync(botsPath) ? JSON.parse(readFileSync(botsPath, 'utf8')) : null;
+report.botHost = b && { joined: b.joined, rejected: b.rejected, errors: b.errors, cpuPctOfOneCore: b.cpuPctOfOneCore, meanStepMs: b.world.meanStepMs, worstStepMs: b.world.worstStepMs,
+  kills: b.world.players.reduce((n, p) => n + p.kills, 0), downKBpsEach: b.sessions.length ? Number((b.sessions.reduce((n, x) => n + x.downKB, 0) / b.sessions.length / seconds).toFixed(1)) : 0 };
 const gate = {
+  everyBotIn: !nbots || (!!b && b.joined === nbots && !b.errors.length),
   refereeChecked: !!r && r.compared >= 4 * (nbots + chrome),
   hashesAgree: !!r && (r.mismatches?.length ?? r.mismatches) === 0 && r.agreed === r.compared,
-  someoneDied: (report.chromeState || []).some((s) => s.kills + s.deaths > 0) || !chrome,
+  someoneDied: (report.chromeState || []).some((s) => s.kills + s.deaths > 0) || (report.botHost?.kills ?? 0) > 0,
   chromeKeptUp: (report.chromeState || []).every((s) => !s.behind),
   noErrors: report.errors.length === 0,
 };

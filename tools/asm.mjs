@@ -2,7 +2,7 @@
 // The macro assembler. Hand-written WAT in, game.wasm out, no compiler.
 //
 //   #include "file.wat"     splice another source file
-//   #if DEBUG / #else / #endif   (and #if ARENA, #if !ARENA)
+//   #if DEBUG / #else / #endif   (and #if ARENA, #if !ARENA, #if FIESTA)
 //   @NAME, @(expr)          layout constants from the sim's layout.mjs, folded at build time
 //
 // Two sims, each from its own directory: src/ (the browsers, Node and the
@@ -211,7 +211,8 @@ export function forbid(wat, where = 'source') {
 export function expand(file, { DEBUG = false, ARENA = false, layout: lay = layout, macros = makeMacros } = {}) {
   const scope = { ...lay, ...lay.PHYS, DEBUG: DEBUG ? 1 : 0 };
   let src = include(file);
-  src = conditionals(src, { DEBUG, ARENA });
+  // the arena's mode is a layout constant, so #if FIESTA picks its rules at build time
+  src = conditionals(src, { DEBUG, ARENA, FIESTA: ARENA && !!lay.FIESTA });
   src = stripComments(src);
   src = expandMacros(src, macros({ DEBUG }));
   src = constants(src, scope);

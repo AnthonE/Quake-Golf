@@ -6,12 +6,12 @@
 // --xbox runs the room on the Xbox's sim (build/xbox/game.wasm), for Xboxes
 // and xemu on its native door, 4434: the browsers play another sim.
 // --arena runs the room on the arena's sim (build/arena/game.wasm), the
-// deathmatch, with --bots AI fighters in it (net/arena-bots.mjs).
+// deathmatch, with --bots AI fighters in it (net/bot-host.mjs --arena).
 // Another machine on the LAN can join with --host 0.0.0.0 if its Chrome treats
 // this page as secure: chrome://flags/#unsafely-treat-insecure-origin-as-secure
 // with http://<this machine>:8080 (shared memory and WebTransport need it).
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { serve } from '../tools/serve.mjs';
 
 const argv = process.argv.slice(2);
@@ -37,10 +37,11 @@ if (arena) {
   const page = host === '0.0.0.0' ? '<this machine>' : host;
   console.log(`\nopen http://${page}:${web}/client/arena.html?hash=${encodeURIComponent(hash)} in Chrome`);
   console.log('click to play: mouse aims, WASD runs, space jumps, left click fires, right click zooms, 1/2, X or the wheel swaps guns,');
-  console.log('Q melee, G grenade, R reload, E picks up the gun on a pad, Tab scores, F fullscreen. Slayer to 25 kills.');
+  console.log('Q melee, G grenade, R reload, E picks up the gun on a pad, Tab scores, F fullscreen. Fiesta: random guns, most kills in 10 minutes wins.');
   if (nbots) {
     await new Promise((ok) => setTimeout(ok, 1500));
-    bots = spawn(process.execPath, ['net/arena-bots.mjs', `${host === '0.0.0.0' ? '127.0.0.1' : host}:4434`, '--bots', String(nbots)], { stdio: 'inherit' });
+    mkdirSync('traces', { recursive: true });
+    bots = spawn(process.execPath, ['net/bot-host.mjs', '--arena', '--relay', `${host === '0.0.0.0' ? '127.0.0.1' : host}:4434`, '--bots', String(nbots), '--out', 'traces/bot-host.json'], { stdio: 'inherit' });
   }
 } else if (xbox) {
   console.log('\na room on the Xbox\'s sim: Xboxes and xemu join on TCP and UDP 4434');

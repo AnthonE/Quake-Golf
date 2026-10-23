@@ -323,22 +323,29 @@ export function describeSlice(s) {
 // balls, cup and hole clock are left out; the hole states run the match
 // (H_COUNT before it, H_PLAY during it, H_OVER for the scoreboard).
 //
-// Its input word: yaw b0-10 (1/2048 turn) | pitch b11-20 (512 level) | move
-// b21-24 (forward, back, left, right) | jump b25 | shot counter b26-27 |
-// melee b28 and grenade b29 (each flips once a press) | gun slot b30 |
-// b31 one bit of an 8-tick frame, bit (tick & 7): view lag in ticks b0-4,
-// reload b5, use (pick up) b6.
-export const AW_PITCH = 11;
-export const AW_MOVE = 21;
-export const AW_JUMP = 25;
-export const AW_SHOT = 26;
-export const AW_MELEE = 28;
-export const AW_GREN = 29;
-export const AW_SLOT = 30;
+// Its input word, laid on golf's fields so wire v4 codes it as tightly (a
+// small turn is a small yaw delta, pitch is golf's, the high byte holds what
+// changes least): yaw b0-10 (1/2048 turn) | melee b11 and grenade b12 (each
+// flips once a press) | gun slot b13 | pitch b14-23 (512 level) | move
+// b24-27 (forward, back, left, right) | jump b28 | shot counter b29-30 |
+// b31 one bit of an 8-tick frame, bit (tick & 7), the frame starting on a
+// tick that is a multiple of 8. A frame's b0 says one is sent: then b1-5
+// are the view lag in ticks, b6 asks for a reload, b7 a pickup. A client
+// sends one only when it has news (or once a second), so between them its
+// word stays put and costs nothing on the wire.
+export const AW_PITCH = 14;
+export const AW_MOVE = 24;
+export const AW_JUMP = 28;
+export const AW_SHOT = 29;
+export const AW_MELEE = 11;
+export const AW_GREN = 12;
+export const AW_SLOT = 13;
 export const AW_SERIAL = 31;
-export const AF_LAG = 31; // the frame's bits
-export const AF_RELOAD = 32;
-export const AF_USE = 64;
+export const AF_SENT = 1; // the frame's bits
+export const AF_LAG_SHIFT = 1;
+export const AF_RELOAD = 64;
+export const AF_USE = 128;
+export const FRAME_EVERY = 128; // ticks: an unchanged lag is sent again this often
 export const LAG_MAX = 31;
 
 // A fighter's fields in the player record, where golf keeps its own.
@@ -386,7 +393,11 @@ export const SPAWNS = ARENA + 0x100; // 32 x 8 B: f32 x, z
 export const HIST = REGION + 0x10000;
 export const HIST_TICK = NPLAYER * 16;
 
-// The match: slayer to FRAG_LIMIT, or the clock.
+// The match. FIESTA 1: ten minutes, everyone spawning with two guns drawn at
+// random and two frags, no guns on the map, the most kills at the end wins.
+// FIESTA 0 (slayer): an assault rifle and a magnum, guns on pads, first to
+// FRAG_LIMIT kills or the most at the end. A build-time switch (#if FIESTA).
+export const FIESTA = 1;
 export const FRAG_LIMIT = 25;
 export const MATCH_TICKS = 75000; // 10 min
 export const RESPAWN_TICKS = 375; // 3 s

@@ -39,6 +39,7 @@ const SHORT = { [L.W_AR]: 'AR', [L.W_BR]: 'BR', [L.W_MAGNUM]: 'MAGNUM', [L.W_SNI
   [L.W_PLASMA]: 'PLASMA', [L.W_NEEDLER]: 'NEEDLER', [L.W_SWORD]: 'SWORD', [L.KILL_GREN]: 'FRAG', [L.KILL_MELEE]: 'MELEE', [L.KILL_BEHIND]: 'ASSASSINATION',
   [L.KILL_SUPER]: 'SUPERCOMBINE', [L.KILL_FALL]: 'FALL' };
 const CROSS = { [L.W_AR]: 0, [L.W_BR]: 1, [L.W_MAGNUM]: 1, [L.W_SNIPER]: 1, [L.W_SHOTGUN]: 2, [L.W_ROCKET]: 3, [L.W_PLASMA]: 4, [L.W_NEEDLER]: 4, [L.W_SWORD]: 5 };
+const MODE = L.FIESTA ? 'FIESTA' : 'SLAYER';
 const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'OVERKILL', 'KILLTACULAR', 'KILLTROCITY', 'KILLAMANJARO'];
 const SPREES = { 5: 'KILLING SPREE', 10: 'KILLING FRENZY', 15: 'RUNNING RIOT', 20: 'RAMPAGE' };
 
@@ -223,6 +224,7 @@ async function main() {
   let banner = { text: '', until: 0, color: C.YELLOW };
   let medal = { text: '', until: 0 };
   let marker = 0, hurt = 0, kick = 0, lastShotAt = -1e9, meleeAt = -1e9, swapAt = -1e9, lastSlot = 0, lastWeapon = 0;
+  let dealt = false;
   let fxSeen = 0, seed = -1, spawnedAt = -1, lastKill = -1e9, multi = 0, spree = 0, matchSeen = -1;
   const played = {}; // kind -> newest of my shot numbers played
   const newer = (a, b) => { const d = (a - b) & 0xffff; return d > 0 && d < 0x8000; };
@@ -279,7 +281,7 @@ async function main() {
         break;
       case L.FX_SPAWN:
         glows.push({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.2, color: [0.4, 0.7, 1, 0.8], kind: 6, born: now, life: 500 });
-        if (f.owner === slot) { spawnedAt = now; spree = 0; }
+        if (f.owner === slot) { spawnedAt = now; spree = 0; if (L.FIESTA) dealt = true; }
         break;
       case L.FX_PICKUP:
         if (f.owner === slot) { sound.pickup(); banner = { text: ARMS[f.size].name, until: now + 1500, color: C.CYAN }; }
@@ -469,6 +471,7 @@ async function main() {
     // a new life or a new match: look down the gulch
     if (me?.live && h.hole !== matchSeen) { matchSeen = h.hole; if (!BOT) { yaw = me.pos[0] < 512 ? 0 : TURN / 2; pitch = 512; aim(); } }
     const f = tgt || pme || me;
+    if (dealt && me?.live && !me.dead) { dealt = false; banner = { text: `${ARMS[me.gun[0]].name} + ${ARMS[me.gun[1]].name}`, until: now + 2500, color: C.CYAN }; }
     if (pme && (pme.hand !== lastSlot || pme.weapon !== lastWeapon)) { swapAt = now; lastSlot = pme.hand; lastWeapon = pme.weapon; }
     let cam;
     if (pme) cam = [0, 1, 2].map((k) => pme.pos[k] + pme.vel[k] * dtPred + corr[k] + (k === 1 ? 1.6 : 0));
@@ -577,7 +580,7 @@ async function main() {
     list.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || a.slot - b.slot);
     const clock = (n) => `${Math.floor(n / 125 / 60)}:${String(Math.floor(n / 125) % 60).padStart(2, '0')}`;
     const left = Math.max(0, h.until - h.tick);
-    if (h.state === L.H_COUNT) centre(4, `SLAYER  ${L.FRAG_LIMIT} KILLS  STARTS IN ${Math.ceil(left / 125)}`, C.YELLOW);
+    if (h.state === L.H_COUNT) centre(4, `${L.FIESTA ? 'FIESTA  RANDOM GUNS  MOST KILLS IN 10 MIN' : `SLAYER  ${L.FRAG_LIMIT} KILLS`}  STARTS IN ${Math.ceil(left / 125)}`, C.YELLOW);
     if (h.state === L.H_PLAY) centre(0, clock(left), left < 30 * 125 ? C.RED : C.WHITE);
     if (f?.live) {
       const leader = list[0];
@@ -612,7 +615,7 @@ async function main() {
     if (board) {
       const y0 = 6;
       const top = list[0];
-      centre(y0, h.state === L.H_OVER ? `GAME OVER  ${top ? (top.slot === slot ? 'YOU WIN' : `P${top.slot + 1} WINS`) : ''}` : `SLAYER  ${list.length} PLAYERS`, C.YELLOW);
+      centre(y0, h.state === L.H_OVER ? `GAME OVER  ${top ? (top.slot === slot ? 'YOU WIN' : `P${top.slot + 1} WINS`) : ''}` : `${MODE}  ${list.length} PLAYERS`, C.YELLOW);
       centre(y0 + 2, 'RANK  PLAYER    KILLS  DEATHS', C.GREY);
       const fit = rows - y0 - 6;
       const mine = list.findIndex((o) => o.slot === slot);

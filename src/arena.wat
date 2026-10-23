@@ -76,6 +76,7 @@
         (local.set $sz (f32.add (f32.const 512) (f32.mul (f32.convert_i32_s (i32.sub (i32.and (i32.shr_u (local.get $r) (i32.const 10)) (i32.const 1023)) (i32.const 512))) (f32.const 0.1))))))
     (f32.store (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 3))) (local.get $sx))
     (f32.store offset=4 (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 3))) (local.get $sz)))
+#if !FIESTA
   ;; the pads: snipers on the bases, the rocket in the middle, the rest about the field
   (call $pad (i32.const 0) (i32.const @W_SNIPER) (f32.const @(512 - 0.78 * ((A_SPAN[1] - A_SPAN[0]) / 2 - 8))) (f32.const 518))
   (call $pad (i32.const 1) (i32.const @W_SNIPER) (f32.const @(512 + 0.78 * ((A_SPAN[1] - A_SPAN[0]) / 2 - 8))) (f32.const 506))
@@ -89,6 +90,7 @@
   (call $pad (i32.const 9) (i32.const @W_PLASMA) (f32.const 542) (f32.const 468))
   (call $pad (i32.const 10) (i32.const @W_BR) (f32.const 512) (f32.const 458))
   (call $pad (i32.const 11) (i32.const @W_PLASMA) (f32.const 436) (f32.const 500))
+#endif
   (f32.store (i32.const @HDR_TEE) (f32.const 512))
   (f32.store (i32.const @(HDR_TEE + 8)) (f32.const 512))
   (f32.store (i32.const @HDR_DIR) (f32.const 1)))
@@ -108,11 +110,13 @@
 ;; ---- fighters
 
 ;; Slot p comes (back) into the fight at the spawn point farthest from the
-;; nearest enemy, of four drawn at random: full shields and health, an
-;; assault rifle out and a magnum on the back, two frags.
+;; nearest enemy, of four drawn at random: full shields and health, two
+;; frags, and in Fiesta two different guns drawn at random (in slayer an
+;; assault rifle out and a magnum on the back).
 (func $a_spawn (param $p i32)
   (local $pb i32) (local $k i32) (local $i i32) (local $q i32) (local $qb i32) (local $in i32)
   (local $best i32) (local $bestd f32) (local $md f32) (local $sx f32) (local $sz f32) (local $dx f32) (local $dz f32) (local $h f32)
+  (local $g0 i32) (local $g1 i32)
   (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
   (local.set $bestd (f32.const -1))
   (!for $k (i32.const 0) (i32.const 4)
@@ -150,12 +154,21 @@
   (!put u8 @(PLAYERS + A_HP) (local.get $pb) (i32.const 100))
   (!put u8 @(PLAYERS + A_SH) (local.get $pb) (i32.const 100))
   (!put u16 @(PLAYERS + A_SHT) (local.get $pb) (i32.const 0))
-  (!put u8 @(PLAYERS + A_GUN) (local.get $pb) (i32.const @W_AR))
-  (!put u8 @(PLAYERS + A_GUN + 1) (local.get $pb) (i32.const @W_MAGNUM))
-  (!put u8 @(PLAYERS + A_MAG) (local.get $pb) (i32.const @(ARMS[W_AR].mag)))
-  (!put u8 @(PLAYERS + A_MAG + 1) (local.get $pb) (i32.const @(ARMS[W_MAGNUM].mag)))
-  (!put u16 @(PLAYERS + A_RES) (local.get $pb) (i32.const @(ARMS[W_AR].res)))
-  (!put u16 @(PLAYERS + A_RES + 2) (local.get $pb) (i32.const @(ARMS[W_MAGNUM].res)))
+#if FIESTA
+  ;; two different guns at random, full
+  (local.set $g0 (i32.add (i32.rem_u (call $rand) (i32.const @(ARMS.length - 1))) (i32.const 1)))
+  (local.set $g1 (i32.add (i32.rem_u (call $rand) (i32.const @(ARMS.length - 2))) (i32.const 1)))
+  (if (i32.ge_u (local.get $g1) (local.get $g0)) (then (local.set $g1 (i32.add (local.get $g1) (i32.const 1)))))
+#else
+  (local.set $g0 (i32.const @W_AR))
+  (local.set $g1 (i32.const @W_MAGNUM))
+#endif
+  (!put u8 @(PLAYERS + A_GUN) (local.get $pb) (local.get $g0))
+  (!put u8 @(PLAYERS + A_GUN + 1) (local.get $pb) (local.get $g1))
+  (!put u8 @(PLAYERS + A_MAG) (local.get $pb) (!arm mag (local.get $g0)))
+  (!put u8 @(PLAYERS + A_MAG + 1) (local.get $pb) (!arm mag (local.get $g1)))
+  (!put u16 @(PLAYERS + A_RES) (local.get $pb) (!arm res (local.get $g0)))
+  (!put u16 @(PLAYERS + A_RES + 2) (local.get $pb) (!arm res (local.get $g1)))
   (!put u8 @(PLAYERS + A_GRENS) (local.get $pb) (i32.const 2))
   (!put u8 @(PLAYERS + A_RELOAD) (local.get $pb) (i32.const 0))
   (!put u8 @(PLAYERS + A_BURST) (local.get $pb) (i32.const 0))
@@ -165,8 +178,8 @@
   (!put u8 @(PLAYERS + A_NEEDT) (local.get $pb) (i32.const 0))
   (call $fx (i32.const 0) (i32.const @FX_SPAWN) (local.get $p) (i32.const 0) (local.get $sx) (local.get $h) (local.get $sz) (f32.const 1)))
 
-;; The frame's bit for this tick (bit tick & 7 of b31): a whole frame sets the
-;; view lag and asks for a reload or a pickup.
+;; The frame's bit for this tick (bit tick & 7 of b31): a whole frame, if one
+;; was sent, sets the view lag and asks for a reload or a pickup.
 (func $a_frame (param $pb i32) (param $d i32) (param $in i32)
   (local $idx i32) (local $fr i32) (local $w i32) (local $slot i32) (local $mag i32)
   (local.set $idx (i32.and (i32.load offset=@HDR_TICK (local.get $d)) (i32.const 7)))
@@ -175,7 +188,9 @@
   (if (i32.ne (local.get $idx) (i32.const 7))
     (then (!put u8 @(PLAYERS + A_FRAME) (local.get $pb) (local.get $fr)) (return)))
   (!put u8 @(PLAYERS + A_FRAME) (local.get $pb) (i32.const 0))
-  (!put u8 @(PLAYERS + A_LAG) (local.get $pb) (i32.and (local.get $fr) (i32.const @AF_LAG)))
+  ;; no frame this time: nothing new
+  (if (i32.eqz (i32.and (local.get $fr) (i32.const @AF_SENT))) (then (return)))
+  (!put u8 @(PLAYERS + A_LAG) (local.get $pb) (i32.and (i32.shr_u (local.get $fr) (i32.const @AF_LAG_SHIFT)) (i32.const @LAG_MAX)))
   (if (i32.and (local.get $fr) (i32.const @AF_USE))
     (then (!put u8 @(PLAYERS + A_ACT) (local.get $pb) (i32.or (!at u8 @(PLAYERS + A_ACT) (local.get $pb)) (i32.const @AB_USE)))))
   (if (i32.and (i32.ne (i32.and (local.get $fr) (i32.const @AF_RELOAD)) (i32.const 0))
@@ -812,8 +827,8 @@
 
 ;; The match, at the end of every tick: where everyone stood (for the
 ;; shots of the next 31 ticks), respawns, shields and health coming back,
-;; needles falling out, pickups, and the clock: a countdown, play until
-;; someone has FRAG_LIMIT kills or the time is up, the scoreboard, again.
+;; needles falling out, pickups, and the clock: a countdown, play until the
+;; time is up (or in slayer someone has FRAG_LIMIT kills), the scoreboard, again.
 (func $arena
   (local $p i32) (local $pb i32) (local $fl i32) (local $live i32) (local $best i32) (local $t i32) (local $state i32)
   (local $h i32) (local $n i32) (local $k i32) (local $a i32)
@@ -872,7 +887,11 @@
       (return)))
   (if (i32.eq (local.get $state) (i32.const @H_PLAY))
     (then
+#if FIESTA
+      (if (i32.ge_u (local.get $t) (i32.load (i32.const @HDR_UNTIL)))
+#else
       (if (i32.or (i32.ge_u (local.get $best) (i32.const @FRAG_LIMIT)) (i32.ge_u (local.get $t) (i32.load (i32.const @HDR_UNTIL))))
+#endif
         (then
           (i32.store (i32.const @HDR_STATE) (i32.const @H_OVER))
           (i32.store (i32.const @HDR_UNTIL) (i32.add (local.get $t) (i32.const @OVER_TICKS)))))

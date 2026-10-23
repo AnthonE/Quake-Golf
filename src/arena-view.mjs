@@ -7,13 +7,23 @@ import { View } from './view.mjs';
 export { View };
 // The arena's input word (layout.mjs). yaw in 1/16384 turn like golf's,
 // rounded to the word's 1/2048; serial is this tick's bit of the frame.
+// yaw in 1/16384 turn, rounded to the word's 1/2048
 export function arenaWord({ yaw = 0, pitch = 512, move = 0, jump = 0, shot = 0, melee = 0, gren = 0, slot = 0, serial = 0 }) {
   return ((((yaw + 4) >> 3) & 0x7ff) | ((pitch & 0x3ff) << L.AW_PITCH) | ((move & 0xf) << L.AW_MOVE) | ((jump & 1) << L.AW_JUMP)
     | ((shot & 3) << L.AW_SHOT) | ((melee & 1) << L.AW_MELEE) | ((gren & 1) << L.AW_GREN) | ((slot & 1) << L.AW_SLOT) | ((serial & 1) << L.AW_SERIAL)) >>> 0;
 }
 
 // The frame a fighter sends over 8 ticks, a bit a tick (bit tick & 7).
-export const arenaFrame = ({ lag = 0, reload = 0, use = 0 }) => (Math.max(0, Math.min(L.LAG_MAX, Math.round(lag))) | (reload ? L.AF_RELOAD : 0) | (use ? L.AF_USE : 0));
+export const arenaFrame = ({ lag = 0, reload = 0, use = 0 }) => (L.AF_SENT | (Math.max(0, Math.min(L.LAG_MAX, Math.round(lag))) << L.AF_LAG_SHIFT) | (reload ? L.AF_RELOAD : 0) | (use ? L.AF_USE : 0));
+
+// Whether a frame is worth sending: a request, a lag 2 ticks off the last one
+// sent, or FRAME_EVERY ticks since. keep: { lag, at }, updated when it says yes.
+export function frameDue(keep, t, lag, ask) {
+  if (!ask && keep.at !== undefined && Math.abs(lag - keep.lag) < 2 && t - keep.at < L.FRAME_EVERY) return false;
+  keep.lag = lag;
+  keep.at = t;
+  return true;
+}
 
 export function unpackArena(w) {
   return { yaw: (w & 0x7ff) << 3, pitch: (w >>> L.AW_PITCH) & 0x3ff, move: (w >>> L.AW_MOVE) & 0xf, jump: (w >>> L.AW_JUMP) & 1, shot: (w >>> L.AW_SHOT) & 3,
