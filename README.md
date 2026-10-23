@@ -13,6 +13,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| A3 · Blood Gulch | a map with structures in the game rules, not just the picture: two bases you walk into (doors, a room, stairs to a hatch, a roof, a bridge), a cave through a ridge, teleporters; walls stop bodies, bullets, rockets, frags and blasts; the map built from images and a JSON file at build time; a match of fighters on it equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [Blood Gulch](#blood-gulch-structures-and-maps) |
 | A2 · 256 fighters | one arena room full: Chrome and 255 AI fighters, Fiesta, every session's interval hashes equal to the referee's | **passed** · [results](#256-in-one-room) |
 | A1 · the arena | a deathmatch on the same engine: Chrome and AI fighters in one room over the real relay, every session's interval hashes equal to the referee's, kills, respawns and pickups; a match of fighters equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads | **passed** · [the arena](#the-arena) |
 | N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
@@ -32,8 +33,10 @@ Not a golfer? The same engine runs a deathmatch: `src/` built with `ARENA`
 set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
 prediction, spectators and replays, up to 256 in a room. The mode is
 Fiesta: ten minutes, everyone spawns with two guns drawn at random, the
-most kills at the end wins, in a walled gulch with a base at each end and
-rocks for cover. (Set `FIESTA = 0` in `src/layout.mjs` for slayer instead:
+most kills at the end wins, on [Blood Gulch](#blood-gulch-structures-and-maps):
+a walled box canyon with a base at each end you can walk into and up onto,
+a teleporter behind each, a cave through the north ridge, boulders for
+cover. (Set `FIESTA = 0` in `src/layout.mjs` for slayer instead:
 an assault rifle and a magnum, guns on pads about the floor, first to 25.)
 
 ```sh
@@ -113,7 +116,7 @@ range, the scope, the hit marker and a kill feed with medals).
 the ground, a settling aim with a human's wobble, the gun for the range,
 strafing, frags, melee up close, and pads when nobody is in sight.
 
-**Results.** `test/arena.test.mjs` (13 tests): the map on five seeds; an
+**Results.** `test/arena.test.mjs` (18 tests): the map on five seeds; an
 assault-rifle fight through shields to a kill and the respawn on its tick;
 shields and health coming back; the magnum's four-shot and the sniper's
 one-shot head kills; lag compensation (a sniper shot at where a running
@@ -124,7 +127,7 @@ rocket jump at half damage; the frag's fuse; a needler supercombine; the
 Fiesta's random loadouts (two different guns, full, every gun dealt), its
 clock ending the match whatever the kills and a new one from zero; the
 prediction equal to the confirmed world bit for bit through runs, bursts, a
-swap, a reload, a frag and a butt; and a match of eight AI fighters equal
+swap, a reload, a frag and a butt; the map's structures (below); and a match of eight AI fighters equal
 on every tick on 1 and 4 threads. `tools/genarena.mjs` records such a match
 (each fighter seeing the world 12 ticks old and saying so in its frames)
 and the determinism matrix replays it: 27 configurations (Node, Deno,
@@ -141,7 +144,99 @@ node --test test/arena.test.mjs
 node tools/genarena.mjs --bots 8 --ticks 20000 --out logs/arena.qgl
 node harness/matrix.mjs --ticks 20000 --log logs/arena.qgl --wasm build/arena/game.wasm
 node net/run-arena.mjs [--bots 7] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05]
+node --test test/map.test.mjs
 ```
+
+### Blood Gulch: structures and maps
+
+![Blood Gulch from beside the blue base, the red one at the far end](docs/a3-blood-gulch.png)
+
+The ground is still a height map, drawn per pixel by stepping a ray across
+it, and a height map can't overhang. So everything that has to (a wall you
+hide behind, a roof over a room, a bridge, the roof of a cave) is an
+axis-aligned box, and the boxes are in the game rules as well as the
+picture: `src/arena.wat` moves a fighter through them as Quake moves its
+player hull, an axis at a time (x, then z, then up or down), its body a
+1 m x 1.8 m box. A box it was clear of stops it a body's radius short; on
+the ground the body's band starts half a metre up, so it walks up steps
+and onto anything lower than that, and is kept from stepping where its
+head wouldn't fit; going up, a box's underside is a ceiling; coming down,
+its top is ground. Hitscan rays stop at the first box (a slab test per box),
+rockets, plasma and needles go off or burn out where they meet one, frags
+bounce off its faces, and a blast, a melee lunge or a blast's knockback
+doesn't reach through one. The boxes sit in groups, each with the box that
+bounds it, so a query that misses a building costs one test for all of
+it. They change nothing about the netcode: the map is static, built into the
+wasm, so a room's peers have the same one or the relay turns them away for
+a different build.
+
+Blood Gulch is two bases, 20 m by 18 m with 4 m walls and a door in every
+side, a room inside, twelve steps up the inside wall to a hatch, a roof with
+a parapet, and a bridge from the roof back over the yard to the slope
+behind (`maps/bloodgulch/map.json` has them as one prefab, placed twice,
+the second turned half round and its trim blue); a teleporter in each yard
+to the far side of the field; a ridge along the north wall with a cave
+through it, its sword pad inside; boulders, rocks, a creek bed. 83 boxes in
+5 groups. The renderer ray-traces them in the terrain's pass (the ground is
+marched only as far as the nearest box) and casts a ray to the sun from
+whatever a pixel lands on, so rooms and the cave are in shadow; teleporters
+glow. `?cam=x,y,z,yaw,pitch` holds a spectator's camera anywhere, for
+looking a map over:
+
+![On the red base's roof: the hatch and the stairs under it](docs/a3-roof.png)
+
+**Results.** `test/arena.test.mjs`: the map laid out as built on five seeds
+(its ground sample for sample, its boxes, every spawn clear of every box,
+two on each roof); a runner stopped by a wall a body's radius short, in
+through a door, a rise stopped by the roof at 4 m, the stairs climbed a
+step at a time to the hatch, out onto the roof and to the parapet; the cave
+walked through under its roof and its roof walked on; a teleporter taken at
+a run; bullets ending on a wall, a rocket going off on it and its blast not
+reaching the fighter behind it, a frag bouncing back off it; the prediction
+equal to the confirmed world bit for bit through a wall, a door, the stairs,
+a jump under the roof and a teleporter. `test/map.test.mjs`: PNGs round
+trip; Blood Gulch's blue base the red one turned about; a broken map says
+what is wrong with it; a map of its own (a 64 m floor, a block, a
+teleporter) built into the arena and played. The determinism matrix: 27
+configurations, 20,000 ticks of eight AI fighters on Blood Gulch, equal on
+every tick. Online, 256 fighters for 40 s: 9,472 interval hashes, all equal,
+1,292 kills. The bots see past boxes and walk round them (when a run stops,
+they sidle and jump a while). The arena's wasm grew from 12 KB to 49 KB
+gzipped, almost all of it the height image.
+
+#### Making a map
+
+A map is a directory under `maps/`: `map.json`, `height.png` and, if you
+like, `surface.png`. Build the arena with it and play:
+
+```sh
+node tools/map.mjs maps/mymap            # checks it and says what it holds
+QG_MAP=mymap npm run build                # or: node tools/asm.mjs --map mymap
+node net/play.mjs --arena
+```
+
+- `height.png`: grey, 8 or 16 bits, 2 m a pixel, placed at
+  `terrain.origin` (world x, z, multiples of 2; the world is 1024 m a side).
+  Metres are `terrain.base + level * terrain.scale` (`1/256` for 16-bit
+  files, as Blood Gulch's; a quarter metre a level for 8-bit is a fair
+  start). Past the image the generated terrain carries on as mountains from
+  its edge.
+- `surface.png` (optional, the same size): what the ground is, by colour,
+  the nearest of grass `#4d8033`, rock `#7a6e5c`, sand `#b89e6b` and base
+  metal `#808f9e` (or your own colours under `terrain.surfaces`).
+- `map.json`: `bounds` `[x0, x1, z0, z1]`, where fighters can go; `prefabs`,
+  named lists of boxes `[x0, y0, z0, x1, y1, z1, material]` about their own
+  origin; `structures`, each a `prefab` placed `at` a point with a quarter
+  `turn` and a `tint` (a map of materials to others), or its own `boxes` in
+  world metres; `teleporters`, `{ from, to, radius }`, one-way; `spawns`,
+  `[x, z]` on the ground or `[x, z, top]` on the highest box no higher than
+  `top`; `pads` (slayer's guns), `{ weapon, at }`. Materials: `metal`, `rock`,
+  `dark`, `red`, `blue`, `light`. At most 512 boxes in 64 structures, 16
+  teleporters, 32 spawns and 12 pads.
+
+`tools/bloodgulch.mjs` is how Blood Gulch was drawn: the ground painted by
+code into the two images, the rest written to `map.json`. Edit its output
+in any paint program and text editor, or edit it and run it again.
 
 ### 256 in one room
 
@@ -173,7 +268,8 @@ are this one machine running the relay, the referee, 255 bots and a headless
 Chrome at once.
 
 Not done yet: teams, vehicles, dropped weapons, a manual reload while firing,
-and a second map.
+and a second map (though [making one](#making-a-map) is now a paint program
+and a text editor away).
 
 ## Play it
 

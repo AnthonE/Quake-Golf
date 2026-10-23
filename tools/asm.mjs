@@ -12,8 +12,11 @@
 //   (!macro args...)        JS macros from src/macros.mjs; args are raw s-expressions
 //
 // It refuses anything the determinism rules ban: memory.grow, relaxed SIMD,
-// data segments (they would rewrite shared memory on every instantiate) and
-// mutable globals (per-thread state the region never sees).
+// active data segments (they would rewrite shared memory on every
+// instantiate) and mutable globals (per-thread state the region never sees).
+// A passive segment is only bytes until init copies it out with memory.init:
+// the arena's map (tools/map.mjs; QG_MAP=name or --map name picks one of
+// maps/, Blood Gulch by default) goes in as one, through (!mapdata).
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -25,6 +28,7 @@ import * as layout from '../src/layout.mjs';
 import { makeMacros } from '../src/macros.mjs';
 import { pathToFileURL } from 'node:url';
 import { isMain } from './main.mjs';
+import { compileMap, dataSegment, mapDir } from './map.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const FEATURES = {
@@ -199,22 +203,30 @@ export function forbid(wat, where = 'source') {
   const rules = [
     [/\bmemory\.grow\b/, 'memory.grow'],
     [/\brelaxed_/, 'relaxed SIMD'],
-    [/\(\s*data\b/, 'data segment'],
     [/\(\s*mut\b/, 'mutable global'],
   ];
   for (const [re, what] of rules) {
     const m = wat.match(re);
     if (m) throw new Error(`forbidden in the sim (${where}): ${what} (${m[0]})`);
   }
+  // a segment with an offset (or a memory) before its bytes is active; a
+  // passive one has only its name (or wabt's (;n;) index) before its string
+  for (const m of wat.matchAll(/\(\s*data\b(?!\.)/g)) {
+    const rest = wat.slice(m.index + m[0].length).replace(/^\s*(\$[^\s()"]+|\(;[^;]*;\))?\s*/, '');
+    if (rest[0] !== '"' && rest[0] !== ')') throw new Error(`forbidden in the sim (${where}): active data segment (${wat.slice(m.index, m.index + 40)})`);
+  }
 }
 
-export function expand(file, { DEBUG = false, ARENA = false, layout: lay = layout, macros = makeMacros } = {}) {
-  const scope = { ...lay, ...lay.PHYS, DEBUG: DEBUG ? 1 : 0 };
+export function expand(file, { DEBUG = false, ARENA = false, layout: lay = layout, macros = makeMacros, map = null } = {}) {
+  if (ARENA && !map) map = compileMap();
+  const scope = { ...lay, ...lay.PHYS, DEBUG: DEBUG ? 1 : 0, ...(map ? map.consts : {}) };
   let src = include(file);
   // the arena's mode is a layout constant, so #if FIESTA picks its rules at build time
   src = conditionals(src, { DEBUG, ARENA, FIESTA: ARENA && !!lay.FIESTA });
   src = stripComments(src);
-  src = expandMacros(src, macros({ DEBUG }));
+  const m = macros({ DEBUG });
+  if (map) m.mapdata = () => dataSegment(map.bytes);
+  src = expandMacros(src, m);
   src = constants(src, scope);
   forbid(src);
   return src;
@@ -271,12 +283,13 @@ export const SIMS = [
 
 async function buildSim({ name, src, out, flags = {} }) {
   mkdirSync(out, { recursive: true });
+  const map = flags.ARENA ? compileMap(mapDir(MAP_ARG)) : null;
   const lay = await import(pathToFileURL(join(src, 'layout.mjs')).href);
   const { makeMacros: macros } = await import(pathToFileURL(join(src, 'macros.mjs')).href);
   const entry = join(src, 'game.wat');
   const manifest = {};
   for (const debug of [false, true]) {
-    const wat = expand(entry, { DEBUG: debug, ...flags, layout: lay, macros });
+    const wat = expand(entry, { DEBUG: debug, ...flags, layout: lay, macros, map });
     const base = debug ? 'game.debug' : 'game';
     writeAtomic(join(out, `${base}.wat`), wat);
     const bin = await assemble(wat, `${base}.wat`, { debugNames: debug });
@@ -291,9 +304,11 @@ async function buildSim({ name, src, out, flags = {} }) {
   writeAtomic(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   const g = manifest.game;
   const where = out === join(ROOT, 'build') ? 'game.wasm' : `${name}/game.wasm`;
-  console.log(`${where} ${g.raw} B, ${g.gzip} B gzip, sha256 ${g.sha256.slice(0, 16)}`);
+  console.log(`${where} ${g.raw} B, ${g.gzip} B gzip, sha256 ${g.sha256.slice(0, 16)}${map ? ` (map: ${map.name}, ${map.bytes.length} B)` : ''}`);
   if (manifest.binaryen.raw) console.log(`  binaryen -O3 would give ${manifest.binaryen.raw} B, ${manifest.binaryen.gzip} B gzip (measurement only)`);
 }
+
+const MAP_ARG = (() => { const i = process.argv.indexOf('--map'); return i >= 0 ? process.argv[i + 1] : undefined; })();
 
 async function main() {
   for (const sim of SIMS) await buildSim(sim);

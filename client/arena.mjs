@@ -5,9 +5,10 @@
 // with tracers, sparks, the gun in your hands, shields and health, ammo, a
 // motion tracker, a kill feed and the scoreboard.
 //   ?bot=1 hands the controls to an AI fighter (client/arena-bot.mjs)
-//   ?watch=1 spectates; ?url=, ?hash=, ?impair=, ?sens=, ?res= as golf's
+//   ?watch=1 spectates; ?cam=x,y,z,yaw,pitch (degrees) holds a spectator's camera
+//   there, for looking over a map; ?url=, ?hash=, ?impair=, ?sens=, ?res= as golf's
 import * as L from '../src/layout.mjs';
-import { View, arenaWord, unpackArena } from '../src/arena-view.mjs';
+import { View, arenaWord, unpackArena, boxRay } from '../src/arena-view.mjs';
 import { wasmPrefix } from '../net/wire.mjs';
 import { createRenderer, COLS } from './arena-render.mjs';
 import { put, C } from './font.mjs';
@@ -25,7 +26,8 @@ canvas.width = W;
 canvas.height = H;
 const SENS = Number(q.get('sens') || 3);
 const BOT = q.get('bot') === '1';
-const WATCH = q.get('watch') === '1';
+const WATCH = q.get('watch') === '1' || q.has('cam');
+const FIXED = q.has('cam') ? q.get('cam').split(',').map(Number) : null;
 const cores = navigator.hardwareConcurrency || 4;
 const THREADS = Number(q.get('threads') || (cores >= 8 ? 2 : 1));
 const epoch = () => performance.timeOrigin + performance.now();
@@ -286,6 +288,10 @@ async function main() {
       case L.FX_PICKUP:
         if (f.owner === slot) { sound.pickup(); banner = { text: ARMS[f.size].name, until: now + 1500, color: C.CYAN }; }
         break;
+      case L.FX_TELE:
+        glows.push({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.6, color: [0.4, 0.9, 1, 0.9], kind: 6, born: now, life: 450 });
+        sound.sink(f.owner === slot ? 0 : d);
+        break;
       case L.FX_MELEE:
         if (mine) meleeAt = now;
         sound.melee(mine ? 0 : d);
@@ -433,6 +439,7 @@ async function main() {
     if (st >= 1 && view.dv.getUint32(L.HDR_SEED, true) !== seed && welcome) {
       seed = view.dv.getUint32(L.HDR_SEED, true);
       renderer.setTerrain(u8);
+      renderer.setMap(view.map());
     }
     const room = get(L.CL_ROOM);
     const dt = Math.max(0, Math.min(3, readClock(i32, f64, L.CL_PLAY, nowE) - room - h.tick)) * 0.008;
@@ -480,12 +487,15 @@ async function main() {
     else cam = [512 - 140, view.height(372, 512) + 14, 512];
     camYaw = me?.live && !WATCH ? yaw / TURN * 2 * Math.PI : tgt ? tgt.yaw : 0;
     camPitch = me?.live && !WATCH ? (pitch - 512) / 1024 * Math.PI : tgt ? tgt.pitch : -0.15;
-    // dead: the camera backs up and rises over where you fell
+    // dead: the camera backs up and rises over where you fell, short of any wall or roof
     if (f?.dead) {
       const up = Math.min(1, (L.RESPAWN_TICKS - f.respawn) / 150);
-      cam[0] -= Math.cos(camYaw) * 5 * up; cam[2] -= Math.sin(camYaw) * 5 * up; cam[1] += 1 + 5 * up;
+      const back = [-Math.cos(camYaw) * 5 * up, 1 + 5 * up, -Math.sin(camYaw) * 5 * up];
+      const t = Math.max(0, boxRay(view.map(), cam, back, 1.1) - 0.1);
+      for (let k = 0; k < 3; k++) cam[k] += back[k] * Math.min(1, t);
       camPitch = -0.45;
     }
+    if (FIXED) { cam = FIXED.slice(0, 3); camYaw = FIXED[3] / 180 * Math.PI; camPitch = FIXED[4] / 180 * Math.PI; }
     // never inside the ground
     cam[1] = Math.max(cam[1], view.height(cam[0], cam[2]) + 0.4);
 
@@ -521,6 +531,13 @@ async function main() {
       solid.push({ pos: [p.pos[0], p.pos[1] + 0.7 + 0.15 * Math.sin(now / 400 + p.k), p.pos[2]], size: 0.55, aspect: 0.8, color: [c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, 1], kind: 4, minpx: 2 });
     }
     const glow = [];
+    // the teleporters: a pulse over each pad, a fainter one where it comes out
+    for (const [k, tp] of view.map().teleporters.entries()) {
+      const pulse = 0.55 + 0.25 * Math.sin(now / 300 + k);
+      glow.push({ pos: [tp.from[0], tp.from[1] + 1.1, tp.from[2]], size: tp.radius * 1.3, color: [0.35, 0.85, 1, pulse], kind: 6, minpx: 1 });
+      glow.push({ pos: [tp.from[0], tp.from[1] + 0.15, tp.from[2]], size: tp.radius, color: [0.5, 0.9, 1, pulse * 0.7], kind: 3, minpx: 1 });
+      glow.push({ pos: [tp.to[0], tp.to[1] + 0.15, tp.to[2]], size: 0.8, color: [0.5, 0.9, 1, 0.25], kind: 3, minpx: 1 });
+    }
     for (let k = glows.length - 1; k >= 0; k--) {
       const g = glows[k];
       const a = (now - g.born) / g.life;
@@ -543,13 +560,15 @@ async function main() {
     }
     const zoom = zoomed && f && !f.dead ? zoomOf() : 1;
     hudText(text, { h, f, slot: tgt ? watched : slot, st, now, fps });
+    // a fixed camera is for looking at the map: no HUD
+    if (FIXED) { rects = []; tracker = null; text.fill(0); }
     netGraph.sample(now, hashes, keys);
     const graph = showGraph && st > 0 ? netGraph.build((x, y, s, c) => put(text, COLS, x, y, s, c), C) : null;
     const spread = ARMS[f?.weapon]?.spread || 0;
     last = {
       cam, yaw: camYaw, pitch: camPitch, zoom, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, slot: tgt ? watched : slot < 0 ? 999 : slot,
       solid, glow, beams, rects, tracker, text, graph, marker, hurt, scope: zoom >= 4,
-      crosshair: (CROSS[f?.weapon] ?? 0) + (playing && !f.dead && onTarget(f, cam) ? 8 : 0), gap: spread / 30 + kick * 3,
+      crosshair: FIXED ? 7 : (CROSS[f?.weapon] ?? 0) + (playing && !f.dead && onTarget(f, cam) ? 8 : 0), gap: spread / 30 + kick * 3,
     };
     renderer.frame(u8, last);
   }

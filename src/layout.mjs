@@ -380,13 +380,14 @@ export const K_BOLT = 3;
 export const K_NEEDLE = 4;
 
 // Arena state past the projectiles (not in the prediction's copy): weapon
-// pads and spawn points, laid out at init from the seed.
+// pads and spawn points, laid out at init from the map.
 export const ARENA = REGION + 0xc100;
 export const NPAD = 12;
 export const PAD = ARENA; // 12 x 16 B: f32 x, y, z | u8 weapon | u8 0 | u16 ticks until it's back
 export const PAD_SIZE = 16;
 export const NSPAWN = 32;
-export const SPAWNS = ARENA + 0x100; // 32 x 8 B: f32 x, z
+export const SPAWNS = ARENA + 0x100; // 32 x 16 B: f32 x, y, z | u32 0
+export const SPAWN_SIZE = 16;
 // Where every fighter stood after each of the last 32 ticks, for shots
 // checked where the shooter saw their target: 32 x 256 x 16 B (f32 x, y, z,
 // u32 0), slot tick & 31. It takes the balls' place.
@@ -407,8 +408,37 @@ export const SUPERCOMBINE = 7; // needles in one fighter at once
 export const COOL_TICKS = 80;
 export const SWAP_TICKS = 40;
 export const A_FUSE = 225; // 1.8 s
-export const A_SPAN = [352, 672, 440, 584]; // x0, x1, z0, z1: the gulch the map is laid out in
-export const A_BOX = [371, 653, 456, 568]; // where fighters can go: the floor and the feet of its walls
+
+// The map (tools/map.mjs builds it from maps/<name>/ into the arena's wasm, as
+// a passive data segment that init copies out): static, the same on every
+// machine, outside the region like the terrain, so never hashed or
+// snapshotted. Its height and surface images go straight into TERRAIN_H and
+// TERRAIN_S; the rest lands here. The structures are axis-aligned boxes in
+// groups, each group with the box that bounds it, so a query skips whole
+// buildings; teleporters are one-way, from a pad to a point.
+export const MAP = 0x200000;
+export const MAP_NBOX = MAP + 0; // u32
+export const MAP_NGROUP = MAP + 4;
+export const MAP_NTELE = MAP + 8;
+export const MAP_NSPAWN = MAP + 12;
+export const MAP_NPAD = MAP + 16;
+export const MAP_BOUNDS = MAP + 32; // f32 x0, x1, z0, z1: where fighters can go
+export const MAP_SPAWN = MAP + 0x40; // 32 x 8 B: f32 x, z; a fighter spawns on what is under (x, z) from MAP_SPAWNY up
+export const MAP_SPAWNY = MAP + 0x140; // 32 x f32: the highest feet a spawn may stand at (-1000: the ground)
+export const MAP_PADS = MAP + 0x1c0; // 12 x 16 B: f32 x, z, top (as MAP_SPAWNY) | u32 weapon
+export const MAP_TELE = MAP + 0x280; // 16 x 32 B: f32 x, y, z, radius, to x, y, z | u32 0
+export const MAP_HEAD = 0x480; // the bytes above, copied whole
+export const MAP_GROUPS = MAP + 0x480; // 64 x 32 B: f32 x0, y0, z0, x1, y1, z1 | u32 first box, count
+export const MAP_BOXES = MAP + 0xc80; // 512 x 32 B: f32 x0, y0, z0, x1, y1, z1 | u32 material, group
+export const MAP_END = MAP + 0x4c80;
+export const NBOX = 512;
+export const NGROUP = 64;
+export const NTELE = 16;
+export const BOX_SIZE = 32;
+export const TELE_SIZE = 32;
+export const STEP = '0.5'; // a fighter walks up onto a box this much higher than its feet
+export const MAPS = 'maps';
+export const MAP_NAME = 'bloodgulch'; // the arena's map unless the build is given another
 
 // Weapons, by W_* (index 0 is none). Reloads fit a u8 of ticks. type: 0 hitscan, 1 projectile, 2 sword.
 // head: 0 none, 1 a headshot kills once the shields are down, 2 it always
@@ -456,3 +486,4 @@ export const FX_KILL = 6;
 export const FX_SPAWN = 7;
 export const FX_PICKUP = 8;
 export const FX_MELEE = 9;
+export const FX_TELE = 10; // a fighter through a teleporter: where it came out, the slot as owner
