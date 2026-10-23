@@ -9,10 +9,12 @@
 // reports the shared world's interval hashes, so the relay sees as many
 // ordinary clients as there are bots. With --watch they are spectators
 // instead: no slot, no words, but the same acks, repairs and hash reports.
+// With --arena the room is the arena's (build/arena/game.wasm) and every bot
+// an AI fighter (client/arena-bot.mjs), saying how old its view is in its frames.
 // Given several relays, a session whose relay goes away tries the next, a few
 // times a second for up to 10 s, asking for its slot back (a resume): a
 // standby relay that has taken the room over holds it (net/relay.ts --standby).
-//   node net/bot-host.mjs [--relay 127.0.0.1:4434[,host:port...]] [--bots 250] [--seconds 0] [--rate 50] [--genome qg2:...]
+//   node net/bot-host.mjs [--relay 127.0.0.1:4434[,host:port...]] [--bots 250] [--seconds 0] [--rate 50] [--genome qg2:...] [--arena [--skill 0.6]]
 //                         [--impair delay=60,jitter=10,loss=0.02] [--out traces/bot-host.json] [--watch]
 // --seconds 0 plays until Ctrl-C; --rate: sessions opened a second. The summary
 // (--out, else stdout) holds every session's delivery and inputs, and the
@@ -27,8 +29,9 @@ import * as L from '../src/layout.mjs';
 import { createImpair, parseImpair } from './impair.js';
 import { feedTick } from './inbox.mjs';
 import { newMemory, instantiate, Sim } from '../harness/core.mjs';
-import { View } from '../src/view.mjs';
+import { View } from '../src/arena-view.mjs';
 import { BrainBot } from '../client/brain.mjs';
+import { Fighter } from '../client/arena-bot.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -42,11 +45,15 @@ const rate = Number(opt('rate', 50));
 const impair = parseImpair(opt('impair', ''));
 const outPath = opt('out', '');
 const watch = argv.includes('--watch');
+const arena = argv.includes('--arena');
+const skill = Number(opt('skill', 0.6));
 const genome = opt('genome', readFileSync(join(ROOT, 'xbox/golfer.h'), 'utf8').match(/GOLFER_DEFAULT "(qg2:[A-Za-z0-9_-]+)"/)[1]);
 const HOLE_TICKS = 56; // client/sim.mjs: a repair can come until a hole is 64 ticks old
 const TARGET_SLACK = (W.SEND_EVERY + 1) * W.TICK_MS; // net/bot.mjs: a lost input's repeat must still land
 
-const bytes = readFileSync(join(ROOT, 'build/game.wasm'));
+const bytes = readFileSync(join(ROOT, arena ? 'build/arena/game.wasm' : 'build/game.wasm'));
+// a golfer, or in the arena a fighter of a skill about --skill
+const makeBot = (slot) => (arena ? new Fighter(slot, (Math.random() * 1e9) | 0, Math.max(0.1, Math.min(1, skill + (Math.random() - 0.5) * 0.4))) : new BrainBot(slot, genome, { lag: 8 }));
 const prefix = await W.wasmPrefix(bytes);
 const t0 = performance.now();
 const cpu0 = process.cpuUsage();
@@ -251,13 +258,13 @@ class Session {
       this.heardAt = performance.now();
       // the words already decided for ticks past the new join go as they are
       Object.assign(this, { joined: true, joinTick: w.joinTick, token: w.token, nextTick: Math.max(this.nextTick, w.joinTick), lastSent: Math.max(this.lastSent, w.joinTick) });
-      if (!w.watch && w.slot !== this.slot) { this.slot = w.slot; this.bot = new BrainBot(w.slot, genome, { lag: 8 }); }
+      if (!w.watch && w.slot !== this.slot) { this.slot = w.slot; this.bot = makeBot(w.slot); }
       this.datagram(W.encodeInput({ seq: this.seq++, firstTick: w.joinTick, ackTick: 0, ackBits: 0n, words: [] }));
       return;
     }
     this.heardAt = performance.now();
     Object.assign(this, { joined: true, slot: w.slot, joinTick: w.joinTick, joinTick0: w.joinTick, token: w.token, roomStart: w.roomStart, nextTick: w.joinTick, lastSent: w.joinTick });
-    if (!w.watch) this.bot = new BrainBot(w.slot, genome, { lag: 8 });
+    if (!w.watch) this.bot = makeBot(w.slot);
     const now = performance.now();
     if (world.roomStart < 0) {
       world.roomStart = w.roomStart;
@@ -337,7 +344,8 @@ class Session {
     // ticks between deciding an input and seeing what it did, in the shared world
     this.bot.lag = Math.max(2, this.nextTick - at());
     while (this.nextTick <= predicted) {
-      this.words.set(this.nextTick, world.started ? this.bot.think(world.view) : 0);
+      const word = !world.started ? 0 : arena ? this.bot.think(world.view, this.nextTick - world.roomStart, this.nextTick - at() + 1) : this.bot.think(world.view);
+      this.words.set(this.nextTick, word);
       this.nextTick++;
     }
     for (const t of this.words.keys()) if (t < at() - 64) this.words.delete(t); else break;
@@ -386,6 +394,7 @@ const cpu = process.cpuUsage(cpu0);
 const wall = (performance.now() - t0) / 1000;
 const v = world.view;
 const players = sessions.filter((s) => s.joined && !s.watch).map((s) => {
+  if (arena) { const f = v.fighter(s.slot); return { slot: s.slot, kills: f.kills, deaths: f.deaths }; }
   const p = v.player(s.slot);
   return { slot: s.slot, strokes: p.strokes, holes: p.holes, total: p.total, done: p.done };
 });
@@ -399,7 +408,7 @@ const per = sessions.map((s) => {
   };
 });
 const summary = {
-  bots: nBots, seconds, impair, genome,
+  bots: nBots, seconds, impair, genome: arena ? null : genome, arena,
   watch, joined: per.filter((p) => p.joined).length, rejected: per.filter((p) => p.reject !== null).length,
   errors: per.filter((p) => p.error).map((p) => ({ k: p.k, error: p.error })),
   cpuPctOfOneCore: Number((100 * (cpu.user + cpu.system) / 1e6 / wall).toFixed(1)),

@@ -92,9 +92,19 @@
   (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
   (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
   (local.set $in (!at i32 @(PLAYERS + P_IN) (local.get $pb)))
+#if ARENA
+  ;; the arena's word (layout.mjs): an 11-bit yaw, the bits after it moved down
+  (if (i32.and (local.get $fl) (i32.const @PF_DEAD)) (then (call $a_dead (local.get $p) (local.get $d) (local.get $in)) (return)))
+  (call $sincos (i32.shl (i32.and (local.get $in) (i32.const 0x7ff)) (i32.const 3)))
+  (local.set $c) (local.set $s)
+  (call $a_shoot (local.get $p) (local.get $d) (local.get $in) (local.get $s) (local.get $c))
+  (local.set $in (i32.or (i32.and (local.get $in) (i32.const 0x7ff))
+                         (i32.shl (i32.and (i32.shr_u (local.get $in) (i32.const @AW_MOVE)) (i32.const 31)) (i32.const 24))))
+#else
   (call $sincos (local.get $in))
   (local.set $c) (local.set $s)
   (call $shoot (local.get $p) (local.get $d) (local.get $in) (local.get $s) (local.get $c))
+#endif
   (local.set $fwd (f32.convert_i32_s (i32.sub (i32.and (i32.shr_u (local.get $in) (i32.const 24)) (i32.const 1))
                                               (i32.and (i32.shr_u (local.get $in) (i32.const 25)) (i32.const 1)))))
   (local.set $side (f32.convert_i32_s (i32.sub (i32.and (i32.shr_u (local.get $in) (i32.const 27)) (i32.const 1))
@@ -145,10 +155,17 @@
   (local.set $px (!madd (local.get $vx) (f32.const @DT) (local.get $px)))
   (local.set $py (!madd (local.get $vy) (f32.const @DT) (local.get $py)))
   (local.set $pz (!madd (local.get $vz) (f32.const @DT) (local.get $pz)))
+#if ARENA
+  (if (f32.lt (local.get $px) (f32.const @(A_BOX[0]))) (then (local.set $px (f32.const @(A_BOX[0]))) (local.set $vx (f32.max (local.get $vx) (f32.const 0)))))
+  (if (f32.gt (local.get $px) (f32.const @(A_BOX[1]))) (then (local.set $px (f32.const @(A_BOX[1]))) (local.set $vx (f32.min (local.get $vx) (f32.const 0)))))
+  (if (f32.lt (local.get $pz) (f32.const @(A_BOX[2]))) (then (local.set $pz (f32.const @(A_BOX[2]))) (local.set $vz (f32.max (local.get $vz) (f32.const 0)))))
+  (if (f32.gt (local.get $pz) (f32.const @(A_BOX[3]))) (then (local.set $pz (f32.const @(A_BOX[3]))) (local.set $vz (f32.min (local.get $vz) (f32.const 0)))))
+#else
   (if (f32.lt (local.get $px) (f32.const 1)) (then (local.set $px (f32.const 1)) (local.set $vx (f32.max (local.get $vx) (f32.const 0)))))
   (if (f32.gt (local.get $px) (f32.const 1021)) (then (local.set $px (f32.const 1021)) (local.set $vx (f32.min (local.get $vx) (f32.const 0)))))
   (if (f32.lt (local.get $pz) (f32.const 1)) (then (local.set $pz (f32.const 1)) (local.set $vz (f32.max (local.get $vz) (f32.const 0)))))
   (if (f32.gt (local.get $pz) (f32.const 1021)) (then (local.set $pz (f32.const 1021)) (local.set $vz (f32.min (local.get $vz) (f32.const 0)))))
+#endif
   (if (f32.gt (local.get $py) (f32.const @CEIL)) (then (local.set $py (f32.const @CEIL)) (local.set $vy (f32.min (local.get $vy) (f32.const 0)))))
   (call $ground (local.get $px) (local.get $pz))
   (drop) (drop) (drop) (drop)

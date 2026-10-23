@@ -99,7 +99,7 @@
   (local.set $rr (f32.mul (local.get $rr) (local.get $rr)))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
-    (if (i32.and (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE)) (i32.ne (local.get $p) (local.get $skip)))
+    (if (i32.and (i32.eq (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(PF_LIVE | PF_DEAD))) (i32.const @PF_LIVE)) (i32.ne (local.get $p) (local.get $skip)))
       (then
         (local.set $py (!at f32 @(PLAYERS + P_PY) (local.get $pb)))
         (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (local.get $x)))
@@ -116,7 +116,7 @@
   (local $p i32) (local $pb i32) (local $dx f32) (local $dy f32) (local $dz f32) (local $d2 f32) (local $d f32) (local $f f32) (local $vy f32)
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $b)))
-    (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE))
+    (if (i32.eq (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(PF_LIVE | PF_DEAD))) (i32.const @PF_LIVE))
       (then
         (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (local.get $x)))
         (local.set $dy (f32.sub (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (f32.const 0.9)) (local.get $y)))
@@ -141,7 +141,16 @@
   (local.set $rocket (i32.eq (!at u8 @(PROJ + J_KIND) (local.get $jb)) (i32.const @K_ROCKET)))
   (local.set $s (select (f32.const @ROCKET_S) (f32.const @GREN_S) (local.get $rocket)))
   (local.set $r (select (f32.const @ROCKET_RAD) (f32.const @GREN_RAD) (local.get $rocket)))
+#if ARENA
+  ;; the arena's blasts hurt: a rocket 230 at its centre over 5 m, a frag 150
+  (local.set $r (f32.const 5))
+  (if (i32.eqz (local.get $d))
+    (then (call $a_splash (local.get $x) (local.get $y) (local.get $z)
+                          (select (f32.const @(ARMS[W_ROCKET].dmg)) (f32.const @GREN_DMG) (local.get $rocket)) (local.get $r)
+                          (!at u8 @(PROJ + J_OWNER) (local.get $jb)) (select (i32.const @W_ROCKET) (i32.const @KILL_GREN) (local.get $rocket)))))
+#else
   (if (i32.eqz (local.get $d)) (then (call $blast (local.get $x) (local.get $y) (local.get $z) (local.get $s) (local.get $r))))
+#endif
   (call $blast_players (local.get $d) (local.get $x) (local.get $y) (local.get $z) (f32.mul (local.get $s) (f32.const @KNOCK)) (local.get $r))
   (call $fx (local.get $d) (i32.const @FX_BLAST) (!at u8 @(PROJ + J_OWNER) (local.get $jb)) (!at u16 @(PROJ + J_SHOT) (local.get $jb))
             (local.get $x) (local.get $y) (local.get $z) (local.get $r))
@@ -155,11 +164,14 @@
     (local.set $kind (!at u8 @(PROJ + J_KIND) (local.get $jb)))
     (if (i32.and (i32.ne (local.get $kind) (i32.const 0))
                  (i32.or (i32.lt_s (local.get $only) (i32.const 0)) (i32.eq (!at u8 @(PROJ + J_OWNER) (local.get $jb)) (local.get $only))))
-      (then
+      (then (block $skip
         (!put u16 @(PROJ + J_AGE) (local.get $jb) (i32.add (!at u16 @(PROJ + J_AGE) (local.get $jb)) (i32.const 1)))
+#if ARENA
+        (if (i32.ge_u (local.get $kind) (i32.const @K_BOLT)) (then (call $a_bolt (local.get $jb) (local.get $d)) (br $skip)))
+#endif
         (if (i32.eq (local.get $kind) (i32.const @K_ROCKET))
           (then (call $rocket (local.get $jb) (local.get $d)))
-          (else (call $grenade (local.get $jb) (local.get $d))))))))
+          (else (call $grenade (local.get $jb) (local.get $d)))))))))
 
 ;; Rockets fly straight in two half steps a tick (16 cm at 40 m/s), so they
 ;; can't pass through the ground, a ball or a body; the owner's own is never hit.
@@ -254,8 +266,13 @@
   (!chk (local.get $vx) 24 (local.get $jb))
   (!chk (local.get $vy) 25 (local.get $jb))
   (!chk (local.get $vz) 26 (local.get $jb))
+#if ARENA
+  ;; a frag goes off on its fuse only
+  (if (i32.ge_u (!at u16 @(PROJ + J_AGE) (local.get $jb)) (i32.const @A_FUSE))
+#else
   (if (i32.or (i32.ge_u (!at u16 @(PROJ + J_AGE) (local.get $jb)) (i32.const @FUSE))
               (i32.ge_s (call $hit_player (local.get $px) (local.get $py) (local.get $pz) (f32.const @GREN_R) (!at u8 @(PROJ + J_OWNER) (local.get $jb))) (i32.const 0)))
+#endif
     (then (call $explode (local.get $jb) (local.get $d) (local.get $px) (local.get $py) (local.get $pz)) (return)))
   (!put f32 @(PROJ + J_PX) (local.get $jb) (local.get $px))
   (!put f32 @(PROJ + J_PY) (local.get $jb) (local.get $py))

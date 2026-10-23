@@ -20,6 +20,17 @@ export async function newSim(debug = false) {
   return new Sim(await instantiate(await WebAssembly.compile(wasmBytes(debug)), memory), memory);
 }
 
+// The arena's build of the same sources (build/arena/).
+export function arenaBytes(debug = false) {
+  wasmBytes();
+  return readFileSync(`${ROOT}build/arena/${debug ? 'game.debug' : 'game'}.wasm`);
+}
+
+export async function newArena(debug = false) {
+  const memory = newMemory();
+  return new Sim(await instantiate(await WebAssembly.compile(arenaBytes(debug)), memory), memory);
+}
+
 export const smallLog = (ticks = 1600, extra = {}) => parseLog(generate({ ticks, target: 1200, ...extra }));
 
 export async function hashes(sim, log, from, to, step = (s) => s.x.step()) {

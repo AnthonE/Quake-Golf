@@ -1,6 +1,7 @@
 // Macros for the hand-written WAT. Each takes raw s-expression strings and
 // returns WAT text; the assembler re-scans the output, so macros may nest.
 // Layout constants stay as @NAME here and are folded after expansion.
+import { ARMS } from './layout.mjs';
 
 const SHIFT = { f32: 2, i32: 2, i64: 3, u16: 1, u8: 0, v128: 2 };
 const LOAD = { f32: 'f32.load', i32: 'i32.load', i64: 'i64.load', u16: 'i32.load16_u', u8: 'i32.load8_u', v128: 'v128.load' };
@@ -66,6 +67,20 @@ export function makeMacros({ DEBUG }) {
             (i32.add (i32.mul ${v('(local.get $lx)', lz1)} (i32.mul ${wx0} (local.get $fz)))
                      (i32.mul ${v(lx1, lz1)} (i32.mul (local.get $fx) (local.get $fz)))))
           (i32.const ${2 * Number(logp)}))))`;
+    },
+
+    // (!arm field w): the arena's weapon table (ARMS in layout.mjs) as a chain of
+    // selects on the weapon in w, so the constants inline; f32 for the float
+    // fields, i32 for the rest, 0 for weapon 0 and a field a weapon lacks.
+    arm: (field, w) => {
+      const f32 = field === 'speed';
+      const c = (v) => (f32 ? `(f32.const ${v || 0})` : `(i32.const ${v || 0})`);
+      let out = c(0);
+      for (let k = ARMS.length - 1; k >= 1; k--) {
+        if (!(field in ARMS[k]) && !['speed', 'kind', 'burst'].includes(field)) throw new Error(`ARMS[${k}] has no ${field}`);
+        out = `(select ${c(ARMS[k][field])} ${out} (i32.eq ${w} (i32.const ${k})))`;
+      }
+      return out;
     },
 
     // Debug-only: trap with a code if a value is NaN or infinite.

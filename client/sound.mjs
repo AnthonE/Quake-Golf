@@ -87,6 +87,22 @@ export function createSound({ music = true } = {}) {
     jump: () => blip(180, 420, 0.12, 0.12, 'triangle'),
     land: (speed) => burst(Math.min(0.5, speed / 30), 500, 0.18, 50),
     weapon: () => blip(900, 1800, 0.04, 0.05),
+    // the arena's: a gun by its W_* kind, falling off with distance; a hit, a kill, a melee, a pickup
+    gun: (w, dist = 0) => {
+      const g = Math.min(1, 8 / (dist + 8));
+      ({
+        1: () => burst(0.2 * g, 2600, 0.08, 300), 2: () => burst(0.24 * g, 3200, 0.1, 260), 3: () => burst(0.32 * g, 2200, 0.16, 160),
+        4: () => { burst(0.55 * g, 1800, 0.5, 70); blip(140, 60, 0.3, 0.12 * g, 'sawtooth'); }, 5: () => burst(0.6 * g, 1300, 0.35, 70),
+        6: () => { burst(0.35 * g, 700, 0.45, 60); blip(90, 300, 0.3, 0.06 * g, 'sawtooth'); },
+        7: () => blip(1100, 280, 0.09, 0.07 * g, 'sawtooth'), 8: () => blip(2000, 1300, 0.05, 0.05 * g, 'triangle'),
+        9: () => blip(180, 700, 0.18, 0.1 * g, 'sawtooth'),
+      }[w] || (() => burst(0.2 * g, 2500, 0.1, 200)))();
+    },
+    hit: (head) => blip(head ? 3000 : 2200, head ? 3000 : 2200, 0.03, 0.05),
+    hurt: (shields) => (shields ? blip(1300, 500, 0.12, 0.07, 'sine') : burst(0.3, 600, 0.15, 80)),
+    kill: () => [0, 7].forEach((n, i) => blip(660 * 2 ** (n / 12), 660 * 2 ** (n / 12), 0.12, 0.07, 'square', i * 0.08)),
+    melee: (dist = 0) => burst(0.3 * Math.min(1, 6 / (dist + 6)), 900, 0.12, 120),
+    pickup: () => blip(500, 1500, 0.12, 0.08, 'triangle'),
     music: play,
     toggleMusic: () => { music = !music; play(...want); return music; },
   };

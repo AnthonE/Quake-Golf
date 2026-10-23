@@ -18,7 +18,11 @@
               (!st u8 @FLAGS (local.get $i) (i32.or (!ld u8 @FLAGS (local.get $i)) (i32.const @F_AWAKE)))
               (!st u8 @SLEEP (local.get $i) (i32.const 0))
               (!st u8 @WAKE (local.get $i) (i32.const 0))))))))
+#if ARENA
+  (call $arena)
+#else
   (call $hole)
+#endif
   ;; every ball integrate moved: this tick's awake list
   (!for $k (i32.const 0) (i32.load (i32.const @JOB_NA))
     (call $regrid_ball (!ld u16 @AWAKE (local.get $k))))
@@ -121,7 +125,11 @@
     (select (i32.xor (local.get $seed) (i32.const 0x9e3779b9)) (i32.const 1)
             (i32.xor (local.get $seed) (i32.const 0x9e3779b9))))
   (call $terrain_gen (local.get $seed))
+#if ARENA
+  (call $arena_gen (local.get $seed)))
+#else
   (call $course_gen (local.get $seed)))
+#endif
 
 ;; Keyframes only at interval boundaries (a multiple of 128), right after an
 ;; interval closes, so the next interval's digests all come from restored state.
