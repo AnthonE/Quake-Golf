@@ -22,17 +22,20 @@ export const FC_BACK = 3; // m behind the last row to the back wall (and in the 
 export const FC_CATCH = 12; // m at least from the foot back to the back wall
 export const FC_PEN0 = 5; // m past the line to the pen's front row
 export const FC_LEN = 15000; // 120 s
-export const FC_RUSH = 3750; // once the first ball is over the line, 30 s left at most
+export const FC_RUSH = 3750; // once one in FC_RUSHN of the balls is over the line, 30 s left at most
+export const FC_RUSHN = 8;
 export const FC_DOWN = 250; // ticks a ball that fell anyway waits to come back (none can: walls all round)
 export const FC_SNAP = 0.15; // m: a ball this little over the floor and not rising is on it, so it rolls down a slope without leaving it
 export const FC_BOUNCE = 0.3; // what a wall gives back of a ball's speed into it
 // The fruit. Each drops out of the dispenser FC_DROPX m short of the line,
 // FC_DROPH m in FC_DROPT ticks, then rolls down at its own speed and bursts
-// at the foot. Kinds: radius (m), roll speed (m/s), what a hit gives back of
+// on a grate FC_GRATE m up from the foot (the belt below it is clear: a ball
+// knocked down gets its footing back there). Kinds: radius (m), roll speed (m/s), what a hit gives back of
 // the speed into it and the least it leaves (m/s), the hop it gives (m/s).
 export const FC_DROPX = 5;
 export const FC_DROPH = 5;
 export const FC_DROPT = 88; // 0.7 s: 5 m at about 20 m/s^2
+export const FC_GRATE = 8;
 export const FC_KINDS = 4;
 export const FC_GRAPE = 0;
 export const FC_APPLE = 1;
@@ -87,7 +90,7 @@ export const FC_NMAX = 4096;
 export const FC_IDX = 0x10000;
 export const FC_BUCKET = 125;
 export const FC_NB = 136;
-// The longest a fruit lives (a melon from the dispenser to the foot), a few ticks over.
+// The longest a fruit lives (a melon from the dispenser to the grate), a few ticks over.
 export const FC_LIFE = 1920;
 // Its header, byte offsets in PG_H.
 export const FC_HW = 0; // f32 the half-width, wall to wall
@@ -99,7 +102,7 @@ export const FC_NL = 20; // u32 lanes
 export const FC_NF = 24; // u32 fruit in the schedule
 export const FC_COLS = 28; // u32 balls a row on the grid (and in the pen)
 export const FC_FIN = 32; // u32 balls over the line
-export const FC_FIRST = 36; // u32 tick into play the first ball crossed (0 none yet)
+export const FC_FIRST = 36; // u32 tick into play the first ball crossed
 export const FC_LZ0 = 40; // f32 the first lane's centre, z
 export const FC_LSP = 44; // f32 from one lane's centre to the next
 // In PG_S: the lanes' next fruit while setup lays the schedule (u32 each, zeroed after),

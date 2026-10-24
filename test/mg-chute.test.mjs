@@ -227,7 +227,7 @@ test('a fruit knocks a ball climbing into it back down and out of its lane, up a
   assert.ok(kicks[1] > kicks[0], `a melon harder: ${kicks.map((x) => x.toFixed(1))}`);
 });
 
-test('a fruit out of the dispenser lands on a ball under it; a fruit past the foot is gone', async () => {
+test('a fruit out of the dispenser lands on a ball under it; one at the grate over the foot is gone', async () => {
   const g = await room(2, { seed: 9 });
   put(g, 1, H(g, L.FC_X0) - 6, C);
   const s = stage(g.v);
@@ -245,15 +245,15 @@ test('a fruit out of the dispenser lands on a ball under it; a fruit past the fo
   assert.ok(hit, 'hit from above');
   const age = hit.tick - g.v.party().start + L.FC_PRE - s.t0[k];
   assert.ok(age > 0 && age < L.FC_DROPT, `while dropping, ${age} ticks out`);
-  // the foot: a ball there, a fruit reaching it bursts rather than roll on over the catch floor
+  // the grate: a ball just under it, a fruit reaching it bursts rather than roll on down
   const x0 = H(g, L.FC_X0);
   const o = {};
   const soon = () => [...Array(s.nf).keys()].find((j) => s.t0[j] < sched(g) && fruitAt(s, j, sched(g) + 200, o) === false && o.burst > 0 && o.burst < 1);
   let kk;
   for (let i = 0; i < 2000 && kk === undefined; i++) { put(g, 0, s.x0 - 8, C); g.step(); kk = soon(); }
   assert.ok(kk !== undefined, 'one bursting soon');
-  for (let i = 0; i < 260; i++) { put(g, 0, x0 - s.r[kk] - 1.05, s.z[kk]); g.step(); }
-  assert.ok(!fxs(g.v, L.FC_FX_HIT, n0).some((x) => x.shot === kk && x.owner === 0), 'gone at the foot, no hit past it');
+  for (let i = 0; i < 260; i++) { put(g, 0, x0 + L.FC_GRATE - s.r[kk] - 1.05, s.z[kk]); g.step(); }
+  assert.ok(!fxs(g.v, L.FC_FX_HIT, n0).some((x) => x.shot === kk && x.owner === 0), 'gone at the grate, no hit past it');
 });
 
 test('over the line: out of play, parked in the pen, placed by the order crossed (one tick, one place); the first cuts the round to FC_RUSH', async () => {
@@ -351,7 +351,7 @@ test('the prediction matches the confirmed ball bit for bit: climbing into fruit
   assert.ok(!g.v.partier(0).out && g.v.hole().state === L.H_PLAY);
 });
 
-for (const [balls, ticks] of [[8, 9000], [64, 8000]]) {
+for (const [balls, ticks] of [[8, 9000], [64, 12000]]) {
   test(`a round of ${balls} AI balls on the debug build: no trap, the round ends, balls over the line in order, the rest placed; equal on 1 and 4 threads`, async () => {
     const bytes = partyBytes(true);
     const st = { start: -1, over: -1, fins: [], hits: 0, mirror: 0, places: null, pts: null };

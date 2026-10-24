@@ -4,7 +4,7 @@
 // dispenser across its top whose hatches light over a lane a moment before
 // a fruit drops there (all of them but the gap before a wave); the fruit as
 // big glossy spheres rolling down, a leaf turning with them, bursting into
-// juice at the foot. Past the line, a gold pen where the finishers bounce in
+// juice on the grate above the foot. Past the line, a gold pen where the finishers bounce in
 // the order they came. Every fruit is the sim's schedule (src/mg/chute.wat,
 // in PG_BIG) worked forward to the frame's tick, so what is drawn and what
 // the bots dodge is what the sim does.
@@ -19,7 +19,7 @@ const RB = 1; // a ball's radius
 const TOP = PLAT_Y + L.FC_RISE;
 const SLAT = 0.5; // m of belt a slat
 const WALL_H = 1.8; // m a wall stands over the floor
-const GANTRY = 7.6; // m from the belt's top at the dispenser to the gantry's middle
+const GANTRY = 6.8; // m from the belt's top at the dispenser to the gantry's middle: its underside just over a fruit's first drop
 const BURST = 0.5; // s a fruit's juice is drawn after it bursts
 
 // The fruit by kind, as the sim's constants have them, and how they look.
@@ -52,6 +52,7 @@ export function stage(view) {
     idx: new Int32Array(L.FC_NB), gaps: [],
   };
   s.xd = s.xt - L.FC_DROPX;
+  s.xg = s.x0 + L.FC_GRATE;
   s.yd = surf(s, s.xd);
   for (let k = 0; k < nf; k++) {
     const a = L.PG_BIG + L.FC_FRUIT + k * L.FC_REC;
@@ -91,7 +92,7 @@ export function fruitAt(s, k, tt, out = F) {
   }
   const e = age - L.FC_DROPT, v = s.v[k];
   out.x = s.xd - e * v * TICK;
-  if (out.x <= s.x0) { out.burst = (s.x0 - out.x) / v; return false; }
+  if (out.x <= s.xg) { out.burst = (s.xg - out.x) / v; return false; }
   out.vx = -v; out.rolled = e * v * TICK; out.phase = 1;
   out.y = surf(s, out.x) + r;
   if (s.kind[k] === L.FC_ORANGE) { const p = (Math.floor(e) % L.FC_HOPT + (e % 1)) / L.FC_HOPT; out.y += 4 * L.FC_HOPH * p * (1 - p); }
@@ -171,6 +172,7 @@ const mindOf = (bot, slot) => {
 // between two and where it is now are scored so, each way, with the crowd up
 // them and the way across; it keeps its last choice unless another is better.
 const NS = 26, STEP = 0.1;
+const CROWD = 0.3; // what a rival up a line costs it, against 4 for a fruit sure to hit
 const SC = { xs: [new Float64Array(NS), new Float64Array(NS)], zs: new Float64Array(NS), hits: [], cand: new Float64Array(64) };
 function plan(view, me, bot, tick) {
   const dv = view.dv, o = view.bank || 0;
@@ -213,6 +215,7 @@ function plan(view, me, bot, tick) {
       for (let j = 0; j < ns; j++) {
         const tau = j * STEP;
         const fx = tau < land ? F.x : F.x - F.v * (tau - land);
+        if (fx <= s.xg) break; // burst at the grate
         if (Math.abs(fx - xs[j]) < F.reach) hits.push(way, j, F.z, F.reach, w0 * (1.2 - tau / H) ** 2, F.k);
       }
     }
@@ -243,8 +246,12 @@ function plan(view, me, bot, tick) {
   let best = Infinity, bestZ = z, bestWay = 0;
   for (let c = 0; c < nc; c++) {
     const zc = Math.max(lo, Math.min(hi, cand[c]));
-    const gx = Math.floor((x + 3) / 4) * 1024, gz = Math.floor(zc / 2);
-    const crowd = (grid.get(gx + gz) || 0) + (grid.get(gx + 1024 + gz) || 0);
+    // the balls up this line, 8 m ahead and 1.5 m either side (not counting itself)
+    let crowd = 0;
+    const gx0 = Math.floor(x / 4), gx1 = Math.floor((x + 8) / 4), gz0 = Math.floor((zc - 1.5) / 2), gz1 = Math.floor((zc + 1.5) / 2);
+    for (let i = gx0; i <= gx1; i++) for (let j = gz0; j <= gz1; j++) crowd += grid.get(i * 1024 + j) || 0;
+    const mz = Math.floor(z / 2);
+    if (mz >= gz0 && mz <= gz1) crowd--;
     // where across it gets each tenth: from its sideways speed now, pushing for zc at `side`, at most 7 m/s
     const sg = zc >= z ? 1 : -1, dist = Math.abs(zc - z), u0 = vz * sg, tc = Math.max(0, (7 - u0) / side);
     for (let j = 0; j < ns; j++) {
@@ -260,7 +267,7 @@ function plan(view, me, bot, tick) {
         const clear = Math.abs(zt - hits[i + 2]) - hits[i + 3] - 0.35;
         if (clear < 0) { risk += hits[i + 4] * Math.min(1, 0.5 - clear / 1.5); last = hits[i + 5]; }
       }
-      let score = risk * 4 + 0.08 * Math.abs(zc - z) + 0.15 * Math.max(0, crowd - 1) + (way ? 2 : 0);
+      let score = risk * 4 + 0.08 * Math.abs(zc - z) + CROWD * crowd + (way ? 2 : 0);
       if (gapZ !== null) score += gapPull * Math.min(1, Math.abs(zc - gapZ) / (s.lsp * 0.75));
       if (mind.zc !== null && Math.abs(zc - mind.zc) < 0.5) score -= 0.5;
       score += ((Math.imul(slot + 1, 2654435761) ^ Math.imul(c * 2 + way + 1, 40503) ^ (t >> 7)) >>> 0) / 2 ** 32 * 0.3 * (1 - skill);
@@ -393,15 +400,19 @@ export default {
     const sc = out.scene;
     // the catch floor, chequered
     sc.box((s.xb + s.x0) / 2, PLAT_Y - 1, s.cx, (s.x0 - s.xb) / 2, 1, s.hw, 0, 0.55, 0.82, 1, LOOK.CHECKER, 2, 0.55);
-    // the juice trough across the foot
-    sc.box(s.x0 - 0.4, PLAT_Y + 0.02, s.cx, 0.4, 0.05, s.hw, 0, 0.75, 0.78, 0.82, LOOK.METAL);
+    // the grate the fruit burst on, across the belt above its foot, and the juice under it
+    sc.box(s.xg, surf(s, s.xg) + 0.03, s.cx, 0.35, 0.06, s.hw, 0, 0.78, 0.8, 0.85, LOOK.METAL);
+    for (let i = 0; i < 2; i++) sc.box(s.xg - 0.9 + 1.8 * i, surf(s, s.xg) + 0.02, s.cx, 0.12, 0.05, s.hw, 0, 0.9, 0.3, 0.35, LOOK.GLOW, 0.5, 0.2);
     belt(sc, s, Math.max(0, tt));
     walls(sc, s);
     dispenser(sc, out, s, Math.max(0, tt), now);
     finish(sc, out, s, now);
     finishers(view, out, s, now);
     if (tt < 0) return;
-    // the fruit, and the juice where they burst
+    // the fruit, and the juice where they burst; when the round's over, every one pops
+    let pop = 1;
+    if (g.state === L.H_OVER) pop = 1 - (g.tick + (ctx?.dt || 0) / TICK - (g.until - L.P_OVER)) * TICK / 0.35;
+    if (pop <= 0) return;
     const o = { x: 0, y: 0, z: 0, vx: 0, rolled: 0, phase: 0, burst: -1 };
     const [k0, k1] = window(s, tt);
     for (let k = Math.max(0, k0 - 40); k < k1; k++) {
@@ -410,19 +421,19 @@ export default {
       if (!fruitAt(s, k, tt, o)) {
         if (o.burst >= 0 && o.burst < BURST) {
           const a = o.burst / BURST, j = JUICE[s.kind[k]] || JUICE[1];
-          out.glow.push({ pos: [s.x0, PLAT_Y + r * 0.5, o.z], size: r * (1.4 + 2 * a), color: [...j, 0.8 * (1 - a)], kind: SPRITE.FLASH, minpx: 2 });
-          out.decals.push({ pos: [s.x0 - 1.5, PLAT_Y + 0.04, o.z], radius: r * (0.8 + a), width: r * 0.7, color: [...j, 0.75 * (1 - a)], kind: DECAL.DISC });
+          out.glow.push({ pos: [s.xg, surf(s, s.xg) + r * 0.5, o.z], size: r * (1.4 + 2 * a), color: [...j, 0.8 * (1 - a)], kind: SPRITE.FLASH, minpx: 2 });
         }
         continue;
       }
-      // hidden in the gantry until it drops out of it
-      if (o.phase === 0 && o.y - r > s.yd + GANTRY - 1.6) continue;
-      sc.sphere(o.x, o.y, o.z, r, ...K.rgb, K.look, K.look === LOOK.HAZARD ? 0.7 : 0, 0, 1, k & 4095);
-      out.casters.push([o.x, o.y, o.z, -r]);
+      // inside the gantry till its middle drops out of the hatch
+      if (o.phase === 0 && o.y > s.yd + GANTRY - 1.6) continue;
+      if (pop < 1) out.glow.push({ pos: [o.x, o.y, o.z], size: r * (2.2 - pop), color: [...(JUICE[s.kind[k]] || JUICE[1]), 0.8 * (1 - pop)], kind: SPRITE.FLASH, minpx: 2 });
+      sc.sphere(o.x, o.y, o.z, r * pop, ...K.rgb, K.look, K.look === LOOK.HAZARD ? 0.7 : 0, 0, 1, k & 4095);
+      out.casters.push([o.x, o.y, o.z, -r * pop]);
       if (K.leaf) {
         // a leaf at the top of it, turning over as it rolls downhill
         const a = o.rolled / r;
-        sc.sphere(o.x - Math.sin(a) * r * 0.92, o.y + Math.cos(a) * r * 0.92, o.z, r * 0.22, ...K.leaf, LOOK.PLASTIC, 0, 0, 1, k & 4095);
+        sc.sphere(o.x - Math.sin(a) * r * 0.92 * pop, o.y + Math.cos(a) * r * 0.92 * pop, o.z, r * 0.22 * pop, ...K.leaf, LOOK.PLASTIC, 0, 0, 1, k & 4095);
       }
     }
   },
@@ -447,7 +458,7 @@ export default {
         ctx.sound?.holed?.();
       } else {
         ctx.feed?.(`${ctx.name(fx.owner)} OVER THE LINE ${ordinal(fx.shot)}`, fx.shot === 1 ? C.YELLOW : C.WHITE);
-        if (fx.shot === 1) ctx.banner?.(`${ctx.name(fx.owner)} IS OVER FIRST  ${Math.round(L.FC_RUSH / 125)} S LEFT`, C.ORANGE, 2500);
+        if (fx.shot === 1) ctx.banner?.(`${ctx.name(fx.owner)} IS OVER THE LINE FIRST`, C.ORANGE, 2500);
         if (d < 30) ctx.sound?.pickup?.();
       }
     } else if (fx.kind === L.FC_FX_HIT) {
@@ -491,6 +502,10 @@ export default {
       }
     }
     ctx.put(1, 1, fin ? `${fin} OVER THE LINE` : 'NOBODY OVER YET', fin ? C.WHITE : C.GREY);
+    // once one in FC_RUSHN is over, the line closes FC_RUSH later (the clock says when)
+    const quota = Math.max(1, Math.ceil(g.n0 / L.FC_RUSHN));
+    if (fin >= quota) ctx.right(4, `THE LINE CLOSES IN ${Math.max(0, Math.ceil((g.until - g.tick) / 125))}`, C.RED);
+    else if (fin) ctx.right(4, `${quota - fin} MORE OVER AND THE LINE CLOSES IN ${L.FC_RUSH / 125}`, C.GREY);
     // your height up the chute, a bar
     if (me?.live && !finOf(view, me.slot)) {
       const u = Math.max(0, Math.min(1, (me.pos[0] - s.x0) / L.FC_RUN)), N = 20, lit = Math.round(u * N);

@@ -2,7 +2,8 @@
 ;; catch floor at PLAT_Y to a finish line FC_RISE m up, walls down both sides.
 ;; The belt carries every ball on it down at FC_BELT; a dispenser over its top
 ;; drops giant fruit (grapes, apples, bouncing oranges, melons) that roll
-;; down it in lanes and burst at the foot, knocking back any ball they meet.
+;; down it in lanes and burst on a grate a little above its foot, knocking
+;; back any ball they meet.
 ;; Nobody falls out: there are walls all round, and the foot runs onto the
 ;; catch floor. Over the line a ball is out of play, placed by the order it
 ;; crossed in and parked in the pen past the line; the rest are placed by how
@@ -186,7 +187,7 @@
 ;; it, carried down by the belt, knocked by any fruit it meets, kept inside the
 ;; walls. Every fruit is where the schedule and the tick put it: dropping out
 ;; of the dispenser (FC_DROPH in FC_DROPT, falling faster as it goes), then
-;; rolling down at its speed (an orange bouncing), gone at the foot. A ball
+;; rolling down at its speed (an orange bouncing), gone at the grate. A ball
 ;; that meets one is put back out of it across the floor (never into it) and
 ;; sent off it at least FC_KICK, more the harder it came in, and up a little.
 (func $fc_push (param $p i32) (param $d i32)
@@ -265,8 +266,8 @@
                   (local.set $fy (!madd (f32.mul (local.get $u) (f32.sub (f32.const 1) (local.get $u))) (f32.const @(4 * FC_HOPH)) (local.get $fy)))))))
           (local.set $dx (f32.sub (local.get $px) (local.get $fx)))
           (local.set $dy (f32.sub (f32.add (local.get $py) (local.get $r)) (local.get $fy)))
-          ;; burst at the foot: none past it
-          (if (i32.and (f32.gt (local.get $fx) (local.get $x0))
+          ;; burst at the grate near the foot: none past it
+          (if (i32.and (f32.gt (local.get $fx) (f32.add (local.get $x0) (f32.const @FC_GRATE)))
                        (f32.lt (!dot3 (local.get $dx) (local.get $dy) (local.get $dz) (local.get $dx) (local.get $dy) (local.get $dz)) (f32.mul (local.get $rr) (local.get $rr))))
             (then
               ;; out of it across the floor: as far from its centre as touching takes at this height
@@ -359,8 +360,9 @@
         (!put u16 @(PLAYERS + PG_SCORE) (local.get $pb) (local.get $v))))))
 
 ;; Over the line, in slot order: out of play, its order (shared by everyone
-;; over on one tick) and score, parked still in the pen. The first over cuts
-;; the round to FC_RUSH more. A ball that fell somehow comes back on the catch
+;; over on one tick) and score, parked still in the pen. Once one in
+;; FC_RUSHN of the starters is over (the first, in a room of eight or fewer),
+;; the round has FC_RUSH more. A ball that fell somehow comes back on the catch
 ;; floor FC_DOWN later. A wave is announced FC_WARN before it drops. On the
 ;; round's last tick, everyone still climbing scored by how far up they are.
 (func $fc_tick
@@ -394,9 +396,11 @@
   (if (local.get $nfin)
     (then
       (i32.store (i32.const @(PG_H + FC_FIN)) (i32.add (local.get $fin0) (local.get $nfin)))
-      (if (i32.eqz (local.get $fin0))
+      (if (i32.eqz (local.get $fin0)) (then (i32.store (i32.const @(PG_H + FC_FIRST)) (local.get $t))))
+      ;; one in FC_RUSHN of the balls that started over the line: FC_RUSH left
+      (local.set $w (i32.div_u (i32.add (i32.load (i32.const @BH_N0)) (i32.const @(FC_RUSHN - 1))) (i32.const @FC_RUSHN)))
+      (if (i32.and (i32.lt_u (local.get $fin0) (local.get $w)) (i32.ge_u (i32.add (local.get $fin0) (local.get $nfin)) (local.get $w)))
         (then
-          (i32.store (i32.const @(PG_H + FC_FIRST)) (local.get $t))
           (if (i32.gt_u (i32.load (i32.const @HDR_UNTIL)) (i32.add (local.get $tick) (i32.const @FC_RUSH)))
             (then (i32.store (i32.const @HDR_UNTIL) (i32.add (local.get $tick) (i32.const @FC_RUSH)))))))))
   (local.set $w (i32.sub (i32.add (local.get $t) (i32.const @FC_WARN)) (i32.const @FC_WAVE0)))
