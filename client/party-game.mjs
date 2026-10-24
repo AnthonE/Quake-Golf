@@ -16,14 +16,17 @@
 //   draw(view, ctx, out): ctx { tick (the confirmed tick), dt (s past it, to now), t (s into play at tick + dt),
 //       ptick, pt (the same on the prediction's clock: the tick your own ball is drawn at, fractional; tick + dt
 //       when nothing is predicted), now (ms), ms (since the last frame), cam [x, y, z], slot, me (your partier()
-//       record, confirmed, or null), pme (the prediction's, or null), view, pview (the prediction's View) };
+//       record, confirmed, or null), pme (the prediction's, or null), view, pview (the prediction's View), sound };
 //     out { scene, solid [], glow [], beams [], decals [], casters [] (round things for the shadow map: [x, y, z, -r]),
-//       paint (null, or set it to a paint layer) }: the balls go in after it, into the same arrays.
+//       paint (null, or set it to a paint layer), music (set false to hush the round's music this frame) }: the balls
+//       go in after it, into the same arrays.
 //   frame(view) -> { centre: [x, y, z], radius, shape: 'disc' | 'square' }
 //   fx(f, ctx): f a confirmed FX record ({ tick, kind, owner, shot, pos, size }) whose kind is FX_MG + 4 * id + k;
 //     ctx { slot, glow({ pos, size, color, kind, life (ms), grow }), sound, banner(text, color, ms), feed(text, color),
 //       name(p) ('YOU' or 'P12'), dist (m from the camera), C, now, view }
 //   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
+//   rules, optional: the title card's line on how the round is won (default: by PG_KIND); ownScore, optional: true
+//     when the minigame's hud writes rows 0 and 1's left (where you stand) and a ball out says so itself
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
 //     The frontend keeps rows 0 and 1 (the clock, who's left or the scores, the round's name), the middle band
@@ -285,7 +288,6 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     }
     lastSecs = secs;
     lastState = g.state;
-    sound.music(g.state === L.H_PLAY ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(g.hole + 7, 0x9e3779b9)) >>> 0 : null, g.state === L.H_PLAY);
 
     // who the camera follows: you, or (out, watching) a ball still in, the winner when it's over
     const mine = pme && !pme.out ? pme : null;
@@ -351,10 +353,12 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     // the stage, as the minigame draws it
     scene.clear();
     const solid = [], glow = [], beams = [], decals = [], extra = [];
-    const out = { scene, solid, glow, beams, decals, casters: extra, paint: null };
+    const out = { scene, solid, glow, beams, decals, casters: extra, paint: null, music: true };
     const t = g.state === L.H_PLAY ? g.t * TICK + dt : 0;
     const pt = g.state === L.H_PLAY ? (ptick - g.start) * TICK : 0;
-    mod.draw?.(view, { tick: g.tick, dt, t, ptick, pt, now, ms, cam, slot, me, pme, view, pview }, out);
+    mod.draw?.(view, { tick: g.tick, dt, t, ptick, pt, now, ms, cam, slot, me, pme, view, pview, sound }, out);
+    const tune = g.state === L.H_PLAY && out.music !== false;
+    sound.music(g.state === L.H_PLAY ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(g.hole + 7, 0x9e3779b9)) >>> 0 : null, tune);
 
     // the balls, their riders and what they hold, rockets, then what glows
     const casters = [];
@@ -455,13 +459,13 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       centre(y0, `ROUND ${g.round + 1}   ${g.n0} ${g.n0 === 1 ? 'PLAYER' : 'PLAYERS'}`, C.GREY);
       bigLine(y0 + 2, mod.name || g.name, C.YELLOW, 4);
       centre(y0 + 7, mod.hint || '', C.WHITE);
-      centre(y0 + 9, score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS', C.CYAN);
+      centre(y0 + 9, mod.rules || (score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS'), C.CYAN);
     }
     if (g.state === L.H_PLAY) {
       centre(0, clock(left), left < 10 * 125 ? C.RED : C.WHITE);
       centre(1, mod.name || g.name, C.GREY);
     }
-    if (g.state !== L.H_IDLE && st === 2) {
+    if (g.state !== L.H_IDLE && st === 2 && !mod.ownScore) {
       if (score) {
         // your score and the leader's
         let lead = -1, best = -1;
@@ -479,7 +483,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       right(0, `POINTS ${me.pts}  WINS ${me.wins}`, C.YELLOW);
       if (me.out && g.state === L.H_PLAY && !score) centre(rows - 4, f ? `OUT  WATCHING P${f.slot + 1}  CLICK FOR ANOTHER` : 'OUT', C.GREY);
       if (me.out && me.place === 0 && g.state === L.H_PLAY && !score) centre(rows - 5, 'YOU PLAY THE NEXT ROUND', C.CYAN);
-      if (me.out && g.state === L.H_PLAY && score) centre(rows - 4, `DOWN  BACK IN ${Math.max(0, Math.ceil((g.respawn - ((g.tick - me.outAt) | 0)) / 125))}`, C.GREY);
+      if (me.out && g.state === L.H_PLAY && score && !mod.ownScore) centre(rows - 4, `DOWN  BACK IN ${Math.max(0, Math.ceil((g.respawn - ((g.tick - me.outAt) | 0)) / 125))}`, C.GREY);
       if (item && !me.out) put(tx, COLS, 47, rows - 3, `${L.PU_NAMES[item]}  CLICK`, C.WHITE);
     } else if (WATCH && f) put(tx, COLS, 1, 1, `WATCHING P${f.slot + 1}  < >`, C.CYAN);
     // the minigame's own lines
