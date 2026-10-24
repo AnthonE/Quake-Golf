@@ -243,7 +243,9 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     if (external) yaw = get(L.CL_YAW);
     // the bot drives the slots as the keys and mouse would
     if (bot && me?.live && st === 2) {
-      const word = bot.think(view, g.tick, Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE)));
+      // its word is for the prediction's tick, the lead past the world it sees
+      const lead = Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE));
+      const word = bot.think(view, g.tick + lead, lead);
       yaw = word & (TURN - 1);
       aim();
       set(L.CL_MOVE, ((word >>> 24) & 15) | (((word >>> 28) & 1) << 4));
