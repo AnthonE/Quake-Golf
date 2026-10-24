@@ -9,7 +9,8 @@ Four games build from `src/`: golf (`build/game.wasm`), the arena with
 of them: all four in one module, a playlist the room plays through, a living
 room for a menu (`client/fireplace.html`). `xbox/sim/` is a frozen fork of
 `src/` for the original Xbox (`build/xbox/`). README.md is the long-form doc;
-read the section for whatever you touch.
+read the section for whatever you touch. `docs/roadmap.md` is the plan for
+what comes next.
 
 ## Commands
 

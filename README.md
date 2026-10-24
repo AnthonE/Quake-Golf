@@ -12,7 +12,7 @@ Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 **[Fireplace](#fireplace)** is all of it as one party game: the room plays
 bumper balls, [Party](#party)'s minigames, the arena and golf in turn, Mario Party style, and people
 come and go as they like, from a living room with a fire going and the game on
-the TV.
+the TV. What comes next is [docs/roadmap.md](docs/roadmap.md).
 
 ## Where it is
 
