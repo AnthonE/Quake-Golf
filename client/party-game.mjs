@@ -298,7 +298,9 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     } else if (st >= 1) {
       if (g.state === L.H_OVER && g.winner !== 255) watched = g.winner;
       if (me && !me.out && g.state !== L.H_PLAY && !toWinner) watched = slot;
-      if (watched < 0 || !inBall(watched)) watched = nextIn(watched, 1);
+      // (the winner even mid-fall: the round can end with the last ball in the air between floors)
+      const winner = toWinner && view.bumper(g.winner).live && !view.bumper(g.winner).out;
+      if (!winner && (watched < 0 || !inBall(watched))) watched = nextIn(watched, 1);
       if (watched >= 0) {
         tgt = view.bumper(watched);
         tgtPos = [0, 1, 2].map((k) => tgt.pos[k] + tgt.vel[k] * dt);
@@ -444,15 +446,16 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     const mid = Math.floor(rows / 2);
     if (g.state === L.H_COUNT && st === 2) {
       // the title card: ROUND n, the name big, the hint, the seconds
+      // (the seconds over it, the card itself clear of your ball in the middle)
       const n = Math.ceil(left / 125);
-      const y0 = Math.max(2, mid - 12);
+      const y0 = Math.max(7, mid - 13);
       band(y0 - 1, y0 + 11);
+      if (n <= 3) bigLine(y0 - 6, String(n), C.WHITE, 4);
+      else centre(y0 - 3, `STARTS IN ${n}`, C.YELLOW);
       centre(y0, `ROUND ${g.round + 1}   ${g.n0} ${g.n0 === 1 ? 'PLAYER' : 'PLAYERS'}`, C.GREY);
       bigLine(y0 + 2, mod.name || g.name, C.YELLOW, 4);
       centre(y0 + 7, mod.hint || '', C.WHITE);
       centre(y0 + 9, score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS', C.CYAN);
-      if (n <= 3) bigLine(y0 + 13, String(n), C.WHITE, 5);
-      else centre(y0 + 13, `STARTS IN ${n}`, C.YELLOW);
     }
     if (g.state === L.H_PLAY) {
       centre(0, clock(left), left < 10 * 125 ? C.RED : C.WHITE);

@@ -109,10 +109,11 @@ export default {
     const mine = f.owner === ctx.slot;
     if (f.kind === L.TI_FX_CRACK) {
       if (mine || d < 25) ctx.sound?.crackle?.(mine ? 1.2 : Math.min(1, 8 / (d + 8)));
-      ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.05, f.pos[2]], size: 1.1, color: [0.85, 0.95, 1, 0.8], kind: SPRITE.SPARK, life: 260 });
+      ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.05, f.pos[2]], size: 0.8, color: [0.85, 0.95, 1, 0.7], kind: SPRITE.SPARK, life: 240 });
     } else if (f.kind === L.TI_FX_DROP) {
+      // the tile is seen to go (draw has it tumble): only a faint puff of frost, and a crunch near by
       if (d < 30) ctx.sound?.land?.(Math.min(12, 120 / (d + 10)));
-      ctx.glow?.({ pos: f.pos, size: 2.2, color: [0.75, 0.9, 1, 0.55], kind: SPRITE.RING, life: 400, grow: true });
+      if (d < 40) ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.1, f.pos[2]], size: 1.4, color: [0.8, 0.92, 1, 0.22], kind: SPRITE.FLASH, life: 350, grow: true });
     }
   },
 
