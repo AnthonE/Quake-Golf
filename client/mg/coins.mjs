@@ -1,7 +1,7 @@
 // COIN RUSH, as drawn and as the AI ball sees it. A round table over the sea,
 // felt checkered in two greens with a gold band round it; spinning gold
 // coins falling onto it (each one's shadow and a ring where it will land),
-// lying there blinking out at the end of their twelve seconds, flying off a
+// lying there blinking out at the end of their ten seconds, flying off a
 // ball bumped hard or spilling in over the rim where one fell; bumpers
 // lit gold when they pay, dark red while they recharge; a jackpot called by
 // a beam and a ring three seconds before its fountain. Every coin is read
@@ -91,7 +91,7 @@ function reaches(k, t, x, y, z, r = 1) {
 // ---- drawing
 
 // Coins your own predicted ball has rolled into: hidden till the confirmed world has had time to agree.
-const ghosts = new Map(); // `${c}:${t0}` -> the confirmed tick by which it should be gone
+const ghosts = new Map(); // `${c}:${t0}` -> the confirmed tick by which the take should be back
 const hitAt = new Map(); // bumper -> ms of its last throw, for the flash
 let env = 'sunset';
 
@@ -125,18 +125,22 @@ export default {
     const tp = playing ? since(T, g.start) : 0;
     env = playing && frenzy(tp) ? 'night' : 'sunset';
     table(out, cx, R, now);
-    // the bumpers: gold and glowing while lit, dark red while they recharge (blinking the last second), white as they throw
+    // the bumpers, pinball posts: a red skirt, a band glowing gold while lit (dark while it recharges,
+    // blinking its last second back), a white cap; white-hot as it throws
+    const H = L.CR_BH;
     for (const b of bumpers(view)) {
       const lit = !playing || tp >= b.litAt;
       const flash = Math.max(0, 1 - (now - (hitAt.get(b.i) ?? -1e9)) / 180);
       const soon = !lit && b.litAt - tp < 125 && Math.sin(now / 60) > 0;
       const pulse = 0.5 + 0.5 * Math.sin(now / 200 + b.i);
-      if (lit || soon) out.scene.cyl(b.x, PLAT_Y + L.CR_BH / 2, b.z, L.CR_BR, L.CR_BH / 2, 1, 0.78 + 0.1 * pulse, 0.25, LOOK.GLOW, 0.8 + 0.4 * pulse + 2 * flash, 0.4);
-      else out.scene.cyl(b.x, PLAT_Y + L.CR_BH / 2, b.z, L.CR_BR, L.CR_BH / 2, 0.5 + 0.5 * flash, 0.1 + 0.5 * flash, 0.12 + 0.5 * flash, flash > 0 ? LOOK.GLOW : LOOK.PLASTIC, 2 * flash);
-      out.scene.cyl(b.x, PLAT_Y + L.CR_BH + 0.08, b.z, L.CR_BR * 0.72, 0.1, 0.85, 0.86, 0.9, LOOK.METAL);
+      out.scene.cyl(b.x, PLAT_Y + 0.2, b.z, L.CR_BR, 0.2, 0.86, 0.13, 0.12, LOOK.PLASTIC);
+      if (lit || soon) out.scene.cyl(b.x, PLAT_Y + 0.4 + (H - 0.6) / 2, b.z, L.CR_BR * 0.9, (H - 0.6) / 2, 1, 0.8 + 0.1 * pulse, 0.3, LOOK.GLOW, 0.9 + 0.5 * pulse + 2 * flash, 0.3);
+      else out.scene.cyl(b.x, PLAT_Y + 0.4 + (H - 0.6) / 2, b.z, L.CR_BR * 0.9, (H - 0.6) / 2, 0.3 + 0.7 * flash, 0.08 + 0.7 * flash, 0.1 + 0.7 * flash, flash > 0 ? LOOK.GLOW : LOOK.PLASTIC, 2 * flash);
+      out.scene.cyl(b.x, PLAT_Y + H - 0.1, b.z, L.CR_BR, 0.1, 0.96, 0.95, 0.92, LOOK.PLASTIC);
       out.decals.push({ pos: [b.x, PLAT_Y + 0.03, b.z], radius: L.CR_BR + 0.55, width: 0.25, color: lit ? [1, 0.85, 0.3, 0.8] : [0.8, 0.2, 0.15, 0.45], kind: DECAL.RING });
-      if (lit && playing) out.glow.push({ pos: [b.x, PLAT_Y + L.CR_BH + 0.6, b.z], size: 1.6 + 0.4 * pulse, color: [1, 0.8, 0.3, 0.3], kind: SPRITE.FLASH, minpx: 1 });
+      if (lit && playing) out.glow.push({ pos: [b.x, PLAT_Y + H + 0.5, b.z], size: 1.6 + 0.4 * pulse, color: [1, 0.8, 0.3, 0.3], kind: SPRITE.FLASH, minpx: 1 });
     }
+    const night = env === 'night';
     // the jackpot called: a ring where it will erupt, filling as it nears, a beam down on it, the pot over it
     const jp = playing ? jackpot(view, tp) : null;
     if (jp?.called) {
@@ -160,7 +164,7 @@ export default {
     for (const k of coins(view)) {
       if (T < k.t0 || T >= k.gone) continue;
       const key = `${k.c}:${k.t0}`;
-      if (me && !ghosts.has(key) && reaches(k, Math.floor(T), me.pos[0], me.pos[1], me.pos[2], me.radius)) ghosts.set(key, view.tick + 40);
+      if (me && !ghosts.has(key) && reaches(k, Math.floor(T), me.pos[0], me.pos[1], me.pos[2], me.radius)) ghosts.set(key, Math.ceil(T) + 30);
       if (ghosts.has(key)) continue;
       // the last two seconds it blinks, faster as it goes
       const left = (k.gone - T) * TICK;
@@ -171,7 +175,8 @@ export default {
       const lying = T - k.t0 >= k.air;
       if (lying) p[1] += r - L.CR_CY + 0.12 + 0.07 * Math.sin(now / 280 + k.c);
       out.solid.push({ pos: p, size: r, color: big ? [1, 0.9, 0.42, 1] : [1, 0.78, 0.2, 1], kind: SPRITE.COIN, minpx: 1.5, roll: k.c * 0.77 });
-      if (big) out.glow.push({ pos: p, size: 1.3, color: [1, 0.85, 0.35, 0.3], kind: SPRITE.FLASH, minpx: 1 });
+      // big ones shine; at night (the frenzy) every one does
+      if (big || night) out.glow.push({ pos: p, size: big ? 1.3 : 0.9, color: [1, 0.85, 0.35, big ? 0.3 : 0.25], kind: SPRITE.FLASH, minpx: 1 });
       if (!lying) {
         // its shadow, and a ring where it will land, closing in as it comes down
         out.casters.push([p[0], p[1], p[2], -r * 1.2]);
@@ -325,7 +330,8 @@ function fieldOf(view) {
   balls.forEach((b, n) => { const c = cell(b.x, b.z); ballNext[n] = -1; if (c >= 0) { ballNext[n] = ballHead[c]; ballHead[c] = n; } });
   const bs = bumpers(view);
   const ring = R * L.CR_BRING + L.CR_BR + 1.2;
-  view._crf = { tick: view.tick, R, cx, o, list, coinHead, coinNext, balls, ballHead, ballNext, bumpers: bs, ring2: ring * ring };
+  const most = balls.reduce((m, b) => Math.max(m, b.score), 0);
+  view._crf = { tick: view.tick, R, cx, o, list, coinHead, coinNext, balls, ballHead, ballNext, bumpers: bs, ring2: ring * ring, most };
   return view._crf;
 }
 // Calls fn(entry) for every entry of a grid in the cells within r of (x, z).
@@ -357,7 +363,7 @@ function plan(view, me, bot) {
   const vx = bot?.vel?.[0] ?? view.dv.getFloat32(b + L.P_VX, true), vz = bot?.vel?.[1] ?? view.dv.getFloat32(b + L.P_VZ, true);
   const sp = Math.hypot(vx, vz), ux = sp > 1 ? vx / sp : 0, uz = sp > 1 ? vz / sp : 0, turnK = Math.min(1, sp / 8) * 0.35;
   const skill = bot?.skill ?? 0.6;
-  const slow = 0.1 + 0.15 * (1 - skill);
+  const slow = 0.1 + 0.3 * (1 - skill);
   const tp = (t - g.start) | 0;
   // the time to get to (x, z): rolling at ~9 m/s, a turn costing a little, more for the clumsy
   const eta = (x, z) => {
@@ -397,16 +403,19 @@ function plan(view, me, bot) {
     const e = Math.max(eta(jp.x, jp.z), (jp.at - tp) * TICK + 0.3);
     consider(jp.x, jp.z, jp.n * 0.35 / (e + 0.35), JACK, jp.j, R);
   }
-  // a keen ball rams a rival with a few coins on it, near and not by the rim (where it would go over itself)
+  // a keen ball rams a rival worth it (5 coins or more, the leader more so) when it's on it already:
+  // near, nearly ahead and itself rolling hard (only a hard bump knocks coins loose); never by the
+  // rim, where it would go over itself. A chase from a standstill costs more than it knocks loose.
   const k0 = keen(slot) * skill;
-  if (k0 > 0.25) {
-    around(w, w.ballHead, w.ballNext, w.balls, x0, z0, 9, (o) => {
-      if (o.slot === slot || o.score < 3) return;
+  if (k0 > 0.25 && sp > 5) {
+    around(w, w.ballHead, w.ballNext, w.balls, x0, z0, 7, (o) => {
+      if (o.slot === slot || o.score < 5) return;
       const dx = o.x - x0, dz = o.z - z0, d = Math.sqrt(dx * dx + dz * dz);
-      if (d > 9 || R - Math.hypot(o.x - cx, o.z - cx) < 4) return;
+      if (d > 7 || d < 0.5 || (dx * ux + dz * uz) / d < 0.6 || R - Math.hypot(o.x - cx, o.z - cx) < 5) return;
       const lead = d / 10;
       const ax = o.x + o.vx * lead, az = o.z + o.vz * lead;
-      consider(ax, az, Math.min(3, o.score) * k0 * 0.6 / (eta(ax, az) + 0.35), RAM, o.slot, R);
+      const worth = Math.min(3, o.score) * (o.score >= w.most ? 1.5 : 1);
+      consider(ax, az, worth * k0 * 0.5 / (eta(ax, az) + 0.35), RAM, o.slot, R);
     });
   }
   let best = null;
@@ -418,7 +427,7 @@ function plan(view, me, bot) {
       around(w, w.ballHead, w.ballNext, w.balls, k.x, k.z, r, (o) => { if (o.slot !== slot && (o.x - k.x) ** 2 + (o.z - k.z) ** 2 < r2) closer++; });
       k.s /= 1 + (k.kind === JACK ? 0.08 : 1.2) * closer;
     }
-    if (k.kind === mind.kind && k.key === mind.key) k.s *= 1.3; // what it's after already
+    if (k.kind === mind.kind && k.key === mind.key) k.s *= 1.3 + 0.7 * (1 - skill); // what it's after already (a clumsy ball hangs on)
     if (!best || k.s > best.s) best = k;
   }
   mind.at = t;
