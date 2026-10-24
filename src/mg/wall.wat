@@ -197,8 +197,8 @@
 ;; the back, or sideways into a gap). Its velocity into the block is held to
 ;; the block's own (the wall's speed along its way once it moves, the sway's
 ;; across it), so a ball on a face rides it; across the face it slides free. A moving face meeting
-;; the ball the first time for that wall marks it (bit w mod 32 of PG_M) and
-;; sends WL_FX_PIN on this bank.
+;; the ball the first time for that wall marks it (bit w mod 32 of PG_M, till
+;; the wall is gone) and sends WL_FX_PIN on this bank.
 (func $wl_push (param $p i32) (param $d i32)
   (local $pb i32) (local $fl i32) (local $t i32) (local $w i32) (local $nw i32) (local $a i32) (local $j i32) (local $k i32) (local $hit i32) (local $moved i32)
   (local $h f32) (local $cx f32) (local $r f32) (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vz f32)
@@ -208,15 +208,27 @@
   (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
   (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
   (if (i32.and (local.get $fl) (i32.const @(PF_FALL | PF_DEAD))) (then (return)))
+  (local.set $t (call $p_t (local.get $d)))
+  (local.set $nw (i32.load offset=@(PG_H + WL_NW) (local.get $d)))
+  ;; on the tick a wall is gone its bit in PG_M goes too (wall w + 32 has the
+  ;; same bit), wherever the ball is, so either bank clears it alike
+  (local.set $w (i32.load offset=@(PG_H + WL_LIVE) (local.get $d)))
+  (block $kept
+    (loop $gone
+      (br_if $kept (i32.ge_u (local.get $w) (local.get $nw)))
+      (local.set $a (call $wl_rec (local.get $w)))
+      (br_if $kept (i32.gt_s (i32.load offset=@WL_START (local.get $a)) (local.get $t)))
+      (if (i32.eq (local.get $t) (i32.load offset=@WL_END (local.get $a)))
+        (then (!put i32 @(PLAYERS + PG_M) (local.get $pb) (i32.and (!at i32 @(PLAYERS + PG_M) (local.get $pb)) (i32.rotl (i32.const -2) (local.get $w))))))
+      (!inc $w)
+      (br $gone)))
   (local.set $py (!at f32 @(PLAYERS + P_PY) (local.get $pb)))
   (local.set $r (call $b_rad (local.get $pb)))
   ;; over the walls, or under them falling
   (if (i32.or (f32.ge (local.get $py) (f32.const @(+PLAT_Y + WL_HIGH)))
               (f32.le (!madd (local.get $r) (f32.const 2) (local.get $py)) (f32.const @(PLAT_Y - WL_DEEP))))
     (then (return)))
-  (local.set $t (call $p_t (local.get $d)))
   (local.set $h (f32.load offset=@(PG_H + WL_HALF) (local.get $d)))
-  (local.set $nw (i32.load offset=@(PG_H + WL_NW) (local.get $d)))
   (local.set $cx (f32.load (i32.const @PG_CX)))
   (local.set $px (!at f32 @(PLAYERS + P_PX) (local.get $pb)))
   (local.set $pz (!at f32 @(PLAYERS + P_PZ) (local.get $pb)))
@@ -323,10 +335,8 @@
           (if (i32.and (i32.and (i32.gt_s (local.get $t) (i32.load offset=@WL_GO (local.get $a))) (f32.gt (local.get $nu) (f32.const 0.5)))
                        (i32.eqz (i32.and (local.get $j) (i32.shl (i32.const 1) (local.get $w)))))
             (then
-              ;; wall w's bit set; walls w + 8 .. w + 23's cleared (the same bits as walls long gone)
-              (!put i32 @(PLAYERS + PG_M) (local.get $pb)
-                (i32.or (i32.and (local.get $j) (i32.xor (i32.rotl (i32.const 0xffff) (i32.add (local.get $w) (i32.const 8))) (i32.const -1)))
-                        (i32.shl (i32.const 1) (local.get $w))))
+              ;; wall w's bit set, till it's gone
+              (!put i32 @(PLAYERS + PG_M) (local.get $pb) (i32.or (local.get $j) (i32.shl (i32.const 1) (local.get $w))))
               (call $fx (local.get $d) (i32.const @WL_FX_PIN) (local.get $p) (local.get $w) (local.get $px) (local.get $py) (local.get $pz) (local.get $want)))))))
       (!inc $w)
       (br $walls)))
@@ -378,13 +388,25 @@
       (br $more)))
   (i32.store (i32.const @(PG_H + WL_LIVE)) (local.get $w)))
 
-;; Two or more still in and every one of them falling (one wall took them all
-;; off at once): over now, and they share the win rather than all sharing last.
+;; Two or more still in, every one of them falling, and all since the same
+;; tick (one wall took them all off at once): over now, and they share the
+;; win rather than all sharing last. One that went off before the rest goes
+;; out first, in its place. Each ball's first tick falling is noted here (WL_FELL).
 (func $wl_over (result i32)
-  (local $p i32)
+  (local $p i32) (local $fl i32) (local $t i32) (local $at i32)
+  (local.set $t (i32.add (call $p_t (i32.const 0)) (i32.const 1)))
+  (!for $p (i32.const 0) (i32.const @NPLAYER)
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.and (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL))) (i32.eqz (!ld u16 @(PG_S + WL_FELL) (local.get $p))))
+      (then (!st u16 @(PG_S + WL_FELL) (local.get $p) (local.get $t)))))
   (if (i32.lt_u (i32.load (i32.const @BH_LEFT)) (i32.const 2)) (then (return (i32.const 0))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (if (call $p_in (i32.shl (local.get $p) (i32.const 6))) (then (return (i32.const 0)))))
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.eq (local.get $fl) (i32.const @PF_LIVE)) (then (return (i32.const 0))))
+    (if (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL)))
+      (then
+        (if (i32.eqz (local.get $at)) (then (local.set $at (!ld u16 @(PG_S + WL_FELL) (local.get $p)))))
+        (if (i32.ne (!ld u16 @(PG_S + WL_FELL) (local.get $p)) (local.get $at)) (then (return (i32.const 0)))))))
   (i32.const 1))
 
 (func $wl_out (param $p i32))
