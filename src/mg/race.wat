@@ -280,7 +280,7 @@
 ;; A jump: a short run in, a kicker, a gap, a landing lower down whose front
 ;; face is a wall to a ball that falls short.
 (func $rc_jump (param $q i32) (param $w f32)
-  (drop (call $rc_straight (f32.const 10) (f32.const -1.5) (local.get $w) (local.get $w) (i32.const @RCF_CHECK) (i32.const @RCS_JUMP)))
+  (drop (call $rc_straight (f32.const @RC_RUNIN) (f32.const @(-0.15 * RC_RUNIN)) (local.get $w) (local.get $w) (i32.const @RCF_CHECK) (i32.const @RCS_JUMP)))
   (drop (call $rc_straight (f32.const @RC_KICKL) (f32.const @(RC_KICKL * RC_KICKSL)) (local.get $w) (local.get $w) (i32.const 0) (i32.const @RCS_JUMP)))
   (drop (call $rc_straight (f32.add (f32.const @RC_GAP0) (f32.mul (call $rc_rnd (local.get $q)) (f32.const @RC_GAPK)))
     (f32.const @(-RC_GAPDROP)) (local.get $w) (local.get $w) (i32.const @RCF_GAP) (i32.const @RCS_JUMP)))
@@ -319,7 +319,7 @@
 
 ;; A bumper field: posts in staggered rows that throw a ball off, rails each side.
 (func $rc_bumpers (param $q i32) (param $w f32)
-  (local $k i32) (local $row i32) (local $j i32) (local $m i32) (local $u f32) (local $sp f32) (local $off f32)
+  (local $k i32) (local $row i32) (local $j i32) (local $u f32) (local $sp f32) (local $off f32)
   (local.set $k (call $rc_straight (f32.const 34) (f32.const -4) (local.get $w) (local.get $w) (i32.const @(RCF_CHECK | RCF_RAIL_L | RCF_RAIL_R)) (i32.const @RCS_BUMPERS)))
   (local.set $sp (f32.const @RC_BUMP_SP))
   (local.set $off (f32.mul (call $rc_rnd (local.get $q)) (local.get $sp)))
@@ -373,7 +373,8 @@
 ;; them, a drop, six bends each into a section (the jump, the funnel, the
 ;; bumpers, the spinners and the sweepers in an order of the seed's, a last
 ;; drop), the finish and its pen; then moved so it's centred on the stage's
-;; centre. The round's knobs: a scoring round, no bumps lost, lighter drag.
+;; centre. The round's knobs: a scoring round, a lighter push and drag, a
+;; brake with no keys, RC_BACK down.
 (func $rc_setup (param $n i32)
   (local $w f32) (local $m i32) (local $rows i32) (local $glen f32) (local $k i32) (local $j i32) (local $q i32) (local $a i32)
   (local $x0 f32) (local $x1 f32) (local $z0 f32) (local $z1 f32) (local $r f32) (local $dx f32) (local $dz f32) (local $t i32)

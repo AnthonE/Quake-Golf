@@ -8,7 +8,7 @@
 // the tick, so what you dodge is where the sim has it). $rc_at is worked again
 // here in doubles: the brain steers by it, nothing is fed back.
 import * as L from '../../src/layout.mjs';
-import { LOOK, SPRITE, DECAL, COLS } from '../party-render.mjs';
+import { LOOK, SPRITE, COLS } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
@@ -79,7 +79,7 @@ export function course(view) {
   const checks = pieces.filter((P) => P.fl & L.RCF_CHECK);
   memo = {
     key, pieces, hazards, checks, w: f(L.PG_H + L.RC_W), grid: f(L.PG_H + L.RC_GRID), fin: f(L.PG_H + L.RC_FIN), floor: f(L.PG_FLOOR),
-    top: pieces[0].h0, end: pieces[np - 1].s0 + pieces[np - 1].len, box: [x0, z0, x1, z1], geom: null, hint: 0,
+    top: pieces[0].h0, end: pieces[np - 1].s0 + pieces[np - 1].len, box: [x0, z0, x1, z1], geom: null, last: 0,
   };
   view._rcMemo = memo;
   return memo;
@@ -90,10 +90,10 @@ export function course(view) {
 // and its slope; null over nothing.
 export function at(c, x, z) {
   // the piece last found first, then its neighbours, then the rest: asked about nearby points, it's mostly one try
-  const ps = c.pieces, n = ps.length, h = c.hint;
+  const ps = c.pieces, n = ps.length, h = c.last;
   let a = try1(ps[h], x, z) || (h + 1 < n && try1(ps[h + 1], x, z)) || (h > 0 && try1(ps[h - 1], x, z));
   if (!a) for (let k = 0; k < n && !a; k++) if (k < h - 1 || k > h + 1) a = try1(ps[k], x, z);
-  if (a) c.hint = a.P.k;
+  if (a) c.last = a.P.k;
   return a || null;
 }
 function try1(P, x, z) {
@@ -284,12 +284,8 @@ function danger(view, x, z, tick, me) {
   const a = at(c, x, z);
   if (!a) return 1;
   const P = a.P, w = a.w;
-  if (P.fl & L.RCF_GAP) {
-    // a gap is the way on at speed; slow, it's a fall
-    const b = ball(view, me);
-    const v = b ? b.vel[0] * a.tx + b.vel[2] * a.tz : 0;
-    return v > 9 ? 0 : v > 6.5 ? 0.4 : 0.85;
-  }
+  // a gap is the way on: think takes a ball at a jump straight over it
+  if (P.fl & L.RCF_GAP) return 0;
   const edge = Math.abs(a.u) - w;
   if (edge > -0.3) return (a.u > 0 ? P.fl & L.RCF_RAIL_L : P.fl & L.RCF_RAIL_R) ? 0.1 : 1;
   let d = edge > -2.5 && !(P.fl & (a.u > 0 ? L.RCF_RAIL_L : L.RCF_RAIL_R)) ? 0.35 * (2.5 + edge) / 2.5 : 0;
@@ -399,14 +395,30 @@ function plan(view, me, bot) {
   return out;
 }
 const goal = (view, me, bot) => plan(view, me, bot)?.goal ?? null;
-// Waiting for a way through a row: push back against its roll till it's
-// all but stopped, then sit with no keys; else the planner steers.
+// At a jump (its run in, the kicker, over the gap): flat out straight down
+// the course, in from the edges, hopping at the lip. Waiting for a way
+// through a row: the back key against its roll till it's all but stopped, then
+// sit with no keys. Else the planner steers.
 function think(view, me, bot) {
+  const c = course(view);
+  const b = ball(view, me);
+  if (c && b && b.live && !b.out) {
+    const x = bot?.pos?.[0] ?? b.pos[0], z = bot?.pos?.[1] ?? b.pos[2];
+    const a = at(c, x, z);
+    const n1 = a && c.pieces[a.P.k + 1], n2 = a && c.pieces[a.P.k + 2];
+    if (a && (a.P.fl & L.RCF_GAP || n1?.fl & L.RCF_GAP || n2?.fl & L.RCF_GAP)) {
+      const ahead = a.P.fl & L.RCF_GAP ? n1 : a.P;
+      const u = Math.max(-0.5 * a.w, Math.min(0.5 * a.w, a.u));
+      const q = along(ahead, a.P.fl & L.RCF_GAP ? 0.3 : Math.min(1, a.f + 6 / a.P.len), u);
+      const lip = n1?.fl & L.RCF_GAP && (1 - a.f) * a.P.len < 1.2;
+      return { yaw: Math.atan2(q[2] - z, q[0] - x), move: 1, hop: lip && b.ground ? 1 : 0 };
+    }
+  }
   const p = plan(view, me, bot);
   if (!p?.wait) return null;
   const [vx, vz] = p.vel;
   const v = vx * p.dir[0] + vz * p.dir[1];
-  if (v > 1.2) return { yaw: Math.atan2(-p.dir[1], -p.dir[0]), move: 1 };
+  if (v > 1.2) return { yaw: Math.atan2(p.dir[1], p.dir[0]), move: 2 }; // facing on, the back key
   return { yaw: Math.atan2(p.dir[1], p.dir[0]), move: 0 };
 }
 
@@ -432,18 +444,17 @@ function clearest(c, Q, row, T, u0, skill) {
   const w = Q.w0 + (Q.w1 - Q.w0) * Math.min(1, row.along / Q.len);
   let best = u0, score = -Infinity, bestClear = -Infinity;
   for (let i = 0; i < 15; i++) {
-    const u = -w + 1.8 + (i / 14) * (2 * w - 3.6);
+    const u = -w + 1.2 + (i / 14) * (2 * w - 2.4);
     let clear = Infinity;
     for (const dt of [-56, -37, -19, 0, 19, 37, 56]) {
       for (const { H, u: hu } of row.hs) {
         if (H.kind === L.RCH_SWEEPER) clear = Math.min(clear, Math.abs(u - (hu + sweepOff(H, T + dt))) - 1.5);
         else if (H.kind === L.RCH_SPINNER) {
-          // the bar's line through its post, seen across the row: where it crosses the row's line, near the post
-          const an = spinAngle(H, T + dt), ex = Math.cos(an), ez = Math.sin(an);
-          const ea = ex * Q.dx + ez * Q.dz;
+          // a bar is a line through its post, which is on the row: the spot's distance from that line and from the post
+          const an = spinAngle(H, T + dt);
+          const ea = Math.cos(an) * Q.dx + Math.sin(an) * Q.dz;
           const du = u - hu;
           if (Math.abs(du) > H.l + 1.5) continue;
-          // the distance from the spot to the bar's line (the spot on the row through the post)
           clear = Math.min(clear, Math.abs(du * ea) - 1.5, Math.abs(du) - L.RC_HUB_R - 1.2);
         }
       }
@@ -478,7 +489,7 @@ function hop(view, me, bot) {
 
 export default {
   id: L.MG_RACE, key: 'race', name: 'DOWNHILL',
-  hint: 'RACE DOWN TO THE FINISH  HOP THE GAP  DODGE THE BARS',
+  hint: 'RACE TO THE BOTTOM  FIRST HOME WINS  FALL AND YOU GO BACK TO THE FLAG',
   env: 'day',
 
   draw(view, ctx, out) {
@@ -524,6 +535,15 @@ export default {
             sc.box(cx, H.y + 0.03, cz, 0.85, 0.03, 0.18, yaw - side * 0.62, 0.3, 1, 0.75, LOOK.GLOW, 0.5 + 0.9 * wave, 0, 0.9);
           }
         }
+      }
+    }
+    // a star over the leader still racing: the one to catch
+    if (g.state === L.H_PLAY) {
+      const lead = standings(view).find((e) => !e.home);
+      const b = lead && view.bumper(lead.slot);
+      if (b && !b.out) {
+        const dt = ctx?.dt || 0;
+        out.glow.push({ pos: [b.pos[0] + b.vel[0] * dt, b.pos[1] + 2 * b.radius + 2.5 + 0.15 * Math.sin(now * 4), b.pos[2] + b.vel[2] * dt], size: 0.75, color: [1, 0.85, 0.2, 0.95], kind: SPRITE.SPARK, minpx: 3 });
       }
     }
     // the gate: down through the countdown, up and away at GO

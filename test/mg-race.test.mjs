@@ -43,7 +43,7 @@ const speed = (b) => Math.hypot(b.vel[0], b.vel[2]);
 function holders(c, x, z) {
   let n = 0;
   for (const P of c.pieces) {
-    const a = at({ ...c, pieces: [P], hint: 0 }, x, z);
+    const a = at({ ...c, pieces: [P], last: 0 }, x, z);
     if (a && Math.abs(a.u) <= a.w) n++;
   }
   return n;
@@ -386,16 +386,18 @@ test('the clock: nobody home, the round ends at PG_LEN, placed by how far down; 
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.partier(p).place), [3, 1, 1, 4], 'by metres, ties shared');
 });
 
-test('the prediction matches the confirmed ball bit for bit down the course: its slopes, a bend\'s rail, the jump, the spinners, the sweepers, bumpers and pads', async () => {
+test('the prediction matches the confirmed ball bit for bit down the course: its slopes, a bend\'s rail, the jump, the spinners, the sweepers, bumpers, pads and power-up boxes', async () => {
   const g = await room(2);
   const c = g.c;
-  let compared = 0;
+  let compared = 0, took = 0;
   // from the start of each section, rolling for the course's way through it (a wobble across, a hop now and then)
   for (const sec of [L.RCS_DROP, L.RCS_BEND, L.RCS_JUMP, L.RCS_SPINNERS, L.RCS_SWEEPERS, L.RCS_BUMPERS, L.RCS_FUNNEL]) {
     const P = c.pieces.find((Q) => Q.sec === sec);
     for (const lane of [-0.5, 0.3]) {
-      const q = spot(P, 0.02, lane * P.w0);
-      put(g, 0, q.pos, { v: [q.dir[0] * 10, 0, q.dir[1] * 10], best: P.s0 });
+      // (the first drop from a third of the way down, so it runs through its row of boxes)
+      const g0 = sec === L.RCS_DROP ? 0.3 : 0.02, q = spot(P, g0, lane * P.w0);
+      put(g, 0, q.pos, { v: [q.dir[0] * 10, 0, q.dir[1] * 10], best: P.s0 + g0 * P.len });
+      g.dv.setUint8(rec(0) + L.B_ITEM, 0);
       put(g, 1, spot(c.pieces[0], 0.5).pos, { best: 0 });
       for (let n = 0; n < 16; n++) {
         const b = g.v.partier(0);
@@ -405,9 +407,11 @@ test('the prediction matches the confirmed ball bit for bit down the course: its
         const words = Array.from({ length: 10 }, (_, i) => word(yaw + 0.4 * Math.sin((n * 10 + i) * 0.05), { hop: (n * 10 + i) % 70 === 35 ? 1 : 0 }));
         compared += predicted(g, words);
       }
+      took += g.v.partier(0).item ? 1 : 0;
     }
   }
   assert.ok(compared > 800, `${compared} predictions compared`);
+  assert.ok(took >= 1, 'through a power-up box, taken on both banks');
 });
 
 for (const [balls, ticks] of [[8, 14000], [64, 14000]]) {
