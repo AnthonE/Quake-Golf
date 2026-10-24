@@ -12,6 +12,19 @@
 // the rivals near it. Deterministic from its seed and what it sees, so a round
 // of bots is an ordinary event log; its slot spreads the thinking out, so 255
 // of them cost a little over a quarter of that in thinks a tick.
+//
+// What it asks of a minigame's brain (client/mg/<key>.mjs, brain: {...}),
+// handed a view whose party() and hole() are read once a world tick, `me`
+// its partier() record, `bot` this Partier (slot, skill, rand(), mem: the
+// brain's own, cleared each round; pos [x, z] and vel [vx, vz]: where it
+// reckons it is on tick `at`, the tick its word is for; lag; goal; danger):
+//   danger(view, x, z, tick, me) -> 0 fine .. 1 deadly, at (x, z) on that tick (ticks as HDR_TICK counts them);
+//     asked 90 times a think (18 paths, 5 samples), so a few array reads
+//   goal(view, me, bot) -> [x, z] or null (null: a weak pull to the stage's centre); asked every think, so keep it in bot.mem
+//   hop(view, me, bot) -> true to hop now (on the ground, the round's PG_HOP over 0)
+//   think(view, me, bot, tick) -> null, or { yaw, move, hop, use } for its word: yaw in radians (atan2(dz, dx); past
+//     2 pi it is read as the word's 1/16384 turns), move the keys (1 forward, the default), hop and use truthy to do
+//     them; without a yaw only hop and use count and the planner steers
 import * as L from '../src/layout.mjs';
 import { partyWord } from '../src/party-view.mjs';
 import { MG } from './mg/index.mjs';

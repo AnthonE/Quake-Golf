@@ -23,12 +23,13 @@
 //   fx(f, ctx): f a confirmed FX record ({ tick, kind, owner, shot, pos, size }) whose kind is FX_MG + 4 * id + k;
 //     ctx { slot, glow({ pos, size, color, kind, life (ms), grow }), sound, banner(text, color, ms), feed(text, color),
 //       name(p) ('YOU' or 'P12'), dist (m from the camera), C, now, view }
+//   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
 //     The frontend keeps rows 0 and 1 (the clock, who's left or the scores, the round's name), the middle band
 //     (banners), the feed and the bottom rows; a minigame's lines go on rows 2 to 6, right-aligned by custom.
 import * as L from '../src/layout.mjs';
-import { partyWord, PLAT_Y } from '../src/party-view.mjs';
+import { partyWord } from '../src/party-view.mjs';
 import { createRenderer, Scene, COLS, SPRITE } from './party-render.mjs';
 import { MG } from './mg/index.mjs';
 import { put, C } from './font.mjs';
@@ -72,7 +73,8 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
   let watched = -1;
   let showGraph = graphOn;
   let bot = null;
-  const inBall = (p) => { const b = view.bumper(p); return b.live && !b.out; };
+  // a ball worth watching: in, and not already falling out of the world
+  const inBall = (p) => { const b = view.bumper(p); return b.live && !b.out && !b.falling; };
   const nextIn = (from, step) => {
     for (let k = 1; k <= L.NPLAYER; k++) {
       const p = (((from + step * k) % L.NPLAYER) + L.NPLAYER) % L.NPLAYER;
@@ -287,14 +289,15 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
 
     // who the camera follows: you, or (out, watching) a ball still in, the winner when it's over
     const mine = pme && !pme.out ? pme : null;
+    const toWinner = g.state === L.H_OVER && g.winner !== 255 && g.winner !== slot;
     let tgt = null, tgtPos = null;
-    if (mine) {
+    if (mine && !toWinner) {
       tgt = mine;
       tgtPos = [0, 1, 2].map((k) => mine.pos[k] + mine.vel[k] * dtPred + corr.off[k]);
       held0 = null;
     } else if (st >= 1) {
       if (g.state === L.H_OVER && g.winner !== 255) watched = g.winner;
-      if (me && !me.out && g.state !== L.H_PLAY) watched = slot;
+      if (me && !me.out && g.state !== L.H_PLAY && !toWinner) watched = slot;
       if (watched < 0 || !inBall(watched)) watched = nextIn(watched, 1);
       if (watched >= 0) {
         tgt = view.bumper(watched);
@@ -307,6 +310,13 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     if (down) {
       held0 = held0 || { cam: last.cam, yaw: last.yaw, pitch: last.pitch };
       ({ cam, yaw: camYaw, pitch: camPitch } = held0);
+    } else if (tgt && g.state === L.H_OVER) {
+      // the result: going slowly round the winner (or you), low, so the ball sits under the board
+      const a = now / 5000, r = tgt.radius, R = 7 + r * 2;
+      const b = [tgtPos[0], Math.max(tgtPos[1], g.floor - 3), tgtPos[2]];
+      cam = [b[0] + Math.cos(a) * R, b[1] + r + 3, b[2] + Math.sin(a) * R];
+      camYaw = a + Math.PI;
+      camPitch = Math.atan2(0.5 - r, R);
     } else if (tgt) {
       const r = tgt.radius;
       camYaw = tgt === mine || (me && tgt.slot === slot) ? yaw / TURN * 2 * Math.PI : tgt.yaw;
@@ -440,7 +450,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       centre(y0, `ROUND ${g.round + 1}   ${g.n0} ${g.n0 === 1 ? 'PLAYER' : 'PLAYERS'}`, C.GREY);
       bigLine(y0 + 2, mod.name || g.name, C.YELLOW, 4);
       centre(y0 + 7, mod.hint || '', C.WHITE);
-      centre(y0 + 9, score ? 'MOST POINTS WINS  A FALL COSTS YOU TIME' : 'OUT IS OUT', C.CYAN);
+      centre(y0 + 9, score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS', C.CYAN);
       if (n <= 3) bigLine(y0 + 13, String(n), C.WHITE, 5);
       else centre(y0 + 13, `STARTS IN ${n}`, C.YELLOW);
     }
@@ -458,7 +468,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
           const s = view.dv.getUint16(a + L.PG_SCORE, true);
           if (s > best) { best = s; lead = p; }
         }
-        if (me?.live) put(tx, COLS, 1, 0, `YOU ${me.score}`, C.YELLOW);
+        if (me?.live) put(tx, COLS, 1, 0, `SCORE ${me.score}`, C.YELLOW);
         if (lead >= 0 && g.state !== L.H_COUNT) put(tx, COLS, 1, 1, lead === slot ? 'YOU LEAD' : `LEADER P${lead + 1} ${best}`, lead === slot ? C.GREEN : C.WHITE);
       } else put(tx, COLS, 1, 0, `${g.left} OF ${g.n0} LEFT`, C.YELLOW);
     }
@@ -480,7 +490,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     }
     if (!board) feed.forEach((e, k) => { if (now - e.born < 6000) put(tx, COLS, 18, rows - 9 - (feed.length - 1 - k), e.text, e.color); });
     if (banner.until > now && !(g.state === L.H_OVER && banner.big)) {
-      if (banner.big) bigLine(mid - 9, banner.text, banner.color, banner.big);
+      if (banner.big) bigLine(Math.max(2, mid - 9 - banner.big), banner.text, banner.color, banner.big);
       else centre(mid - 8, banner.text, banner.color);
     }
     if (st === 2 && !BOT && !WATCH && !locked) centre(mid + 7, 'CLICK TO PLAY  WASD ROLL  SPACE HOP  CLICK USES WHAT YOU HOLD', C.WHITE);
@@ -502,19 +512,27 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     list.sort((a, b) => b.pts - a.pts || b.wins - a.wins || (a.place || 999) - (b.place || 999) || a.slot - b.slot);
     const over = g.state === L.H_OVER;
     let y0 = 3;
-    if (over && me?.live && me.place) {
-      band(1, 9, 0.5);
-      bigLine(2, `${ordinal(me.place)} OF ${m}`, me.place === 1 ? C.YELLOW : C.WHITE, 4);
-      centre(7, `+${gain(me.place, m)} POINTS   ${mod.name || g.name}`, C.GREEN);
+    if (over) {
+      // the result: you won, or your place, and who won
+      const won = me?.live && me.place === 1 && (g.kind === L.PK_SCORE || !me.out);
+      const who = g.winner !== 255 ? (g.winner === slot ? 'YOU WIN' : `P${g.winner + 1} WINS`) : list.some((o) => o.place === 1) ? 'A SHARED WIN' : 'NO WINNER';
+      band(1, 9, 0.55);
+      if (me?.live && me.place) {
+        bigLine(2, won ? (g.winner === slot ? 'YOU WIN!' : 'A SHARED WIN') : `${ordinal(me.place)} OF ${m}`, won ? C.YELLOW : C.WHITE, 4);
+        centre(7, `${won ? `${ordinal(me.place)} OF ${m}  ` : ''}+${gain(me.place, m)} POINTS${won ? '' : `   ${who}`}`, C.GREEN);
+      } else {
+        bigLine(2, who, C.YELLOW, 4);
+        centre(7, `${mod.name || g.name}  YOU PLAY THE NEXT ROUND`, C.CYAN);
+      }
       y0 = 10;
-    } else if (over) {
-      centre(1, `${mod.name || g.name}  OVER`, C.YELLOW);
     }
-    centre(y0, `ROUND ${g.round + 1}  ${list.length} PLAYERS  ${over ? 'NEXT ROUND SOON' : 'TAB'}`, C.YELLOW);
-    centre(y0 + 2, 'RANK  PLAYER    POINTS  WINS  KOS  ROUND', C.GREY);
+    const nextIn = Math.max(0, Math.ceil((g.until - g.tick) / 125));
     const fit = Math.max(1, rows - y0 - 6);
     const mineAt = list.findIndex((o) => o.slot === slot);
     const shown = mineAt >= fit ? [...list.slice(0, fit - 1), list[mineAt]] : list.slice(0, fit);
+    band(y0 - 1, y0 + 4 + shown.length, 0.45);
+    centre(y0, `ROUND ${g.round + 1}  ${mod.name || g.name}  ${list.length} PLAYERS${over ? `  NEXT IN ${nextIn}` : ''}`, C.YELLOW);
+    centre(y0 + 2, 'RANK  PLAYER    POINTS  WINS  KOS  ROUND  ', C.GREY);
     let rank = 0;
     shown.forEach((o, k) => {
       const i = list.indexOf(o);

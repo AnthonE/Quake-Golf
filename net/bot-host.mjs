@@ -130,12 +130,17 @@ function step() {
     world.stepped++;
     // Fireplace: each game the room moved into, and when
     if (fireplace) { const g = world.view.dv.getUint32(L.FP_GAME, true); if (world.games.at(-1)?.game !== g) world.games.push({ game: g, name: L.GAMES[g], simTick: sim.tick }); }
-    // Party: each round's minigame, as play starts
+    // Party: each round's minigame, as play starts, and when it ended (once a
+    // round, though a keyframe from the seed has the world play it again)
     if (party) {
-      const st = world.view.dv.getUint32(L.HDR_STATE, true);
-      if (st === L.H_PLAY && world.lastState !== L.H_PLAY) { const g = world.view.dv.getUint32(L.PG_GAME, true); world.games.push({ game: g, name: L.MINIGAMES[g]?.name, round: world.view.dv.getUint32(L.HDR_HOLE, true), simTick: sim.tick, len: world.view.dv.getUint32(L.PG_LEN, true), n0: world.view.dv.getUint32(L.BH_N0, true) }); }
-      if (st === L.H_OVER && world.lastState === L.H_PLAY && world.games.length) world.games.at(-1).over = sim.tick;
-      world.lastState = st;
+      const dv = world.view.dv;
+      const st = dv.getUint32(L.HDR_STATE, true), round = dv.getUint32(L.HDR_HOLE, true);
+      if (st === L.H_PLAY && !world.games.some((g) => g.round === round)) {
+        const g = dv.getUint32(L.PG_GAME, true);
+        world.games.push({ game: g, name: L.MINIGAMES[g]?.name, round, simTick: sim.tick, len: dv.getUint32(L.PG_LEN, true), n0: dv.getUint32(L.BH_N0, true) });
+      }
+      const now = world.games.find((g) => g.round === round);
+      if (st === L.H_OVER && now && now.over === undefined) now.over = sim.tick;
     }
     // inputs applied as sent: each session's word for t against the tick's own
     for (const s of sessions) {

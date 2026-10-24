@@ -5,7 +5,7 @@
 // else the tick it stops holding, so what a tile does on any tick, drawn or
 // asked about, is a comparison with that tick.
 import * as L from '../../src/layout.mjs';
-import { PLAT_Y, hexAt, hexCentre } from '../../src/party-view.mjs';
+import { PLAT_Y, hexAt } from '../../src/party-view.mjs';
 import { LOOK, SPRITE } from '../party-render.mjs';
 
 const TICK = 0.008;
@@ -67,19 +67,21 @@ export default {
     const rad = radius(view);
     if (!(rad > 0)) return;
     const cx = view.party().cx;
-    const now = ctx.tick + ctx.dt / TICK;
+    // on the prediction's clock: a tile goes as your own ball drops through it
+    const now = ctx.ptick ?? ctx.tick + ctx.dt / TICK;
     const span = Math.min(L.TI_N, Math.ceil(rad / L.TI_S) + 1);
     for (let k = 0; k < L.TI_LAYERS; k++) {
       const [cr, cg, cb] = COLOR[k];
       for (let r = -span; r <= span; r++) for (let q = -span; q <= span; q++) {
         const v = at(view, index(q, r, k));
         if (!v) continue;
-        const [x, z] = hexCentre(q, r, L.TI_S, cx);
+        const x = cx + L.TI_S * (1.7320508 * q + 0.8660254 * r), z = cx + L.TI_S * 1.5 * r;
         if (v === 1 || now < v) {
-          const crack = v === 1 ? 0 : Math.min(1, Math.max(0, (now - (v - L.TI_HOLD)) / L.TI_HOLD));
-          // a cracked tile trembles as it gives
-          const shake = crack > 0.6 ? 0.03 * Math.sin(now * 2.1 + q * 7 + r * 3) : 0;
-          out.scene.hex(x + shake, top(k) - HH, z, L.TI_S * 0.97, HH, 0, cr, cg, cb, LOOK.ICE, crack);
+          // cracked: lines at once, spreading, the ice whitening and sinking a little, trembling as it gives
+          const crack = v === 1 ? 0 : Math.min(1, Math.max(0, 0.2 + 0.8 * (now - (v - L.TI_HOLD)) / L.TI_HOLD));
+          const shake = crack > 0.6 ? 0.04 * Math.sin(now * 2.1 + q * 7 + r * 3) : 0;
+          const w = crack * 0.35;
+          out.scene.hex(x + shake, top(k) - HH - 0.08 * crack, z, L.TI_S * 0.97, HH, 0, cr + (1 - cr) * w, cg + (1 - cg) * w, cb + (1 - cb) * w, LOOK.ICE, crack);
           continue;
         }
         const fall = (now - v) * TICK;
