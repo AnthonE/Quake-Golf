@@ -229,13 +229,23 @@
   (if (i32.gt_s (local.get $s) (i32.const 65535)) (then (local.set $s (i32.const 65535))))
   (!put u16 @(PLAYERS + PG_SCORE) (local.get $pb) (local.get $s)))
 
-;; A point at a random spot within r of (x, z), brought in off the rim.
+;; A point at a random spot within r of (x, z), brought in off the rim and
+;; out of the bumpers.
 (func $cr_near (param $x f32) (param $z f32) (param $r f32) (result f32 f32)
   (local $s f32) (local $c f32)
   (local.set $r (f32.mul (local.get $r) (f32.sqrt (call $p_unit))))
   (call $sincos (call $rand))
   (local.set $c) (local.set $s)
-  (call $cr_in (!madd (local.get $c) (local.get $r) (local.get $x)) (!madd (local.get $s) (local.get $r) (local.get $z))))
+  (call $cr_in (!madd (local.get $c) (local.get $r) (local.get $x)) (!madd (local.get $s) (local.get $r) (local.get $z)))
+  (call $cr_land))
+
+;; A coin's spot (x, z) moved out of every bumper to CR_BR + 0.5 from its
+;; axis: a post holds a ball's centre 2.3 m off it, so a coin nearer than
+;; about 0.8 m could never be taken, and one under 1.3 m lies inside it,
+;; unseen. Posts stand far apart (9.8 m at least) and well inside the rim,
+;; so the point stays clear of the rest and on the disc.
+(func $cr_land (param $x f32) (param $z f32) (result f32 f32)
+  (call $cr_clear (local.get $x) (local.get $z) (f32.const @(CR_BR + 0.5))))
 
 ;; A wave of rain: a coin for every CR_RAINN balls in the room and one more,
 ;; each at a random spot of the disc, falling from rest; none past CR_RAINCAP
@@ -286,7 +296,7 @@
     (local.set $z) (local.set $x)
     (local.set $x (!madd (local.get $x) (!madd (call $p_unit) (f32.const @CR_KNOCKRK) (f32.const @CR_KNOCKR0)) (local.get $px)))
     (local.set $z (!madd (local.get $z) (!madd (call $p_unit) (f32.const @CR_KNOCKRK) (f32.const @CR_KNOCKR0)) (local.get $pz)))
-    (call $cr_in (local.get $x) (local.get $z))
+    (call $cr_land (call $cr_in (local.get $x) (local.get $z)))
     (local.set $z) (local.set $x)
     (if (call $cr_coin (local.get $px) (local.get $py) (local.get $pz) (local.get $x) (local.get $z) (f32.const 2.2) (local.get $t)
                        (i32.add (i32.const 60) (i32.rem_u (call $rand) (i32.const 30))) (i32.const 1) (i32.const @CR_KLOOSE))
@@ -325,7 +335,7 @@
     (local.set $w (f32.mul (f32.sub (call $p_unit) (f32.const 0.5)) (f32.const 8)))
     (local.set $x (f32.sub (!madd (local.get $dx) (local.get $d) (call $cr_c)) (f32.mul (local.get $dz) (local.get $w))))
     (local.set $z (!madd (local.get $dx) (local.get $w) (!madd (local.get $dz) (local.get $d) (call $cr_c))))
-    (call $cr_in (local.get $x) (local.get $z))
+    (call $cr_land (call $cr_in (local.get $x) (local.get $z)))
     (local.set $z) (local.set $x)
     (drop (call $cr_coin (local.get $ex) (f32.const @(+PLAT_Y + 0.5)) (local.get $ez) (local.get $x) (local.get $z) (f32.const 3) (local.get $t)
                          (i32.add (i32.const 70) (i32.rem_u (call $rand) (i32.const 40)))
@@ -339,7 +349,7 @@
 (func $cr_tick
   (local $t i32) (local $tp i32) (local $frenzy i32) (local $p i32) (local $pb i32) (local $s i32) (local $fl i32) (local $k i32)
   (local $i i32) (local $b i32) (local $nb i32) (local $c i32) (local $a i32) (local $v i32) (local $tau i32) (local $air i32) (local $wait i32)
-  (local $gx i32) (local $gz i32) (local $cx i32) (local $cz i32) (local $q i32) (local $qb i32) (local $best i32) (local $cell i32)
+  (local $m i32) (local $thrown i32) (local $gx i32) (local $gz i32) (local $cx i32) (local $cz i32) (local $q i32) (local $qb i32) (local $best i32) (local $cell i32)
   (local $dx f32) (local $dz f32) (local $dy f32) (local $dv f32) (local $rr f32) (local $x f32) (local $y f32) (local $z f32) (local $o f32)
   (local.set $t (i32.load (i32.const @HDR_TICK)))
   (local.set $tp (call $p_t (i32.const 0)))
@@ -354,10 +364,16 @@
         (if (call $p_in (local.get $pb))
           (then
             (i32.store8 offset=@(PG_S + CR_BALL + CR_B_FL) (local.get $s) (i32.const 0))
-            ;; bumped this tick (the hit's credit fresh), not the one doing the bumping, not just knocked, and its speed jumped
-            (if (i32.and (i32.and (i32.eq (!at u16 @(PLAYERS + B_HITT) (local.get $pb)) (i32.const @CREDIT_TICKS))
-                                  (i32.eq (!at u16 @(PLAYERS + B_BUMPS) (local.get $pb)) (i32.load16_u offset=@(PG_S + CR_BALL + CR_B_BUMPS) (local.get $s))))
-                         (i32.ge_s (i32.sub (local.get $t) (i32.load offset=@(PG_S + CR_BALL + CR_B_SAFE) (local.get $s))) (i32.const 0)))
+            ;; thrown off a bumper this tick (its push marked PG_M with the tick and the post)
+            (local.set $m (!at i32 @(PLAYERS + PG_M) (local.get $pb)))
+            (local.set $thrown (i32.and (i32.ne (i32.and (local.get $m) (i32.const 15)) (i32.const 0))
+                                        (i32.eq (i32.and (local.get $m) (i32.const -16)) (i32.shl (local.get $t) (i32.const 4)))))
+            ;; bumped this tick (the hit's credit fresh), not the one doing the bumping, not just knocked, and its speed
+            ;; jumped, not by a post's throw (that would make a graze on the same tick a hard bump)
+            (if (i32.and (i32.and (i32.and (i32.eq (!at u16 @(PLAYERS + B_HITT) (local.get $pb)) (i32.const @CREDIT_TICKS))
+                                           (i32.eq (!at u16 @(PLAYERS + B_BUMPS) (local.get $pb)) (i32.load16_u offset=@(PG_S + CR_BALL + CR_B_BUMPS) (local.get $s))))
+                                  (i32.ge_s (i32.sub (local.get $t) (i32.load offset=@(PG_S + CR_BALL + CR_B_SAFE) (local.get $s))) (i32.const 0)))
+                         (i32.eqz (local.get $thrown)))
               (then
                 (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_VX) (local.get $pb)) (f32.load offset=@(PG_S + CR_BALL + CR_B_VX) (local.get $s))))
                 (local.set $dz (f32.sub (!at f32 @(PLAYERS + P_VZ) (local.get $pb)) (f32.load offset=@(PG_S + CR_BALL + CR_B_VZ) (local.get $s))))
@@ -371,12 +387,10 @@
                       (then
                         (call $cr_knock (local.get $p) (local.get $k) (local.get $t))
                         (i32.store offset=@(PG_S + CR_BALL + CR_B_SAFE) (local.get $s) (i32.add (local.get $t) (i32.const @CR_GRACE)))))))))
-            ;; thrown off a bumper this tick (its push marked PG_M): a lit one pays, and goes dark
-            (local.set $k (!at i32 @(PLAYERS + PG_M) (local.get $pb)))
-            (if (i32.and (i32.ne (i32.and (local.get $k) (i32.const 15)) (i32.const 0))
-                         (i32.eq (i32.and (local.get $k) (i32.const -16)) (i32.shl (local.get $t) (i32.const 4))))
+            ;; thrown off a bumper this tick: a lit one pays, and goes dark
+            (if (local.get $thrown)
               (then
-                (local.set $i (i32.sub (i32.and (local.get $k) (i32.const 15)) (i32.const 1)))
+                (local.set $i (i32.sub (i32.and (local.get $m) (i32.const 15)) (i32.const 1)))
                 (local.set $b (i32.shl (local.get $i) (i32.const 4)))
                 (if (i32.ge_u (local.get $tp) (i32.load offset=@(PG_S + CR_BUMP + 8) (local.get $b)))
                   (then
