@@ -32,7 +32,7 @@
   (memory.fill (i32.add (i32.const @PLAYERS) (local.get $pb)) (i32.const 0) (i32.const @PSIZE))
   (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.const @PF_LIVE))
 #if ARENA
-  (call $a_spawn (local.get $p))
+  (call $a_join (local.get $p))
 #else
 #if BUMPER
   (call $b_join (local.get $p))

@@ -46,8 +46,32 @@ View.prototype.fighter = function fighter(p) {
     respawn: d.getUint16(b + L.A_RESPAWN, true), cool: d.getUint16(b + L.A_COOL, true), burst: d.getUint8(b + L.A_BURST), lag: d.getUint8(b + L.A_LAG),
     reload: d.getUint8(b + L.A_RELOAD), needles: d.getUint8(b + L.A_NEEDLES), hitBy: d.getUint8(b + L.A_HITBY),
     yaw: (pl.input & 0x7ff) / 2048 * 2 * Math.PI, pitch: (((pl.input >>> L.AW_PITCH) & 0x3ff) - 512) / 1024 * Math.PI,
+    // the match's mode: a side, and the confirmed world's record (MODE_REC is not in the prediction's copy)
+    zombie: !!(fl & L.PF_ZOMBIE), jugg: !!(fl & L.PF_JUGG), ...this.modeRec(p),
   };
 };
+
+// Slot p's record under the match's mode (layout.mjs, MODE_REC), from the confirmed world.
+View.prototype.modeRec = function modeRec(p) {
+  const r = L.MODE_REC + p * L.MR_SIZE;
+  return { rung: this.u8[r + L.MR_RUNG], place: this.u8[r + L.MR_PLACE], points: this.dv.getUint16(r + L.MR_POINTS, true), human: this.dv.getUint16(r + L.MR_HUMAN, true) };
+};
+
+// The match's mode and its header fields (0 and -1s in a Fiesta).
+View.prototype.mode = function mode() {
+  const u = (a) => this.dv.getUint32(a + this.bank, true);
+  const m = u(L.AH_MODE);
+  return { mode: m, name: L.MODES[m]?.name || '?', rules: L.MODES[m]?.rules || '', humans: u(L.AH_HUMANS), zombies: u(L.AH_ZOMBIES), leader: u(L.AH_LEADER) - 1, winner: u(L.AH_WINNER) - 1 };
+};
+
+// Whether slots p and q are on one side (the sim's $a_ally): Infection's and Juggernaut's sides, never p and p.
+View.prototype.ally = function ally(p, q) {
+  if (p === q || !((1 << this.dv.getUint32(L.AH_MODE, true)) & L.TEAM_MODES)) return false;
+  return !((this.u8[L.PLAYERS + p * L.PSIZE + L.P_FL] ^ this.u8[L.PLAYERS + q * L.PSIZE + L.P_FL]) & (L.PF_ZOMBIE | L.PF_JUGG));
+};
+
+// The seed that forces every match of a room to be mode m (layout.mjs, FORCE_MODE), from a base seed's low 16 bits.
+export const forcedSeed = (m, seed = 7) => ((L.FORCE_MODE << 24) | ((m & 0xff) << 16) | (seed & 0xffff)) >>> 0;
 
 // The arena's weapon pads: where, which gun, and whether it's there now.
 View.prototype.pads = function pads() {

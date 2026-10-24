@@ -2,11 +2,12 @@
 // Play: the relay and the page server, until Ctrl-C. Open the printed URL in
 // two tabs (or more) of the newest Chrome; each tab is a player. Each room's
 // replay lands in replays/ when it ends, and plays at ?replay=../replays/<file>.
-//   node net/play.mjs [--seed 7] [--port 4433] [--web 8080] [--host 127.0.0.1] [--xbox] [--arena [--bots 7]] [--bumper [--bots 15]] [--fireplace [--bots 15]]
+//   node net/play.mjs [--seed 7] [--port 4433] [--web 8080] [--host 127.0.0.1] [--xbox] [--arena [--bots 7] [--mode k]] [--bumper [--bots 15]] [--fireplace [--bots 15]]
 // --xbox runs the room on the Xbox's sim (build/xbox/game.wasm), for Xboxes
 // and xemu on its native door, 4434: the browsers play another sim.
 // --arena runs the room on the arena's sim (build/arena/game.wasm), the
-// deathmatch, with --bots AI fighters in it (net/bot-host.mjs --arena).
+// deathmatch, with --bots AI fighters in it (net/bot-host.mjs --arena); its
+// matches play the modes in turn, or with --mode k only mode k (layout.mjs, M_*).
 // --bumper runs it on bumper balls' sim (build/bumper/game.wasm), with --bots
 // AI balls in it (net/bot-host.mjs --bumper); up to 256 in the room.
 // --fireplace runs Fireplace (build/fireplace/game.wasm): every game in turn,
@@ -18,13 +19,14 @@ import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { serve } from '../tools/serve.mjs';
 import { PLAYLIST, GAMES } from '../src/layout.mjs';
+import { forcedSeed } from '../src/arena-view.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
 const port = opt('port', '4433');
 const web = Number(opt('web', 8080));
 const host = opt('host', '127.0.0.1');
-const seed = opt('seed', '');
+const seed = opt('mode', '') !== '' ? String(forcedSeed(Number(opt('mode', '')), Number(opt('seed', 7)))) : opt('seed', '');
 const xbox = argv.includes('--xbox');
 const arena = argv.includes('--arena');
 const bumper = argv.includes('--bumper');

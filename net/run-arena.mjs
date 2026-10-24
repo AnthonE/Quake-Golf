@@ -4,11 +4,15 @@
 // a fighter at its controls, over a lossy network if asked. Passes when the
 // referee checked interval hashes from every session and none differed,
 // someone was killed, and Chrome kept up. Screenshots go to traces/.
-//   node net/run-arena.mjs [--bots 5] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05] [--shots 1]
+// --mode k forces every match to mode k (layout.mjs, M_*: 1 Infection, 2 gun
+// game, 3 Juggernaut) through the relay's seed, and the gate wants it played.
+//   node net/run-arena.mjs [--bots 5] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05] [--shots 1] [--mode k]
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { serve } from '../tools/serve.mjs';
+import { forcedSeed } from '../src/arena-view.mjs';
+import * as L from '../src/layout.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
@@ -17,6 +21,9 @@ const chrome = Number(opt('chrome', 1));
 const seconds = Number(opt('seconds', 60));
 const impair = opt('impair', '');
 const shots = opt('shots', '1') !== '0';
+const mode = opt('mode', '') === '' ? null : Number(opt('mode', ''));
+const seed = mode === null ? 7 : forcedSeed(mode);
+const tag = mode === null ? 'arena' : `arena-${L.MODES[mode].name.toLowerCase().replace(/ /g, '')}`;
 const port = 4433;
 const DENO = existsSync('.tools/deno') ? '.tools/deno' : 'deno';
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
@@ -25,12 +32,12 @@ execFileSync('sh', ['tools/cert.sh'], { stdio: 'inherit' });
 execFileSync(process.execPath, ['tools/asm.mjs'], { stdio: 'inherit' });
 const hash = readFileSync('certs/hash.txt', 'utf8').trim();
 mkdirSync('traces', { recursive: true });
-const summaryPath = 'traces/arena.relay.json';
+const summaryPath = `traces/${tag}.relay.json`;
 rmSync(summaryPath, { force: true });
-const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--seed', '7',
+const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--seed', String(seed),
   '--wasm', 'build/arena/game.wasm', '--duration', String(seconds + 40), '--summary', summaryPath, '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
 await new Promise((ok) => setTimeout(ok, 1500));
-const botsPath = 'traces/arena.bots.json';
+const botsPath = `traces/${tag}.bots.json`;
 rmSync(botsPath, { force: true });
 const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--arena', '--relay', '127.0.0.1:4434', '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
   { stdio: ['ignore', 'inherit', 'inherit'] }) : null;
@@ -45,7 +52,7 @@ const browser = await chromium.launch({
 });
 const pages = [];
 const q = new URLSearchParams({ bot: '1', present: '0', url: `https://127.0.0.1:${port}/`, hash, impair, net: opt('net', '0'), skill: '0.9' });
-const report = { bots: nbots, chrome, seconds, impair: impair || 'none', screenshots: [], kills: [], errors: [] };
+const report = { bots: nbots, chrome, seconds, impair: impair || 'none', mode: mode === null ? 'rotation' : L.MODES[mode].name, seed, screenshots: [], kills: [], errors: [] };
 const t0 = Date.now();
 const secs = () => ((Date.now() - t0) / 1000).toFixed(0);
 try {
@@ -61,16 +68,17 @@ try {
     await new Promise((ok) => setTimeout(ok, 1000));
     const st = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa?.state?.() || window.__qa || null)));
     if (st.some((s) => s?.error)) throw new Error(st.find((s) => s?.error).error);
-    process.stderr.write(`\r${secs()} s  ${st.map((s, k) => s?.me ? `c${k}: P${s.slot + 1} ${s.me.kills}/${s.me.deaths} ${s.me.dead ? 'dead' : `${s.me.sh}/${s.me.hp}`} ${['idle', 'countdown', 'play', 'over'][s.match.state]}` : `c${k}: ${s?.clState ?? '-'}`).join(' | ')}     `);
+    process.stderr.write(`\r${secs()} s  ${st.map((s, k) => s?.me ? `c${k}: P${s.slot + 1} ${s.me.kills}/${s.me.deaths} ${s.me.dead ? 'dead' : `${s.me.sh}/${s.me.hp}`}${s.me.zombie ? ' zombie' : ''}${s.mode?.mode === L.M_GUNGAME ? ` rung ${s.me.rung + 1}` : ''} ${s.mode?.name} ${['idle', 'countdown', 'play', 'over'][s.match.state]}` : `c${k}: ${s?.clState ?? '-'}`).join(' | ')}     `);
     if (shots && pages.length && Date.now() - snapAt > 4000 && st[0]?.me) {
       snapAt = Date.now();
       const png = await pages[0].evaluate(() => window.__qa.capture?.(2)).catch(() => null);
-      if (png) { const f = `traces/arena-${secs().padStart(3, '0')}s.png`; writeFileSync(f, Buffer.from(png, 'base64')); report.screenshots.push(f); }
+      if (png) { const f = `traces/${tag}-${secs().padStart(3, '0')}s.png`; writeFileSync(f, Buffer.from(png, 'base64')); report.screenshots.push(f); }
     }
   }
   process.stderr.write('\n');
   const end = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.state())));
-  report.chromeState = end.map((s) => ({ slot: s.slot, kills: s.me?.kills, deaths: s.me?.deaths, behind: s.clState !== 2, feed: s.feed }));
+  report.chromeState = end.map((s) => ({ slot: s.slot, kills: s.me?.kills, deaths: s.me?.deaths, behind: s.clState !== 2, feed: s.feed, mode: s.mode?.mode, match: s.match?.hole,
+    zombie: s.me?.zombie, rung: s.me?.rung, points: s.me?.points, humans: s.mode?.humans, zombies: s.mode?.zombies }));
   report.chromeHashes = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.hashes.length)));
 } finally {
   await browser.close();
@@ -91,10 +99,11 @@ const gate = {
   hashesAgree: !!r && (r.mismatches?.length ?? r.mismatches) === 0 && r.agreed === r.compared,
   someoneDied: (report.chromeState || []).some((s) => s.kills + s.deaths > 0) || (report.botHost?.kills ?? 0) > 0,
   chromeKeptUp: (report.chromeState || []).every((s) => !s.behind),
+  modePlayed: mode === null || (report.chromeState || []).every((s) => s.mode === mode),
   noErrors: report.errors.length === 0,
 };
 report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };
-writeFileSync('traces/arena.json', JSON.stringify(report, null, 2) + '\n');
+writeFileSync(`traces/${tag}.json`, JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify(report, null, 2));
 console.log(report.gate.pass ? 'A1 gate: PASS' : 'A1 gate: FAIL');
 process.exit(report.gate.pass ? 0 : 1);

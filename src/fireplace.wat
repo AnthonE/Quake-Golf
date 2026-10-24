@@ -96,6 +96,9 @@
 ;; two games read the same word (golf's), else starting from none.
 (func $fp_switch (param $next i32) (param $seed i32)
   (local $p i32) (local $pb i32) (local $t i32) (local $rng i32) (local $played i32) (local $keep i32) (local $last i32) (local $rec i32)
+  ;; the playlist's arena plays its own rotation: never a seed that forces a mode
+  (if (i32.and (i32.eq (local.get $next) (i32.const @G_ARENA)) (i32.eq (i32.shr_u (local.get $seed) (i32.const 24)) (i32.const @FORCE_MODE)))
+    (then (local.set $seed (i32.xor (local.get $seed) (i32.const 0x01000000)))))
   (local.set $t (i32.load (i32.const @HDR_TICK)))
   (local.set $rng (i32.load (i32.const @HDR_RNG)))
   (local.set $played (i32.load16_u (i32.const @(FP_COUNT + 2))))
