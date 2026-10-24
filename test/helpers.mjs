@@ -53,3 +53,14 @@ export async function newBumper(debug = false) {
   const memory = newMemory();
   return new Sim(await instantiate(await WebAssembly.compile(bumperBytes(debug)), memory), memory);
 }
+
+// Fireplace: every game in one module (build/fireplace/).
+export function fireplaceBytes(debug = false) {
+  wasmBytes();
+  return readFileSync(`${ROOT}build/fireplace/${debug ? 'game.debug' : 'game'}.wasm`);
+}
+
+export async function newFireplace(debug = false) {
+  const memory = newMemory();
+  return new Sim(await instantiate(await WebAssembly.compile(fireplaceBytes(debug)), memory), memory);
+}

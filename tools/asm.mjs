@@ -10,6 +10,8 @@
 // code: build/xbox/). Each has its own layout.mjs and macros.mjs. The arena
 // (build/arena/) is src/ again with ARENA set: a deathmatch on the same engine;
 // bumper balls (build/bumper/) is src/ with BUMPER set: every player a ball.
+// Fireplace (build/fireplace/) is all three in one module, each as its own
+// build would be under a prefix, with src/fireplace.wat dispatching to the one on now.
 //   (!macro args...)        JS macros from src/macros.mjs; args are raw s-expressions
 //
 // It refuses anything the determinism rules ban: memory.grow, relaxed SIMD,
@@ -276,22 +278,57 @@ async function binaryenSize(bin) {
   }
 }
 
+// One game's expanded module as part of another: its every $identifier
+// (outside strings) under `prefix.`, its exports made internal (an anonymous
+// exported function takes its export's name), its module head and memory
+// import dropped, so several can share one module and one memory.
+export function prefixed(wat, prefix) {
+  const head = wat.match(/^\s*\(module\s*\(import "env" "mem" \(memory \d+ \d+ shared\)\)/);
+  if (!head) throw new Error('not a sim module');
+  const body = wat.slice(head[0].length, wat.lastIndexOf(')'));
+  let out = '';
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c === '"') { const j = closeString(body, i); out += body.slice(i, j); i = j - 1; }
+    else if (c === '$' && /[A-Za-z0-9_]/.test(body[i + 1] || '')) out += `$${prefix}.`;
+    else out += c;
+  }
+  const names = new Set([...out.matchAll(/\(func (\$[\w.]+)/g)].map((m) => m[1]));
+  out = out.replace(/\(func \(export "(\w+)"\)/g, (_, e) => {
+    const name = `$${prefix}.${e}`;
+    if (names.has(name)) throw new Error(`${name} is taken`);
+    return `(func ${name}`;
+  });
+  return out.replace(/\(func (\$[\w.]+) \(export "\w+"\)/g, '(func $1');
+}
+
+export const GAMESETS = [['g', {}], ['a', { ARENA: true }], ['b', { BUMPER: true }]];
+
+export function fireplaceWat({ DEBUG = false, layout: lay = layout, macros = makeMacros, map = compileMap(), src = join(ROOT, 'src') } = {}) {
+  const games = GAMESETS.map(([prefix, flags]) => prefixed(expand(join(src, 'game.wat'), { DEBUG, ...flags, layout: lay, macros, map: flags.ARENA ? map : null }), prefix));
+  const fp = expand(join(src, 'fireplace.wat'), { DEBUG, layout: lay, macros });
+  const wat = `(module\n  (import "env" "mem" (memory ${lay.PAGES} ${lay.PAGES} shared))\n${games.join('\n')}\n${fp}\n)\n`;
+  forbid(wat);
+  return wat;
+}
+
 export const SIMS = [
   { name: 'game', src: join(ROOT, 'src'), out: join(ROOT, 'build') },
   { name: 'xbox', src: join(ROOT, 'xbox', 'sim'), out: join(ROOT, 'build', 'xbox') },
   { name: 'arena', src: join(ROOT, 'src'), out: join(ROOT, 'build', 'arena'), flags: { ARENA: true } },
   { name: 'bumper', src: join(ROOT, 'src'), out: join(ROOT, 'build', 'bumper'), flags: { BUMPER: true } },
+  { name: 'fireplace', src: join(ROOT, 'src'), out: join(ROOT, 'build', 'fireplace'), fireplace: true },
 ];
 
-async function buildSim({ name, src, out, flags = {} }) {
+async function buildSim({ name, src, out, flags = {}, fireplace = false }) {
   mkdirSync(out, { recursive: true });
-  const map = flags.ARENA ? compileMap(mapDir(MAP_ARG)) : null;
+  const map = flags.ARENA || fireplace ? compileMap(mapDir(MAP_ARG)) : null;
   const lay = await import(pathToFileURL(join(src, 'layout.mjs')).href);
   const { makeMacros: macros } = await import(pathToFileURL(join(src, 'macros.mjs')).href);
   const entry = join(src, 'game.wat');
   const manifest = {};
   for (const debug of [false, true]) {
-    const wat = expand(entry, { DEBUG: debug, ...flags, layout: lay, macros, map });
+    const wat = fireplace ? fireplaceWat({ DEBUG: debug, layout: lay, macros, map, src }) : expand(entry, { DEBUG: debug, ...flags, layout: lay, macros, map });
     const base = debug ? 'game.debug' : 'game';
     writeAtomic(join(out, `${base}.wat`), wat);
     const bin = await assemble(wat, `${base}.wat`, { debugNames: debug });
