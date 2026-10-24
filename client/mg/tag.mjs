@@ -300,7 +300,8 @@ export default {
         out.decals?.push({ pos: [x, PLAT_Y + 0.03, z], radius: r * 1.7, width: 0.3, color: [...RED, 0.55 + 0.35 * pulse], kind: DECAL.RING });
         out.glow?.push({ pos: [x, y + r, z], size: r * 1.9, color: [...RED, 0.16], kind: SPRITE.FLASH });
       } else {
-        out.beams?.push({ a: [x, PLAT_Y + 40, z], b: [x, y + 2 * r + 1.2, z], width: 0.9 + 0.3 * pulse, color: [...GOLD, 0.3] });
+        // the beam is for the hunters to find them by: not over your own ball, nor one by the camera (it would fill the view)
+        if (p !== ctx.slot && (x - cam[0]) ** 2 + (z - cam[2]) ** 2 > 36) out.beams?.push({ a: [x, PLAT_Y + 40, z], b: [x, y + 2 * r + 1.2, z], width: 0.9 + 0.3 * pulse, color: [...GOLD, 0.3] });
         out.decals?.push({ pos: [x, PLAT_Y + 0.03, z], radius: r * 2, width: 0.3, color: [...GOLD, 0.7], kind: DECAL.RING });
       }
     }
