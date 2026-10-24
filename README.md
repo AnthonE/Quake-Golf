@@ -10,8 +10,9 @@ Target: the newest Chrome; the server is Deno. The same sim also runs as
 Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 **[Fireplace](#fireplace)** is all of it as one party game: the room plays
-bumper balls, the arena and golf in turn, Mario Party style, and people come
-and go as they like, from a living room with a fire going and the game on the TV.
+bumper balls, party, the arena and golf in turn, Mario Party style, and people
+come and go as they like, from a living room with a fire going and the game on
+the TV.
 
 ## Where it is
 
@@ -159,9 +160,10 @@ node --test test/map.test.mjs
 
 Each match plays one of four modes, chosen as its countdown starts: match k
 of a room plays `ARENA_MODES[k % 4]` (`src/layout.mjs`), Fiesta, Infection,
-gun game, Juggernaut, and round again. So a room opens on a Fiesta, and
-Fireplace's arena, one match long, is the Fiesta it was. A seed whose top
-byte is `0xA8` plays mode `(seed >>> 16) & 0xff` every match: `node
+gun game, Juggernaut, and round again. So a room opens on a Fiesta;
+Fireplace's arena, one match long, plays whichever mode the room draws for
+it (see Fireplace). A seed whose top byte is `0xA8` plays mode
+`(seed >>> 16) & 0xff` every match: `node
 net/play.mjs --arena --mode 1` is a room of Infection only (`tools/genarena.mjs`
 and `net/run-arena.mjs` take `--mode` too).
 
@@ -385,10 +387,11 @@ going, snow at the window, a walnut console TV with rabbit ears. Click and you
 sit down: the camera closes in on the TV until its glass fills the screen, and
 you're in whatever the room is playing. When a game ends it pulls back to the
 room, and the TV shows the marshmallows and what's on next; then it closes in
-again. The room plays the playlist through, bumper balls (two rounds), a
-three-minute Fiesta in the arena, a hole of golf, again; the top three of each
-game get 3, 2 and 1 marshmallows. Join any time, into whatever is on (or the
-next round of it); leave any time.
+again. The room plays the playlist through: bumper balls (two rounds), party
+(three minigames), the arena (one three-minute match of Fiesta, Infection,
+gun game or Juggernaut, drawn for it), party again, a hole of golf, and round
+again; the top three of each game get 3, 2 and 1 marshmallows. Join any time,
+into whatever is on (or the next round of it); leave any time.
 
 ```sh
 node net/play.mjs --fireplace            # the relay on Fireplace's sim, 15 guests, the page; open the URL it prints
@@ -398,71 +401,100 @@ node net/play.mjs --fireplace --bots 0   # just people
 Click (or Enter) to sit down; then each game's own controls. `?bot=1` sits a
 guest at the controls; `?watch=1` spectates; F goes fullscreen.
 
-**How it fits on the engine.** `build/fireplace/game.wasm` is golf, the arena
-and bumper balls in one module: `tools/asm.mjs` expands each exactly as its
-own build is, puts its every identifier under a prefix (`$g.`, `$a.`, `$b.`)
-and makes its exports internal, and appends `src/fireplace.wat`. That sends
-every export to the game on now (the header's `FP_GAME`) and runs the playlist
-at the end of each tick. The ball phases and the barrier are the same code in
-every game, so the worker threads never change games. When a game's last match
-ends, its result is scored (golf: strokes; the arena: kills, then deaths;
-bumper: rounds won, then KOs, then bumps), the marshmallows handed out and the
-result held 6 s. Then the region is wiped but for the tick, the PRNG and the
-playlist's own state, the next game's world is built on a seed drawn from the
-room's PRNG, and everyone in the room is joined into it on that tick, keeping
-their input words when the two games read the same word (golf's, which bumper
-shares). What lasts from game to game (the marshmallows) sits in 8 KiB of the
-region no game touches. A game's static world (the terrain, the arena's map)
-is outside the region, so a keyframe from another game would land on the
-wrong ground: `FP_WORLD` says which world is built, and when the region comes
-from outside, `regrid` stashes it (`FP_STASH`), builds that game's world under
-it and puts it back. Nothing else changed: the relay, referee, keyframes,
-spectators and replays just see a sim.
+**How it fits on the engine.** `build/fireplace/game.wasm` is golf, the arena,
+bumper balls and party in one module: `tools/asm.mjs` expands each exactly as
+its own build is, puts its every identifier under a prefix (`$g.`, `$a.`,
+`$b.`, `$p.`) and makes its exports internal, and appends `src/fireplace.wat`.
+That sends every export to the game on now (the header's `FP_GAME`) and runs
+the playlist at the end of each tick. The ball phases and the barrier are the
+same code in every game, so the worker threads never change games. The
+playlist goes by position, not by game (`PLAYLIST` in `src/layout.mjs`): the
+count of games played (`FP_COUNT`'s high half) mod its length picks the next
+entry, so party comes round twice. When a game's last match ends, its result
+is scored (golf: strokes; the arena: a Fiesta by kills, then deaths, any other
+mode by the places it gives; bumper: rounds won, then KOs, then bumps; party:
+party points, then minigames won), the marshmallows handed out, the next
+entry's seed drawn and the result held 6 s. Then the region is wiped but for
+the tick, the PRNG and the playlist's own state, the next game's world is
+built on that seed, and everyone in the room is joined into it on that tick
+(bumper and party lay one round out with everyone in it), keeping their input
+words when the two games read the same word (golf's, which bumper and party
+share). The seed is a hash of the room's PRNG and the games played (`FP_NEXT`,
+`REGION + 0xe400`). The arena's forces a mode: `0xA8` in its top byte, the
+mode in the next, drawn by `$rand` from the four, never the one the arena
+played last (`FP_MODE`, `REGION + 0xe404`), and drawn as the game before ends
+so the TV can name it; whatever the mode, the match is cut to 3 min
+(Infection's already is; gun game and Juggernaut lose 2 min, a Fiesta 7).
+Party's keeps its top byte off `0xA7`, which would play one minigame only.
+What lasts from game to game (the marshmallows, the arena's last mode, the
+next seed) sits in 8 KiB of the region no game touches. A game's static world
+(the terrain, the arena's map) is outside the region, so a keyframe from
+another game would land on the wrong ground: `FP_WORLD` says which world is
+built, and when the region comes from outside, `regrid` stashes it
+(`FP_STASH`), builds that game's world under it and puts it back. Nothing else
+changed: the relay, referee, keyframes, spectators and replays just see a sim.
 
 `client/fireplace.html` is the page. One host (`client/host.mjs`: the memory,
 the net and sim workers, the prediction's instance, the sound, one GPU device)
-and each game's frontend (`client/bumper-game.mjs`, `arena-game.mjs`,
-`golf-game.mjs`) mounted on its own canvas as the room moves into it;
-`bumper.html` and `arena.html` are now the same frontends mounted alone. The net
-worker packs each tick's word in the format of the game on now. The room
-(`client/room-render.mjs`) is drawn like the cheese, solved per pixel: a few
-dozen boxes, two pumpkins and the antenna's rods, lit by the fire (it flickers,
-and its shadow is cast through the firebox's mouth), by the TV in the colour
-of the game on it, and by the snow light. The flames are a short march
-through the firebox. While the room is in view the game draws into a texture
-that the TV shows through a curved CRT with scanlines and a shadow mask, and
-those fade as the camera closes in, so the zoom's last frame is the game as it
-draws itself; then the page shows the game's own canvas. The TV's cards (the
-title, the standings) are drawn in the games' 3x5 font.
-`client/fireplace-bot.mjs` is a guest: a brain for each game, asked for the one
-that's on.
+and each game's frontend (`client/bumper-game.mjs`, `party-game.mjs`,
+`arena-game.mjs`, `golf-game.mjs`) mounted on its own canvas as the room moves
+into it (bumper balls and party at the window's size, golf and the arena at
+320 x 200); `bumper.html`, `party.html` and `arena.html` are the same
+frontends mounted alone. The net worker packs each tick's word in the format
+of the game on now. The room (`client/room-render.mjs`) is drawn like the
+cheese, solved per pixel: a few dozen boxes, two pumpkins and the antenna's
+rods, lit by the fire (it flickers, and its shadow is cast through the
+firebox's mouth), by the TV in the colour of the game on it, and by the snow
+light. The flames are a short march through the firebox. While the room is in
+view the game draws into a texture that the TV shows through a curved CRT with
+scanlines and a shadow mask, and those fade as the camera closes in, so the
+zoom's last frame is the game as it draws itself; then the page shows the
+game's own canvas. The TV's cards (the title, the standings, what's next, the
+arena by its mode: "NEXT: ARENA INFECTION") are drawn in the games' 3x5 font.
+`client/fireplace-bot.mjs` is a guest: a brain for each game (party's is
+`client/party-bot.mjs`'s Partier), asked for the one that's on.
 
-**Results.** `test/fireplace.test.mjs` (6 tests): the prefixer; one module with
-every export; the playlist played through on the debug build with the room
-coming and going (bumper balls, the arena cut to 3 min, golf, bumper again,
-everyone in each new game straight after the switch); marshmallows, 3, 2 and 1,
-kept from game to game and lost with the slot; the playlist equal on every
-tick on 1 and 4 threads; and keyframes taken mid-arena, mid-golf and just after a
-switch, each restored into a sim sitting in bumper balls' world, its terrain and
-map rebuilt, every tick after equal to a run that never left. The determinism
-matrix replays 60,000 ticks of twelve guests through bumper balls, the arena
-and golf (the arena from 191 s, golf from 380 s): 27 configurations (Node,
-Deno, Chrome x JIT tiers x 1, 2 and 4 threads), equal on every tick, at about
-0.05 ms a tick on TurboFan. Online, 64 guests for 260 s on one 4-core machine:
-the room moved from bumper balls into the arena, 16,256 interval hashes
-checked, all equal, 11 KB/s down a session. The switch tick costs 34 ms on the
-relay's referee and every client (most of it the arena's 512 x 512 terrain);
-the sim workers catch up past it.
+**Results.** `test/fireplace.test.mjs` (9 tests, 47 s here): the prefixer; one
+module with every export; the playlist on the debug build from bumper balls
+round to bumper balls again, the room coming and going (each game's matches:
+two rounds, three minigames, one match cut to 3 min, one hole; everyone in
+each new game straight after its switch; no party seed forcing a minigame);
+the arena's seed drawn as the party before it ended, and the mode it played;
+marshmallows, 3, 2 and 1, by each game's places (party's by points, then wins;
+a mode's by its own), summed from game to game and lost with the slot; the
+mode's draw (any of the four, then never the last, 40 draws each way), each
+mode's match cut to 3 min and placed by the mode; a party seed that came out
+with `0xA7` on top turned off it; the playlist equal on every tick on 1 and 4
+threads through bumper balls and the switch into party; and keyframes taken
+just into party, mid-party, mid-arena and mid-golf, each restored into a sim
+sitting in bumper balls' world, its terrain and map rebuilt, every tick after
+equal to a run that never left. The determinism matrix replays 145,000 ticks
+of twelve guests, the playlist round once with the minigames as they stand at
+this commit: bumper balls, party from 191 s (Tag, Paint Party, Musical Pads),
+the arena from 495 s (Juggernaut, drawn), party from 684 s (Color Call, Red
+Light, Hot Potato), golf from 970 s and bumper balls again from 1129 s: 27
+configurations (Node, Deno, Chrome x JIT tiers x 1, 2 and 4 threads), equal on
+every tick, at 0.056 to 0.058 ms a tick on TurboFan in Deno and Chrome, the
+region's hash included. Online, `net/run-fireplace.mjs --bots 15 --seconds
+270` on one 4-core machine shared with other work: 16 sessions (15 guests and
+Chrome), the room moved from bumper balls into party at 147 s, 4,174 interval
+hashes checked by the referee, all equal, 7 bytes a closed tick on average,
+3.8 KB/s down and 2.0 KB/s up a session. On SwiftShader the switch into party
+holds up the page's GPU for about 40 s while party's pipelines compile
+(bumper's take about 14 s as the page starts); its sim worker and its hashes
+carry on, and it catches up. The switch tick costs 30 to 46 ms (measured
+with the machine busy) on the relay's referee and every client (most of it
+the 512 x 512 terrain each game builds); the sim workers catch up past it.
 
 ```sh
 node --test test/fireplace.test.mjs
-node tools/genfireplace.mjs --bots 12 --ticks 60000 --out logs/fireplace.qgl
-node harness/matrix.mjs --ticks 60000 --log logs/fireplace.qgl --wasm build/fireplace/game.wasm
-node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--res 960x600]
+node tools/genfireplace.mjs --bots 12 --ticks 145000 --out logs/fireplace.qgl   # or --games 6: 1500 ticks into bumper balls again
+node harness/matrix.mjs --ticks 145000 --log logs/fireplace.qgl --wasm build/fireplace/game.wasm
+node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--res 960x600] [--port 4433]
 ```
 
-Not done yet: more games in the playlist, a vote for what's next, names, and a
-way to lean back from the TV mid-game.
+Not done yet: a vote for what's next, names, and a way to lean back from the
+TV mid-game.
 
 ## Bumper balls
 
