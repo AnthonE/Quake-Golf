@@ -399,6 +399,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     // the bot drives the slots as the keys and mouse would
     if (external) { yaw = get(L.CL_YAW); pitch = get(L.CL_PITCH); swap(get(L.CL_WEAPON)); }
     if (bot && me?.live && st === 2) {
+      // the brain plays the slot the welcome gave, not the 0 it was made with
+      bot.slot = slot;
       const w = unpackArena(bot.think(view, h.tick, Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE))));
       yaw = w.yaw; pitch = w.pitch;
       aim();
@@ -520,7 +522,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const spread = ARMS[f?.weapon]?.spread || 0;
     last = {
       cam, yaw: camYaw, pitch: camPitch, zoom, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, slot: tgt ? watched : slot < 0 ? 999 : slot,
-      solid, glow, beams, rects, tracker, text, graph, marker, hurt, scope: zoom >= 4,
+      solid, glow, beams, rects, tracker, text, graph, marker, hurt, scope: zoom >= 4, sides: ((1 << view.mode().mode) & L.TEAM_MODES) !== 0,
       crosshair: FIXED ? 7 : (CROSS[f?.weapon] ?? 0) + (playing && !f.dead && onTarget(f, cam) ? 8 : 0), gap: spread / 30 + kick * 3,
     };
     renderer.frame(u8, last, target);

@@ -243,7 +243,7 @@
 ;; ---- fighters
 
 ;; Slot p comes (back) into the fight at the spawn point farthest from the
-;; nearest enemy (for a zombie, the one nearest 40 m from it), of four
+;; nearest enemy (for a zombie, the one nearest 25 m from it), of four
 ;; drawn at random: full shields and health, two frags, and in Fiesta two
 ;; different guns drawn at random (in slayer an assault rifle out and a
 ;; magnum on the back). The match's mode may say otherwise: a zombie has the
@@ -272,8 +272,8 @@
           (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_PX) (local.get $qb)) (local.get $sx)))
           (local.set $dz (f32.sub (!at f32 @(PLAYERS + P_PZ) (local.get $qb)) (local.get $sz)))
           (local.set $md (f32.min (local.get $md) (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz))))))))
-    ;; a zombie hunts: the point whose nearest human is nearest 40 m
-    (if (local.get $zed) (then (local.set $md (f32.neg (f32.abs (f32.sub (local.get $md) (f32.const 1600)))))))
+    ;; a zombie hunts: the point whose nearest human is nearest 25 m
+    (if (local.get $zed) (then (local.set $md (f32.neg (f32.abs (f32.sub (local.get $md) (f32.const 625)))))))
     (if (f32.gt (local.get $md) (local.get $bestd))
       (then (local.set $bestd (local.get $md)) (local.set $best (local.get $i)))))
   (local.set $sx (f32.load (i32.add (i32.const @SPAWNS) (i32.shl (local.get $best) (i32.const 4)))))
@@ -667,9 +667,13 @@
   (if (i32.ne (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $qb)) (i32.const @(PF_LIVE | PF_DEAD))) (i32.const @PF_LIVE)) (then (return)))
   (if (i32.ne (i32.load (i32.const @HDR_STATE)) (i32.const @H_PLAY)) (then (return)))
   (if (call $a_ally (local.get $q) (local.get $a)) (then (return)))
-  ;; a zombie, with no shields to lose, isn't killed by a head shot that only kills through them
-  (if (i32.and (i32.eq (local.get $head) (i32.const 1)) (i32.ne (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $qb)) (i32.const @PF_ZOMBIE)) (i32.const 0)))
-    (then (local.set $head (i32.const 0))))
+  ;; a zombie, with no shields to lose, isn't killed by a head shot that only
+  ;; kills through them, and takes half of any gun's but the shotgun's
+  (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $qb)) (i32.const @PF_ZOMBIE))
+    (then
+      (if (i32.eq (local.get $head) (i32.const 1)) (then (local.set $head (i32.const 0))))
+      (if (i32.and (i32.le_u (local.get $cause) (i32.const @W_NEEDLER)) (i32.ne (local.get $cause) (i32.const @W_SHOTGUN)))
+        (then (local.set $dmg (i32.shr_u (i32.add (local.get $dmg) (i32.const 1)) (i32.const 1)))))))
   (!put u16 @(PLAYERS + A_SHT) (local.get $qb) (i32.const @SHIELD_DELAY))
   (!put u8 @(PLAYERS + A_HITBY) (local.get $qb) (local.get $a))
   (local.set $sh (!at u8 @(PLAYERS + A_SH) (local.get $qb)))

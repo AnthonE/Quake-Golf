@@ -61,6 +61,11 @@ shell whose own command line contains the name: it kills that shell.
   their differences behind `#if ARENA` / `#if BUMPER` (nesting works, `#if !X`
   too). Changing a mode must leave the other builds bit-identical: compare the
   sha256s `npm run build` prints before and after.
+- The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut)
+  are picked per match at run time, not built: `AH_MODE` at `REGION + 0x48`,
+  a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`), per-fighter state at `MODE_REC`.
+  A Fiesta must leave all of it 0, so its region stays what it was;
+  `forcedSeed(m)` (`arena-view.mjs`) makes a room play one mode.
 - `xbox/sim/` is frozen. Net and harness code shared by both sims reads
   memory through names that must mean the same in both layouts
   (`test/fork.test.mjs`); add new names, don't move old ones.

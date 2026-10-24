@@ -63,7 +63,7 @@ export class Fighter {
     this.wantUse = false; this.wantReload = false;
     this.lag = 0;
     this.stuck = 0; this.detour = 0; this.detourUntil = 0; this.was = null;
-    this.prey = -1; this.buddy = -1;
+    this.prey = -1; this.buddy = -1; this.look = 0; this.lookUntil = 0;
   }
 
   rand() { let x = this.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.rng = x >>> 0; return this.rng / 4294967296; }
@@ -104,15 +104,17 @@ export class Fighter {
       }
       near.sort((a, b) => a[0] - b[0]);
       if (hunts && near.length) this.prey = near[0][1];
-      // Infection's humans keep together: the nearest other one
+      // Infection's humans keep together: the nearest other one in sight, within 60 m
       this.buddy = -1;
       if (mode === L.M_INFECTION && !hunter) {
-        let bd = 1e9;
+        const pals = [];
         for (let q = 0; q < L.NPLAYER; q++) {
           if (q === this.slot || !human(q)) continue;
           const c = chest(q), d = Math.hypot(c[0] - me.pos[0], c[2] - me.pos[2]);
-          if (d < bd) { bd = d; this.buddy = q; }
+          if (d < 60) pals.push([d, q]);
         }
+        pals.sort((a, b) => a[0] - b[0]);
+        for (const [, q] of pals.slice(0, 4)) if (sees(view, eye, chest(q))) { this.buddy = q; break; }
       }
       best = -1;
       for (const [, q] of near.slice(0, 6)) if (sees(view, eye, chest(q))) { best = q; break; }
@@ -178,7 +180,11 @@ export class Fighter {
       // no zombie in sight: to the nearest other human, then stand by them looking round
       const c = chest(this.buddy);
       if (Math.hypot(c[0] - me.pos[0], c[2] - me.pos[2]) > 6) { this.turnTo(aimAt(eye, [c[0], eye[1], c[2]]).yaw, 512, 0.15); move = 1; }
-      else this.turnTo(this.yaw + 400, 512, 0.25);
+      else {
+        // a look somewhere new every second or so, held still between (a still word costs nothing on the wire)
+        if (t >= this.lookUntil) { this.look = (this.yaw + (this.rand() - 0.5) * TURN * 0.6 + TURN) % TURN; this.lookUntil = t + 100 + Math.floor(this.rand() * 100); }
+        if (Math.abs(((this.look - this.yaw + TURN / 2) % TURN + TURN) % TURN - TURN / 2) > 40) this.turnTo(this.look, 512, 0.1);
+      }
       if (me.mag[this.slotOut] < (L.ARMS[me.weapon]?.mag || 0) / 2 && me.res[this.slotOut] > 0 && !me.reload) this.wantReload = true;
     } else {
       // nobody in sight: a pad with something better, else a spawn point, and on

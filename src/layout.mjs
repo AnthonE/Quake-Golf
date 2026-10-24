@@ -500,9 +500,11 @@ export const FX_TELE = 10; // a fighter through a teleporter: where it came out,
 // what it always was.
 //   M_INFECTION (Halo's): at the countdown's end one fighter in ten (at least
 //   one) is drawn a zombie: an energy sword that never runs out, ZRUN and
-//   ZJUMP, no shields; humans get a shotgun, a magnum and two frags. Neither
-//   side hurts its own. A human who dies comes back a zombie; if the zombies
-//   all leave, another is drawn. Over when no human is left, or at the clock.
+//   ZJUMP, no shields (and so no dying to a head shot that kills through
+//   them), half the damage of any gun but the shotgun; humans get a shotgun,
+//   a magnum and two frags. Neither side hurts its own. A human who dies
+//   comes back a zombie; if the zombies all leave, another is drawn. Over
+//   when no human is left, or at the clock.
 //   M_GUNGAME (Arsenal's): the LADDER's guns in order; a kill moves the killer
 //   up a rung (its gun, full, at once), an assassination moves the victim
 //   down one, the first kill with the sword wins. No pads.

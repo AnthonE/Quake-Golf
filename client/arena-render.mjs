@@ -27,7 +27,7 @@ struct U {
   hud: vec4f,     // rows, rects, crosshair kind, hit marker (0..1)
   fx: vec4f,      // damage flash (0..1), scope (1), net graph shown (1), crosshair gap (px)
   pred: vec4f,    // extrapolate my projectiles (s); the motion tracker's centre x, y and radius (px)
-  map: vec4f,     // boxes, groups
+  map: vec4f,     // boxes, groups, 1 when the match's mode has sides
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var hmap: texture_2d<f32>;
@@ -282,7 +282,8 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
     center = vec3f(pf(b, ${L.P_PX}u), pf(b, ${L.P_PY}u) + 0.92, pf(b, ${L.P_PZ}u)) + vel * dt;
     half = vec2f(0.5, 0.92);
     color = vec4f(slotColor(i), 1.0);
-    // the match's sides: Infection's zombies green, the juggernaut gold
+    // the match's sides: Infection's zombies green, the juggernaut gold, everyone else one blue
+    if (u.map.z > 0.5) { color = vec4f(0.3, 0.5, 0.95, 1.0); }
     if ((fl & ${L.PF_ZOMBIE}u) != 0u) { color = vec4f(0.35, 0.95, 0.25, 1.0); }
     if ((fl & ${L.PF_JUGG}u) != 0u) { color = vec4f(1.0, 0.72, 0.15, 1.0); }
     kind = 1u;
@@ -613,7 +614,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
     // s: { cam, yaw, pitch, fov (focal multiplier), time, dt, dtPred, proj, slot,
     //      solid: [{ pos, size, aspect, color: [r,g,b], kind, minpx }] (pads), glow: [... kind 3, 5, 6, color [r,g,b,a]],
     //      beams: [{ a, b, width, color: [r,g,b,a] }], rects: [[x0, y0, x1, y1, r, g, b, a]],
-    //      crosshair, gap, marker, hurt, scope, text, graph }
+    //      crosshair, gap, marker, hurt, scope, text, graph, sides (the mode has them: colour by side, not slot) }
     frame(u8, s, target) {
       if (!ctx && !target) return;
       const focal = W * 0.62 * (s.zoom || 1);
@@ -621,7 +622,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
       uf.set([s.cam[0], s.cam[1], s.cam[2], focal, Math.cos(s.yaw), Math.sin(s.yaw), H / 2 + Math.tan(Math.max(-1.35, Math.min(1.35, s.pitch))) * focal, s.time,
         W, H, FAR, s.dt, s.slot, sprites.length, hmax + 2, Math.min(s.beams.length, MAX_BEAM),
         rows, Math.min(s.rects.length, MAX_RECT), s.crosshair, s.marker, s.hurt, s.scope ? 1 : 0, s.graph ? 1 : 0, s.gap, s.dtPred ?? s.dt, ...(s.tracker || [0, 0, 0]),
-        nbox, ngroup, 0, 0]);
+        nbox, ngroup, s.sides ? 1 : 0, 0]);
       if (s.graph) device.queue.writeBuffer(graphBuf, 0, s.graph);
       device.queue.writeBuffer(ubuf, 0, uf);
       device.queue.writeBuffer(playerBuf, 0, u8, L.PLAYERS, L.NPLAYER * L.PSIZE);

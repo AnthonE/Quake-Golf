@@ -162,11 +162,11 @@ test('Infection: a human the sword kills comes back a zombie, an infection for i
   assert.ok(g.v.fighter(z).shots >= 12);
   assert.deepEqual(g.v.fighter(z).mag, [10, 10]);
   assert.equal(g.v.fighter(b).zombie, false);
-  // with no shields to lose, a zombie takes a magnum's head shot as a hit; a sniper's still kills
+  // with no shields to lose, a zombie takes a magnum's head shot as a hit, at half; a sniper's still kills
   put(g, b, 500, 510); put(g, z, 515, 510);
   for (let i = 0; i < L.SWAP_TICKS; i++) g.step([[L.EV_INPUT, b, at(g, b, z, 1.62, { slot: 1 })]]);
   fire(g, b, z, { h: 1.62, max: 1, rest: { slot: 1 } });
-  assert.deepEqual([g.v.fighter(z).dead, g.v.fighter(z).hp], [false, 100 - L.ARMS[L.W_MAGNUM].dmg]);
+  assert.deepEqual([g.v.fighter(z).dead, g.v.fighter(z).hp], [false, 100 - L.ARMS[L.W_MAGNUM].dmg / 2]);
   assert.equal(fxs(g.v, L.FX_HIT).at(-1).size, 2, 'a hit, not a head shot');
   loadout(g, b, L.W_SNIPER);
   for (let i = 0; i < 30; i++) g.step([[L.EV_INPUT, b, at(g, b, z, 1.62, { slot: 1, shot: g.v.fighter(b).fired })]]);

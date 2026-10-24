@@ -37,13 +37,15 @@ and go as they like, from a living room with a fire going and the game on the TV
 
 Not a golfer? The same engine runs a deathmatch: `src/` built with `ARENA`
 set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
-prediction, spectators and replays, up to 256 in a room. The mode is
-Fiesta: ten minutes, everyone spawns with two guns drawn at random, the
-most kills at the end wins, on [Blood Gulch](#blood-gulch-structures-and-maps):
-a walled box canyon with a base at each end you can walk into and up onto,
-a teleporter behind each, a cave through the north ridge, boulders for
-cover. (Set `FIESTA = 0` in `src/layout.mjs` for slayer instead:
-an assault rifle and a magnum, guns on pads about the floor, first to 25.)
+prediction, spectators and replays, up to 256 in a room. A room's first
+match is a Fiesta: ten minutes, everyone spawns with two guns drawn at
+random, the most kills at the end wins; the matches after it go round the
+[modes](#modes), Infection, gun game and Juggernaut. All of them are on
+[Blood Gulch](#blood-gulch-structures-and-maps): a walled box canyon with a
+base at each end you can walk into and up onto, a teleporter behind each, a
+cave through the north ridge, boulders for cover. (Set `FIESTA = 0` in
+`src/layout.mjs` for slayer instead of Fiesta: an assault rifle and a
+magnum, guns on pads about the floor, first to 25.)
 
 ```sh
 npm ci && sh tools/install-deno.sh   # once
@@ -151,6 +153,103 @@ node tools/genarena.mjs --bots 8 --ticks 20000 --out logs/arena.qgl
 node harness/matrix.mjs --ticks 20000 --log logs/arena.qgl --wasm build/arena/game.wasm
 node net/run-arena.mjs [--bots 7] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05]
 node --test test/map.test.mjs
+```
+
+### Modes
+
+Each match plays one of four modes, chosen as its countdown starts: match k
+of a room plays `ARENA_MODES[k % 4]` (`src/layout.mjs`), Fiesta, Infection,
+gun game, Juggernaut, and round again. So a room opens on a Fiesta, and
+Fireplace's arena, one match long, is the Fiesta it was. A seed whose top
+byte is `0xA8` plays mode `(seed >>> 16) & 0xff` every match: `node
+net/play.mjs --arena --mode 1` is a room of Infection only (`tools/genarena.mjs`
+and `net/run-arena.mjs` take `--mode` too).
+
+![Infection in Chrome: the humans in blue keep together; P10 has just infected P14](docs/a4-infection.png)
+
+| Mode | Spawns with | Ends | Places |
+| --- | --- | --- | --- |
+| Fiesta | two guns at random, two frags | 10 min | kills, then deaths |
+| Infection | humans: a shotgun and a magnum, full, two frags; zombies: an energy sword that never runs out, no shields, 100 health, 12.5 m/s and a 1.8 m jump (a human's are 10 m/s and 1.2 m), half the damage of any gun but the shotgun | no human left, or 3 min | humans still alive (shared), then time lived as a human, then infections |
+| Gun game | its rung's gun in both hands: assault rifle, battle rifle, magnum, shotgun, plasma rifle, needler, sniper rifle, rocket launcher, energy sword | the first kill with the sword, or 5 min | rung, then kills |
+| Juggernaut | as in Fiesta; the juggernaut the sword, 200 shields and a zombie's legs | 10 points, or 5 min | points, then kills |
+
+Infection draws one zombie for every ten fighters (at least one) from the
+room's PRNG at the countdown's end. A human who dies, to anything, comes
+back a zombie 2 s later, at the spawn point (of four drawn) whose nearest
+human is nearest 25 m off; a join during play is a zombie; if the zombies
+all leave, another is drawn. A zombie has no shields, so a head shot that
+kills through them (the battle rifle's, the magnum's) is only a hit; the
+sniper's still kills. Neither side hurts its own: the check is in damage,
+melee's choice of target, splash and needles (a bullet still stops on a
+teammate). In gun game a kill moves its killer up a rung, the new gun in
+both hands, full, at once; an assassination moves its victim down one; on
+the sword only a sword kill counts. In Juggernaut whoever kills the
+juggernaut becomes it, everyone else is on one side, and the juggernaut's
+kills are its points.
+
+**How it fits.** The mode is a word of the header, `AH_MODE` at `REGION +
+0x48`, followed to `0x5c` by the humans and zombies counted every tick, the
+gun game's leader or the juggernaut, and a winner; all inside the
+prediction's copy. A fighter's side is a bit of its flags, `PF_ZOMBIE` (16)
+or `PF_JUGG` (32), so the prediction runs a zombie's legs as the confirmed
+world does. What only the confirmed world reads (the rung, the place,
+infections or points, ticks as a human) is 8 bytes a fighter at `MODE_REC`,
+`REGION + 0xc400`, hashed and in every keyframe. Draws, conversions,
+promotions and places are serial and in slot order like the rest of the
+match. A Fiesta writes none of it: 20,000 ticks of a Fiesta of eight AI
+fighters and 30,000 ticks of Fireplace hash on every tick as they did before
+modes, and the bots send the same words. The page draws zombies green, the
+juggernaut gold and everyone else in one blue when a mode has sides, shows
+the mode and its rule over the countdown, its count on the HUD (humans left;
+your rung of 9, the gun next and the leader; the juggernaut and the points),
+its news in the feed ("P12 INFECTED P40", "P3 IS ON THE SWORD") and its own
+columns on the board. The AI fighter leaves its own side alone; a zombie or
+the juggernaut runs at the nearest enemy, seen or not, zigzagging and
+jumping; Infection's humans keep together, back away inside 14 m and
+shoot.
+
+**Results.** `test/arena-modes.test.mjs` (12 tests): the rotation from a
+Fiesta with every mode field 0, a forced mode match after match and an
+unknown one played as a Fiesta; Infection's draw (one zombie of 2 and of 9,
+two of 25) and loadouts; a conversion (the victim a zombie, back in 2 s with
+the sword, the infection counted, no frag for it) and a sword that never
+runs out; no friendly fire from the shotgun, the magnum, needles, a frag
+(which still hurts its thrower) or a zombie's sword; a zombie at 12.5 m/s
+against 10 and jumping 1.84 m against 1.25, a magnum's head shot on a zombie
+a hit for 14, and the prediction equal to the confirmed world bit for bit
+through a zombie's runs, jumps and swings; the end with no human left and at
+the clock, places in that order, survivors sharing first; a late join a
+zombie and a zombie drawn when they all leave; gun game's ladder, its
+respawns, an assassination's demotion, a rifle kill on the sword rung that
+counts for nothing and the sword kill that ends the match on its tick; the
+prediction bit for bit after a respawn on a new rung; Juggernaut's draw, its
+overshield, the killer taking over, ten points, and a new juggernaut after
+one dies by its own frag; and eight AI fighters in each mode on the debug
+build, equal on every tick on 1 and 4 threads.
+
+How long Infection lasts was tuned on AI fighters, who aim better than most
+people: at first (a zombie spawning as far from the humans as anyone, a
+magnum head shot killing it) a lone zombie against fifteen humans infected
+nobody in a minute online. With the rules above, sixteen fighters on four
+seeds play matches of 45 to 147 s, and one the humans hold to the clock;
+eight fighters, 35 to 138 s. Eight fighters' gun game took 205 s to its
+sword kill. The determinism matrix replays 20,000 ticks of eight AI fighters
+in each of Infection (two matches over in it), gun game and Juggernaut: 27
+configurations each (Node, Deno, Chrome x JIT tiers x 1, 2 and 4 threads),
+equal on every tick, at 0.05 to 0.09 ms a tick on TurboFan in Deno and
+Chrome. Online, `net/run-arena.mjs --mode 1 --bots 15 --seconds 60`: 16
+sessions, 960 interval hashes checked by the referee, all equal, 14.4 bytes
+a closed tick on average, 5.6 KB/s down and 1.9 KB/s up a session, two
+zombies and 14 humans at the minute's end; `--mode 2` the same way: 960
+hashes, all equal, 64 kills. (The page's AI fighter had been playing slot
+0's view whatever its own slot; it plays its own now.)
+
+```sh
+node --test test/arena-modes.test.mjs
+node tools/genarena.mjs --bots 8 --ticks 20000 --mode 1 --out logs/arena-infection.qgl   # 2 gun game, 3 Juggernaut
+node harness/matrix.mjs --ticks 20000 --log logs/arena-infection.qgl --wasm build/arena/game.wasm
+node net/run-arena.mjs --mode 1 [--bots 15] [--seconds 60]
 ```
 
 ### Blood Gulch: structures and maps
@@ -273,7 +372,7 @@ bundle fits one datagram again. The late inputs and the relay's few stalls
 are this one machine running the relay, the referee, 255 bots and a headless
 Chrome at once.
 
-Not done yet: teams, vehicles, dropped weapons, a manual reload while firing,
+Not done yet: team slayer, vehicles, dropped weapons, a manual reload while firing,
 and a second map (though [making one](#making-a-map) is now a paint program
 and a text editor away).
 
