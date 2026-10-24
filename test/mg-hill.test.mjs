@@ -216,6 +216,58 @@ test('off the rim a ball is down 2 s, then back on the disc off the open hills, 
   assert.ok(!b.ground && b.pos[1] > PLAT_Y + 5, 'falling in');
 });
 
+// Power-up i of the open zone: { kind, state, pos }.
+const orb = (g, i) => { const o = L.PG_S + L.KH_ORBS + 16 * i; return { kind: g.v.u8[o + 12], state: g.v.u8[o + 13], pos: [0, 4, 8].map((k) => g.dv.getFloat32(o + k, true)) }; };
+
+test('4 s into a zone a power-up drops onto each top and lands; the first ball onto it takes it and can use it; the zone moving on takes the rest', async () => {
+  const g = await room(2);
+  const st = stage(g.v);
+  const [sx, sz] = st.spots[0][0];
+  put(g, 0, C + st.rad - 2, C);
+  put(g, 1, C - st.rad + 2, C);
+  at(g, L.KH_ORB_AT - 1);
+  g.step();
+  assert.equal(orb(g, 0).kind, 0, 'nothing before');
+  g.step();
+  const o = orb(g, 0);
+  assert.ok([L.PU_POW, L.PU_MEGA, L.PU_DASH, L.PU_SPRING].includes(o.kind), `a ${L.PU_NAMES[o.kind]}`);
+  assert.equal(o.state, 1, 'falling');
+  assert.deepEqual([o.pos[0], o.pos[2]], [sx, sz], 'over the top');
+  const f = fxs(g.v, L.KH_FX_ORB).pop();
+  assert.ok(f && f.size === o.kind && Math.abs(f.pos[1] - (PLAT_Y + st.H)) < 1e-4, 'its FX at the top it lands on');
+  let k = 0;
+  while (orb(g, 0).state === 1 && k++ < 400) g.step();
+  assert.ok(Math.abs(k - (L.KH_ORB_Y / 10) * 125) < 5, `landed ${k} ticks on`);
+  assert.ok(Math.abs(orb(g, 0).pos[1] - (PLAT_Y + st.H + 0.6)) < 1e-3, 'on the top');
+  // ball 1 rolls onto it and takes it
+  put(g, 1, sx - 1.2, sz);
+  g.step();
+  const b = g.v.partier(1);
+  assert.equal(b.item, o.kind, 'taken');
+  assert.equal(orb(g, 0).kind, 0, 'gone from the top');
+  const pick = fxs(g.v, L.FX_PICKUP).pop();
+  assert.deepEqual([pick.owner, pick.size], [1, o.kind]);
+  // and its press uses it, as bumper's do
+  g.dv.setUint8(rec(1) + L.B_ITEM, L.PU_POW);
+  put(g, 0, sx + 4, sz);
+  g.step([[L.EV_INPUT, 1, partyWord({ yaw: 0, use: 1 })]]);
+  assert.equal(g.v.partier(1).item, 0, 'used');
+  assert.ok(g.v.partier(0).vel[0] > 5, `P1 shoved off by the POW: ${g.v.partier(0).vel[0].toFixed(1)} m/s`);
+  // the next zone's, left where it lands, goes as that zone ends
+  at(g, P + L.KH_ORB_AT);
+  put(g, 0, C + st.rad - 2, C);
+  put(g, 1, C - st.rad + 2, C);
+  g.step();
+  assert.ok(orb(g, 0).kind > 0);
+  at(g, 2 * P);
+  g.step();
+  assert.equal(orb(g, 0).kind, 0, 'gone with its zone');
+  // every kind it hands out is one of the four
+  const kinds = new Set();
+  for (let j = 0; j < 40; j++) { at(g, L.KH_ORB_AT); g.step(); kinds.add(orb(g, 0).kind); }
+  assert.deepEqual([...kinds].sort(), [L.PU_MEGA, L.PU_DASH, L.PU_POW, L.PU_SPRING].sort());
+});
+
 test('the leader: the most points of the room, a tie keeping who had it; KH_FX_LEAD at most every second', async () => {
   const g = await room(3);
   const st = stage(g.v);

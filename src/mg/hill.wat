@@ -367,12 +367,76 @@
       (local.set $sc (i32.add (!at u16 @(PLAYERS + PG_SCORE) (local.get $pb)) (local.get $w)))
       (!put u16 @(PLAYERS + PG_SCORE) (local.get $pb) (select (local.get $sc) (i32.const 65535) (i32.lt_u (local.get $sc) (i32.const 65535)))))))
 
-;; The zones' moments as FX (the next hills swelling, a zone opening), and the
-;; leader: the most points of anyone in the room, a tie keeping the one who
+;; The power-ups: KH_ORB_AT into a zone one drops onto each of its tops
+;; (from KH_ORB_Y over it, at bumper's ORB_FALL), lands
+;; and rides its hill; the first ball in, holding nothing, whose centre comes
+;; within its radius and ORB_R of it takes it (in slot order), as bumper's
+;; orbs are taken. The zone moving on takes whatever is left.
+(func $kh_orbs (param $t i32)
+  (local $k i32) (local $a i32) (local $i i32) (local $nh i32) (local $o i32) (local $p i32) (local $pb i32) (local $kind i32)
+  (local $x f32) (local $y f32) (local $z f32) (local $top f32) (local $rad f32) (local $dx f32) (local $dy f32) (local $dz f32) (local $lim f32)
+  (local.set $k (call $kh_zone (local.get $t)))
+  (local.set $a (i32.sub (local.get $t) (i32.mul (local.get $k) (i32.const @KH_PERIOD))))
+  (local.set $nh (i32.load (i32.const @(PG_H + KH_NH))))
+  (if (i32.eqz (local.get $a)) (then (memory.fill (i32.const @(PG_S + KH_ORBS)) (i32.const 0) (i32.const @(16 * KH_HMAX)))))
+  (if (i32.eq (local.get $a) (i32.const @KH_ORB_AT))
+    (then
+      (!for $i (i32.const 0) (local.get $nh)
+        (local.set $o (i32.add (i32.const @(PG_S + KH_ORBS)) (i32.shl (local.get $i) (i32.const 4))))
+        (call $kh_spot (i32.const 0) (i32.add (i32.mul (local.get $k) (i32.const @KH_HMAX)) (local.get $i)))
+        (local.set $z) (local.set $x)
+        (local.set $top (call $kh_hill (i32.const 0) (i32.add (i32.mul (local.get $k) (i32.const @KH_HMAX)) (local.get $i)) (call $kh_up (local.get $k) (local.get $t)) (local.get $x) (local.get $z)))
+        (local.set $top (f32.max (local.get $top) (f32.const @PLAT_Y)))
+        (local.set $kind (i32.and (call $rand) (i32.const 7)))
+        (local.set $kind (!tab KH_PU (local.get $kind)))
+        (f32.store (local.get $o) (local.get $x))
+        (f32.store offset=4 (local.get $o) (f32.add (local.get $top) (f32.const @(KH_ORB_Y + 0.6))))
+        (f32.store offset=8 (local.get $o) (local.get $z))
+        (i32.store8 offset=12 (local.get $o) (local.get $kind))
+        (i32.store8 offset=13 (local.get $o) (i32.const 1))
+        (call $fx (i32.const 0) (i32.const @KH_FX_ORB) (i32.const 255) (local.get $i) (local.get $x) (local.get $top) (local.get $z) (f32.convert_i32_u (local.get $kind))))))
+  (!for $i (i32.const 0) (local.get $nh)
+    (local.set $o (i32.add (i32.const @(PG_S + KH_ORBS)) (i32.shl (local.get $i) (i32.const 4))))
+    (if (i32.load8_u offset=12 (local.get $o))
+      (then (block $gone
+        (local.set $x (f32.load (local.get $o)))
+        (local.set $z (f32.load offset=8 (local.get $o)))
+        (call $kh_surface (i32.const 0) (local.get $x) (local.get $z))
+        (drop) (drop)
+        (local.set $top)
+        (local.set $top (f32.add (local.get $top) (f32.const 0.6)))
+        ;; falling till it meets the ground, then on it as the hill moves
+        (local.set $y (f32.load offset=4 (local.get $o)))
+        (if (i32.eq (i32.load8_u offset=13 (local.get $o)) (i32.const 1))
+          (then (local.set $y (f32.sub (local.get $y) (f32.const @ORB_FALL)))))
+        (if (i32.or (i32.eq (i32.load8_u offset=13 (local.get $o)) (i32.const 2)) (f32.le (local.get $y) (local.get $top)))
+          (then (local.set $y (local.get $top)) (i32.store8 offset=13 (local.get $o) (i32.const 2))))
+        (!chk (local.get $y) 75 (local.get $i))
+        (f32.store offset=4 (local.get $o) (local.get $y))
+        (!for $p (i32.const 0) (i32.const @NPLAYER)
+          (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+          (if (i32.and (call $p_in (local.get $pb)) (i32.eqz (!at u8 @(PLAYERS + B_ITEM) (local.get $pb))))
+            (then
+              (local.set $rad (call $b_rad (local.get $pb)))
+              (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (local.get $x)))
+              (local.set $dy (f32.sub (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (local.get $rad)) (local.get $y)))
+              (local.set $dz (f32.sub (!at f32 @(PLAYERS + P_PZ) (local.get $pb)) (local.get $z)))
+              (local.set $lim (f32.add (local.get $rad) (f32.const @ORB_R)))
+              (if (f32.lt (!dot3 (local.get $dx) (local.get $dy) (local.get $dz) (local.get $dx) (local.get $dy) (local.get $dz)) (f32.mul (local.get $lim) (local.get $lim)))
+                (then
+                  (!put u8 @(PLAYERS + B_ITEM) (local.get $pb) (i32.load8_u offset=12 (local.get $o)))
+                  (call $fx (i32.const 0) (i32.const @FX_PICKUP) (local.get $p) (local.get $i)
+                            (local.get $x) (local.get $y) (local.get $z) (f32.convert_i32_u (i32.load8_u offset=12 (local.get $o))))
+                  (memory.fill (local.get $o) (i32.const 0) (i32.const 16))
+                  (br $gone)))))))))))
+
+;; The power-ups, the zones' moments as FX (the next hills swelling, a zone
+;; opening), and the leader: the most points of anyone in the room, a tie keeping the one who
 ;; had it (KH_LEAD, for the crown; KH_FX_LEAD at most every KH_LEADGAP).
 (func $kh_tick
   (local $t i32) (local $j i32) (local $p i32) (local $pb i32) (local $lead i32) (local $who i32) (local $best i32) (local $s i32)
   (local.set $t (call $p_t (i32.const 0)))
+  (call $kh_orbs (local.get $t))
   (local.set $j (i32.div_u (i32.add (local.get $t) (i32.const @KH_RISE)) (i32.const @KH_PERIOD)))
   (if (i32.and (i32.eqz (i32.rem_u (i32.add (local.get $t) (i32.const @KH_RISE)) (i32.const @KH_PERIOD)))
                (i32.and (i32.ge_u (local.get $j) (i32.const 1)) (i32.lt_u (local.get $j) (i32.const @KH_ZONES))))

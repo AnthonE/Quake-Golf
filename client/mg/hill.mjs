@@ -2,7 +2,8 @@
 // over the sea; the hill is a mown lawn swelling out of it (the top of an
 // ellipsoid, drawn as one, so what is drawn is what the sim rolls on), the
 // zone a ring of gold dashes round its top and the top itself a glowing
-// disc, with a big gold crown turning over it. When the zone is about to
+// disc, with a big gold crown turning over it; 4 s into a zone a power-up
+// falls onto each top, a target marking where. When the zone is about to
 // move the next hill swells where a cyan ring and a beam mark it, and the
 // crown flies over to it; the old hill sinks back after. The leader wears a
 // little crown. The hills' heights are the sim's (src/mg/hill.wat) worked
@@ -19,6 +20,8 @@ const EARTH = [0.42, 0.3, 0.2];
 const ROCK = [0.36, 0.33, 0.31];
 const GOLD = [1, 0.78, 0.24];
 const NEXT = [0.35, 0.9, 1];
+// the power-ups' colours, by PU_* (bumper's)
+const PU_RGB = [[1, 1, 1], [1, 0.3, 0.25], [0.3, 0.8, 1], [1, 0.85, 0.2], [1, 0.55, 0.15], [0.5, 1, 0.45]];
 const CROWN_UP = 7.5; // m over the hill's top the big crown turns: over the chase camera, seen from afar
 
 // ---- the stage, as the sim has it (PG_H, read once a world tick)
@@ -288,6 +291,24 @@ export default {
         crown(sc, x, y + 2 * b.radius + 1.22, z, 0.3, now * 2);
       }
     }
+    // the power-ups: a target where one will land and a streak as it falls, then on the top, bobbing
+    for (let i = 0; i < st.nh; i++) {
+      const o = L.PG_S + L.KH_ORBS + 16 * i;
+      const kind = view.u8[o + 12];
+      if (!kind || !PU_RGB[kind]) continue;
+      const x = view.dv.getFloat32(o, true), z = view.dv.getFloat32(o + 8, true);
+      const falling = view.u8[o + 13] === 1;
+      const ground = groundAt(st, tp, x, z) + 0.6;
+      const y = falling ? Math.max(ground, view.dv.getFloat32(o + 4, true) - 10 * (ctx?.dt || 0)) : ground + 0.15 * Math.sin(now * 3 + i);
+      const rgb = PU_RGB[kind];
+      out.casters?.push([x, y, z, -0.6]);
+      out.solid?.push({ pos: [x, y, z], size: 0.6, color: [...rgb, 1], kind: SPRITE.ORB, minpx: 2 });
+      out.glow?.push({ pos: [x, y, z], size: 1.5 + 0.3 * pulse, color: [...rgb, 0.5], kind: SPRITE.FLASH, minpx: 2 });
+      if (falling) {
+        out.beams?.push({ a: [x, y + 5, z], b: [x, y, z], width: 0.12, color: [...rgb, 0.35] });
+        out.decals?.push({ pos: [x, ground - 0.5, z], radius: 1.4, width: 0.25, color: [...rgb, 0.85], kind: DECAL.TARGET });
+      }
+    }
     // under your own ball while it scores: a gold ring, brighter on a top
     if (mine && mine.ground && g.state === L.H_PLAY) {
       const w = worth(st, tp, mine.pos[0], mine.pos[2]);
@@ -311,6 +332,9 @@ export default {
     } else if (f.kind === L.KH_FX_MOVE) {
       if (f.shot > 0) { ctx.banner?.('NEW HILL', C.YELLOW, 1200); ctx.sound?.pickup?.(); }
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.3, f.pos[2]], size: 8, color: [1, 0.85, 0.3, 0.9], kind: SPRITE.RING, life: 800, grow: true });
+    } else if (f.kind === L.KH_FX_ORB) {
+      if (f.shot === 0) ctx.feed?.(`${L.PU_NAMES[f.size] || 'A POWER-UP'} DROPPING ON THE TOP${ctx.view && stage(ctx.view).nh > 1 ? 'S' : ''}`, C.CYAN);
+      if (d < 50 && f.shot === 0) ctx.sound?.tick?.();
     } else if (f.kind === L.KH_FX_LEAD) {
       if (f.owner === ctx.slot) { ctx.banner?.('YOU TAKE THE LEAD', C.GREEN, 1500); ctx.sound?.pickup?.(); }
       else if (f.shot === ctx.slot) ctx.banner?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} TAKES THE LEAD`, C.RED, 1500);

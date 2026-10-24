@@ -31,6 +31,10 @@ export const KH_N3 = 128; // three from this many
 export const KH_SPREAD = 0.85; // a zone's hills stand round the middle this far apart in feet, at least: a little overlap at most
 export const KH_TRIES = 8; // spots tried for each zone after the first: the one farthest from the last zone's hills
 export const KH_LEADGAP = 125; // ticks between two KH_FX_LEAD: a tight race doesn't flood the ring
+export const KH_ORB_AT = 500; // ticks into a zone a power-up drops onto each of its tops (4 s), from KH_ORB_Y over it at bumper's ORB_FALL
+export const KH_ORB_Y = 20; // m: it lands 2 s later, 6 s into the zone
+// Its power-ups, by $rand % 8: POW three in eight (it clears a top), MEGA three (it holds one), DASH and SPRING one each
+export const KH_PU = [3, 3, 3, 1, 1, 1, 2, 5];
 // Its header, byte offsets in PG_H.
 export const KH_RAD = 0; // f32 the disc's radius
 export const KH_Z = 4; // f32 a zone's radius as it opens
@@ -48,7 +52,10 @@ export const KH_SPOT = 36;
 export const KH_SN = 0; // u32 the balls laid out for
 export const KH_SK = 4; // u32 the spots found for them
 export const KH_SPAWN = 8; // f32 x, z of each, to 8 + 8 * 256
+// The power-ups on the open zone's tops, one a hill: f32 x, y (its centre), z | u8 PU_* (0 none) | u8 1 falling, 2 landed | u16 0
+export const KH_ORBS = 2064;
 // FX kinds, FX_MG + 4 * MG_HILL + k, owner 255 unless said.
 export const KH_FX_NEXT = 60; // the next zone's hills start to swell: its first's spot, shot and size the zone (1..)
 export const KH_FX_MOVE = 61; // a zone opens: its first hill's top, shot and size the zone (0..)
 export const KH_FX_LEAD = 62; // a new leader: owner the slot, shot the last (255 none), size its points
+export const KH_FX_ORB = 63; // a power-up drops: where it will land (the top), shot the hill, size its PU_*
