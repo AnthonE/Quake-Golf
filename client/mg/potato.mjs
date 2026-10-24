@@ -1,9 +1,10 @@
 // HOT POTATO, as drawn and as the AI ball sees it. A round wooden stage with
-// a red trim; a big bomb hangs over the middle, its fuse the wave's. Every
-// holder carries a bomb over its rider's head, heating red and blinking
-// faster as the fuse runs down, a red ring round the ball and under it, and
-// in the last two seconds the blast's reach on the floor; the balls picked
-// for the next wave carry an unlit one. A wave going off leaves a fireball
+// a red trim; a big bomb hangs high over the middle, its fuse the wave's.
+// Every holder's rider has a bomb in its right hand (out to the side, never
+// between the chase camera and the ball), heating red and blinking faster as
+// the fuse runs down, a red ring round the ball and under it, and in the last
+// two seconds the blast's reach on the floor; the balls picked for the next
+// wave carry an unlit one. A wave going off leaves a fireball
 // and a scorch where each holder stood, then the edge goes red and falls in,
 // piece by piece, to the next wave's radius. The schedule (src/mg/potato.wat)
 // is in the header, so it is worked here as the sim works it; who holds a
@@ -338,9 +339,10 @@ export default {
 
   brain: {
     // past the edge (as it will be then) is deadly, the last 4.5 m before it
-    // a warning (a bump puts a ball that far over); a ball with a bomb (or about to get one) where it will be by
-    // then, coming my way, the worse as the fuse runs down, and its blast's
-    // reach in the last second; nothing of that to a ball that has one
+    // a warning (a bump puts a ball that far over); a ball with a bomb (or
+    // about to get one) where it will be by then, coming my way, the worse as
+    // the fuse runs down, and its blast's reach in the last second; nothing
+    // of that to a ball that has one
     danger(view, x, z, tick, me) {
       const w = worldOf(view);
       if (w.state !== L.H_PLAY) return 0;
