@@ -119,7 +119,7 @@ function wbox(sc, T, W, u, y, v, hu, hy, hv, rgb, look, a = 0, b = 0, alpha = 1,
 function bar(sc, T, W, u0, v0, u1, v1, half, y, rgb, a, alpha) {
   const [x0, z0] = toWorld(T, W, u0, v0), [x1, z1] = toWorld(T, W, u1, v1);
   const len = Math.hypot(x1 - x0, z1 - z0) / 2;
-  sc.box((x0 + x1) / 2, y, (z0 + z1) / 2, len + 0.02, 0.012, half, Math.atan2(z1 - z0, x1 - x0), rgb[0], rgb[1], rgb[2], LOOK.GLOW, a, 0.6, alpha);
+  sc.box((x0 + x1) / 2, y, (z0 + z1) / 2, len, 0.012, half, Math.atan2(z1 - z0, x1 - x0), rgb[0], rgb[1], rgb[2], LOOK.GLOW, a, 0.6, alpha);
 }
 const lift = (rgb, k) => rgb.map((c) => c + (1 - c) * k);
 
@@ -188,17 +188,18 @@ function plan(view, me, bot, tick) {
   if (!(T.h > 0)) return null;
   // where it will be, and when: a Partier has rolled its ball on to the tick its word lands (view.tick + its lag);
   // asked without one, from the view's tick on to `tick`
+  // (a Partier rolls at most 40 ticks; past that, on at the speed it has)
   const rolled = !!(bot?.pos && bot.at === tick);
-  const ahead = rolled ? clamp(bot.lag | 0, 0, 40) : clamp((tick - view.tick) | 0, 0, 40);
+  const ahead = rolled ? clamp(bot.lag | 0, 0, 90) : clamp((tick - view.tick) | 0, 0, 90);
   const t = Math.max(0, (view.tick + ahead - dv.getUint32(L.HDR_START + o, true)) | 0);
-  const lag = ahead * TICK;
+  const lag = ahead * TICK, more = rolled ? Math.max(0, ahead - 40) * TICK : 0;
   const mind = mindOf(bot, slot);
   const skill = bot?.skill ?? 0.6;
   const round = dv.getUint32(L.HDR_HOLE + o, true);
   if (mind.round !== round) { mind.round = round; mind.w = -1; mind.gap = -1; mind.yaw = undefined; mind.home = null; }
   const vel = [dv.getFloat32(rb + L.P_VX, true), dv.getFloat32(rb + L.P_VZ, true)];
-  const pos = rolled ? [bot.pos[0], bot.pos[1]] : [dv.getFloat32(rb + L.P_PX, true) + vel[0] * lag, dv.getFloat32(rb + L.P_PZ, true) + vel[1] * lag];
   if (rolled) { vel[0] = bot.vel[0]; vel[1] = bot.vel[1]; }
+  const pos = rolled ? [bot.pos[0] + vel[0] * more, bot.pos[1] + vel[1] * more] : [dv.getFloat32(rb + L.P_PX, true) + vel[0] * lag, dv.getFloat32(rb + L.P_PZ, true) + vel[1] * lag];
   const crowd = crowdOf(view, lag);
   // the walls it has seen: shown a reaction time ago (0.15 s to 0.6 s)
   const react = Math.round((0.15 + 0.45 * (1 - skill)) / TICK);
@@ -215,7 +216,7 @@ function plan(view, me, bot, tick) {
   if (!first || first.eta > 5) {
     // nothing coming soon: toward a spot of its own round the middle
     if (!mind.home) mind.home = [T.cx + (luck(T, slot, 0, 1) - 0.5) * h * 0.7, T.cx + (luck(T, slot, 0, 2) - 0.5) * h * 0.7];
-    return { goal: mind.home, vmax: 6, pos, vel, slot, slack: 1.5 };
+    return { goal: mind.home, vmax: 6, pos, vel, slot, slack: 1.5, lag, room: 1, crowd };
   }
   const W = first.W;
   // a gap of the first wall: near, reachable in time, its lane not crowded at this end
@@ -268,17 +269,36 @@ function plan(view, me, bot, tick) {
   if (pinned) along = first.u;
   const lane = pinned ? W.gaps[pick] + sway(W, t) : laneAt(W, pick, along) + mind.err;
   const goal = toWorld(T, W, along, lane);
-  return { goal, vmax: first.eta < 1.5 || pinned ? 10 : 7, pos, vel, slot, slack: pinned ? 0 : 0.25, lane, wall: W.w };
+  return { goal, vmax: first.eta < 1.5 || pinned ? 10 : 7, pos, vel, slot, slack: pinned ? 0 : 0.25, lane, wall: W.w, lag,
+    room: pinned || first.eta < 0.5 ? 0.3 : 1, crowd };
 }
 
 // Push for the velocity that gets to the goal and stops there: full speed
-// while far, braking as it closes, no keys (the strong idle brake) once there.
+// while far, braking as it closes (the earlier the longer its word takes to
+// land), no keys (the strong idle brake) once there.
+// A ball touching another bounces off it (bumper's kick), so it keeps clear
+// of the balls round it, the less the more it's in a hurry.
+const ROOM = 3.2;
 function steer(p, last) {
   const dx = p.goal[0] - p.pos[0], dz = p.goal[1] - p.pos[1], d = Math.hypot(dx, dz);
-  const want = Math.min(p.vmax, Math.sqrt(2 * 7 * Math.max(0, d - 0.15)));
-  const vx = d > 1e-6 ? (dx / d) * want : 0, vz = d > 1e-6 ? (dz / d) * want : 0;
+  const want = Math.min(p.vmax, Math.sqrt(2 * (7 / (1 + 3 * p.lag)) * Math.max(0, d - 0.15)));
+  let vx = d > 1e-6 ? (dx / d) * want : 0, vz = d > 1e-6 ? (dz / d) * want : 0;
+  let near = false;
+  if (p.crowd && p.room > 0) {
+    const { xs, zs, slots } = p.crowd;
+    for (let i = 0; i < xs.length; i++) {
+      if (slots[i] === p.slot) continue;
+      const ox = p.pos[0] - xs[i], oz = p.pos[1] - zs[i];
+      if (Math.abs(ox) > ROOM || Math.abs(oz) > ROOM) continue;
+      const od = Math.hypot(ox, oz);
+      if (od >= ROOM || od < 1e-6) continue;
+      const k = (4 * p.room * (ROOM - od)) / ROOM / od;
+      vx += ox * k; vz += oz * k;
+      near = true;
+    }
+  }
   const ax = vx - p.vel[0], az = vz - p.vel[1];
-  if (Math.hypot(ax, az) < 0.7 || d < p.slack) return { yaw: last ?? 0, move: 0, hop: 0, use: 0 };
+  if (Math.hypot(ax, az) < 0.7 || (d < p.slack && !near)) return { yaw: last ?? 0, move: 0, hop: 0, use: 0 };
   return { yaw: Math.round((Math.atan2(az, ax) / (2 * Math.PI)) * TURN) & (TURN - 1), move: 1, hop: 0, use: 0 };
 }
 
