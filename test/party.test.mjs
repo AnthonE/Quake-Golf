@@ -29,6 +29,8 @@ async function room({ seed: s = 7, n = 2, force = THIN, play = true } = {}) {
 const rec = (p) => L.PLAYERS + p * L.PSIZE;
 // Ball p under the lowest floor: out (or down) at the end of the next tick.
 const sink = (g, p) => g.dv.setFloat32(rec(p) + L.P_PY, g.v.party().floor - L.OUT_DEPTH - 1, true);
+// Ball p in the air just under it: going out (PF_FALL) from the next tick, out some 0.9 s later.
+const drop = (g, p) => { g.dv.setFloat32(rec(p) + L.P_PY, g.v.party().floor - 1.01, true); g.dv.setUint8(rec(p) + L.P_FL, L.PF_LIVE); };
 // Whatever state the room is in ends on the next tick.
 const hurry = (g) => g.dv.setUint32(L.HDR_UNTIL, g.v.tick, true);
 const fxs = (v, kind) => { const out = []; for (let k = 0; k < v.fxCount(); k++) { const f = v.fx(k); if (f.kind === kind) out.push(f); } return out; };
@@ -177,7 +179,7 @@ test('PK_OUT: under the lowest floor is out, everyone out on one tick shares the
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.partier(p).pts), [1, 4, 4, 10]);
 });
 
-test('PK_OUT at the time: everyone still in shares 1st and a win, no single winner', async () => {
+test('PK_OUT at the time: everyone still in shares 1st and a win; a ball going out is out first, unless none is in', async () => {
   const g = await room({ n: 4 });
   sink(g, 0);
   g.step();
@@ -189,6 +191,42 @@ test('PK_OUT at the time: everyone still in shares 1st and a win, no single winn
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.partier(p).place), [4, 1, 1, 1]);
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.partier(p).pts), [1, 10, 10, 10]);
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.partier(p).wins), [0, 1, 1, 1]);
+  // a ball going out (falling, not yet under the depth) is out before the rest are placed
+  const f = await room({ seed: 5, n: 3 });
+  f.dv.setUint8(rec(1) + L.B_HITBY, 2);
+  f.dv.setUint16(rec(1) + L.B_HITT, 100, true);
+  drop(f, 1);
+  for (let k = 0; k < 40 && !f.v.partier(1).falling; k++) f.step();
+  assert.ok(f.v.partier(1).falling && !f.v.partier(1).out, 'going out');
+  hurry(f);
+  f.step();
+  assert.equal(f.v.party().state, L.H_OVER);
+  assert.ok(f.v.partier(1).out);
+  assert.deepEqual([0, 1, 2].map((p) => f.v.partier(p).place), [1, 3, 1]);
+  assert.deepEqual([0, 1, 2].map((p) => f.v.partier(p).pts), [10, 1, 10]);
+  assert.deepEqual([0, 1, 2].map((p) => f.v.partier(p).wins), [1, 0, 1]);
+  assert.deepEqual([0, 1, 2].map((p) => f.v.partier(p).rounds), [1, 1, 1]);
+  assert.equal(f.v.partier(2).kos, 1, 'its KO');
+  assert.equal(fxs(f.v, L.FX_SINK).length, 1);
+  // of two, the one still in wins alone
+  const w = await room({ seed: 6, n: 2 });
+  drop(w, 0);
+  for (let k = 0; k < 40 && !w.v.partier(0).falling; k++) w.step();
+  hurry(w);
+  w.step();
+  assert.deepEqual([w.v.partier(0).place, w.v.partier(1).place, w.v.party().winner], [2, 1, 1]);
+  // every ball left going out at once: the last up, they share 1st
+  const a = await room({ seed: 8, n: 3 });
+  sink(a, 0);
+  a.step();
+  drop(a, 1);
+  drop(a, 2);
+  for (let k = 0; k < 40 && !(a.v.partier(1).falling && a.v.partier(2).falling); k++) a.step();
+  hurry(a);
+  a.step();
+  assert.deepEqual([0, 1, 2].map((p) => a.v.partier(p).place), [3, 1, 1]);
+  assert.deepEqual([0, 1, 2].map((p) => a.v.partier(p).wins), [0, 1, 1]);
+  assert.ok(!a.v.partier(1).out && !a.v.partier(2).out);
   // a ball alone plays till it falls
   const s = await room({ seed: 9, n: 1 });
   for (let k = 0; k < 40; k++) s.step();
@@ -197,6 +235,14 @@ test('PK_OUT at the time: everyone still in shares 1st and a win, no single winn
   s.step();
   assert.equal(s.v.hole().state, L.H_OVER);
   assert.deepEqual([s.v.partier(0).place, s.v.partier(0).pts, s.v.party().winner], [1, 1, 255]);
+  // and falling at the time, it fell: 1st of 1, no win
+  const z = await room({ seed: 9, n: 1 });
+  drop(z, 0);
+  for (let k = 0; k < 40 && !z.v.partier(0).falling; k++) z.step();
+  hurry(z);
+  z.step();
+  assert.deepEqual([z.v.partier(0).place, z.v.partier(0).wins, z.v.party().winner], [1, 0, 255]);
+  assert.ok(z.v.partier(0).out);
 });
 
 test('PK_SCORE: a fall is a down, back after PG_RESPAWN falling in; at the time placed by score, ties sharing', async () => {
