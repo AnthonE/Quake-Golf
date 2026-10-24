@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fireplace</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #070504; color: #e8d6c0; font: 14px/1.4 ui-monospace, monospace; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: none; }
+  #stage canvas.lo { image-rendering: pixelated; }
+  #stage canvas.on { display: block; }
+  #note { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; }
+</style>
+<div id="stage">
+  <canvas id="room" class="on"></canvas>
+  <canvas id="g0" class="lo"></canvas>
+  <canvas id="g1" class="lo"></canvas>
+  <canvas id="g2"></canvas>
+</div>
+<div id="note">lighting the fire…</div>
+<script type="module" src="./fireplace.mjs"></script>

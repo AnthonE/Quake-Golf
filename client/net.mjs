@@ -57,8 +57,9 @@ const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.mi
 // of a session that went away, to resume. Returns this session's, once it ends.
 // failover: a relay silent for SILENT_MS is gone (a dead one's QUIC session would idle for far longer)
 const SILENT_MS = 1500;
-// arena: the arena's input words (src/layout.mjs), with its frames
-async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false, back = null, failover = false, arena = false }) {
+// arena: the arena's input words (src/layout.mjs), with its frames; fireplace:
+// the arena's while it is the game on (FP_GAME in the confirmed world), else golf's
+async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch = false, back = null, failover = false, arena = false, fireplace = false }) {
   const imp = createImpair({ ...impair, seed: (Math.random() * 2 ** 32) >>> 0 });
   const i32 = new Int32Array(memory.buffer);
   const u32 = new Uint32Array(memory.buffer);
@@ -175,15 +176,16 @@ async function run({ url, certHash, memory, prefix, simPort, impair = {}, watch 
   const lastFrame = {}; // the last frame sent: its lag and tick
   const take = (a) => { if (((rd(a) - sent[a]) | 0) > 0) { sent[a]++; return true; } return false; };
   const sample = (t) => {
+    const armed = fireplace ? rd(L.FP_GAME) === L.G_ARENA : arena;
     // an automatic held: a shot asked for every tick, so it fires as fast as it can
-    if (arena && rd(L.CL_AUTO) && ((rd(L.CL_PRESSES) - sentPresses) | 0) <= 0) Atomics.store(i32, L.CL_PRESSES >> 2, sentPresses + 1);
+    if (armed && rd(L.CL_AUTO) && ((rd(L.CL_PRESSES) - sentPresses) | 0) <= 0) Atomics.store(i32, L.CL_PRESSES >> 2, sentPresses + 1);
     // a press advances the counter one step a tick, so quick clicks never merge
     if (((rd(L.CL_PRESSES) - sentPresses) | 0) > 0) sentPresses++;
     Atomics.store(i32, L.CL_SENT >> 2, sentPresses);
     const mv = rd(L.CL_MOVE);
     // the first tick with new move bits, and when they changed, for the latency figures
     if ((mv & 15) !== lastMove) { lastMove = mv & 15; f64[L.CL_MOVESEEN >> 3] = f64[L.CL_MOVEAT >> 3]; Atomics.store(i32, L.CL_MOVETICK >> 2, t); }
-    if (!arena) return W.packInput({ yaw: rd(L.CL_YAW), pitch: rd(L.CL_PITCH), move: mv & 15, jump: (mv >> 4) & 1, shot: sentPresses & 3, weapon: rd(L.CL_WEAPON) });
+    if (!armed) return W.packInput({ yaw: rd(L.CL_YAW), pitch: rd(L.CL_PITCH), move: mv & 15, jump: (mv >> 4) & 1, shot: sentPresses & 3, weapon: rd(L.CL_WEAPON) });
     take(L.CL_MELEE);
     take(L.CL_GREN);
     Atomics.store(i32, L.CL_MSENT >> 2, sent[L.CL_MELEE]);

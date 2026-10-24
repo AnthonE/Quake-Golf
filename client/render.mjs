@@ -366,10 +366,14 @@ fn graphPx(p: vec2i) -> vec4f {
 
 // present: false draws nothing to the canvas (only capture() renders), for
 // headless browsers, where presenting a WebGPU canvas loses the device.
-export async function createRenderer(canvas, { present = true } = {}) {
-  const adapter = await navigator.gpu?.requestAdapter();
-  if (!adapter) throw new Error('WebGPU is not available in this browser');
-  const device = await adapter.requestDevice();
+export async function createRenderer(canvas, { present = true, device: shared = null } = {}) {
+  // a page with several renderers (Fireplace) gives them one device, so one can draw into another's texture
+  let device = shared;
+  if (!device) {
+    const adapter = await navigator.gpu?.requestAdapter();
+    if (!adapter) throw new Error('WebGPU is not available in this browser');
+    device = await adapter.requestDevice();
+  }
   device.addEventListener('uncapturederror', (e) => console.error('WebGPU:', e.error.message));
   const format = navigator.gpu.getPreferredCanvasFormat();
   const ctx = present ? canvas.getContext('webgpu') : null;

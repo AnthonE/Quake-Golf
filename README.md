@@ -9,10 +9,15 @@ Design doc and netcode review: [Quake Golf — Design Doc](https://claude.ai/art
 Target: the newest Chrome; the server is Deno. The same sim also runs as
 Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
+**[Fireplace](#fireplace)** is all of it as one party game: the room plays
+bumper balls, the arena and golf in turn, Mario Party style, and people come
+and go as they like, from a living room with a fire going and the game on the TV.
+
 ## Where it is
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| F1 · Fireplace | every game in one module, each bit for bit its own build; a playlist the room plays through, everyone moved into the next game on one tick, marshmallows for the top three; keyframes from any game restored into another's world; the playlist equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal across a switch; a page that is a living room, the TV closing in to fill the screen | **passed** · [Fireplace](#fireplace) |
 | B1 · bumper balls | every player a ball on a wheel of Swiss cheese whose holes are the golf cup made big: bump the others in, keep out yourself, the last ball rolling wins; the rim crumbling and the holes widening, power-ups dropping from the sky; rounds of AI balls equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [bumper balls](#bumper-balls) |
 | A3 · Blood Gulch | a map with structures in the game rules, not just the picture: two bases you walk into (doors, a room, stairs to a hatch, a roof, a bridge), a cave through a ridge, teleporters; walls stop bodies, bullets, rockets, frags and blasts; the map built from images and a JSON file at build time; a match of fighters on it equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [Blood Gulch](#blood-gulch-structures-and-maps) |
 | A2 · 256 fighters | one arena room full: Chrome and 255 AI fighters, Fiesta, every session's interval hashes equal to the referee's | **passed** · [results](#256-in-one-room) |
@@ -271,6 +276,94 @@ Chrome at once.
 Not done yet: teams, vehicles, dropped weapons, a manual reload while firing,
 and a second map (though [making one](#making-a-map) is now a paint program
 and a text editor away).
+
+## Fireplace
+
+![The living room: the fire going, the TV on, Fireplace's title card](docs/f1-fireplace.png)
+
+Grandma's living room at Thanksgiving, everyone round the Atari: the fire
+going, snow at the window, a walnut console TV with rabbit ears. Click and you
+sit down: the camera closes in on the TV until its glass fills the screen, and
+you're in whatever the room is playing. When a game ends it pulls back to the
+room, and the TV shows the marshmallows and what's on next; then it closes in
+again. The room plays the playlist through, bumper balls (two rounds), a
+three-minute Fiesta in the arena, a hole of golf, again; the top three of each
+game get 3, 2 and 1 marshmallows. Join any time, into whatever is on (or the
+next round of it); leave any time.
+
+```sh
+node net/play.mjs --fireplace            # the relay on Fireplace's sim, 15 guests, the page; open the URL it prints
+node net/play.mjs --fireplace --bots 0   # just people
+```
+
+Click (or Enter) to sit down; then each game's own controls. `?bot=1` sits a
+guest at the controls; `?watch=1` spectates; F goes fullscreen.
+
+**How it fits on the engine.** `build/fireplace/game.wasm` is golf, the arena
+and bumper balls in one module: `tools/asm.mjs` expands each exactly as its
+own build is, puts its every identifier under a prefix (`$g.`, `$a.`, `$b.`)
+and makes its exports internal, and appends `src/fireplace.wat`. That sends
+every export to the game on now (the header's `FP_GAME`) and runs the playlist
+at the end of each tick. The ball phases and the barrier are the same code in
+every game, so the worker threads never change games. When a game's last match
+ends, its result is scored (golf: strokes; the arena: kills, then deaths;
+bumper: rounds won, then KOs, then bumps), the marshmallows handed out and the
+result held 6 s. Then the region is wiped but for the tick, the PRNG and the
+playlist's own state, the next game's world is built on a seed drawn from the
+room's PRNG, and everyone in the room is joined into it on that tick, keeping
+their input words when the two games read the same word (golf's, which bumper
+shares). What lasts from game to game (the marshmallows) sits in 8 KiB of the
+region no game touches. A game's static world (the terrain, the arena's map)
+is outside the region, so a keyframe from another game would land on the
+wrong ground: `FP_WORLD` says which world is built, and when the region comes
+from outside, `regrid` stashes it (`FP_STASH`), builds that game's world under
+it and puts it back. Nothing else changed: the relay, referee, keyframes,
+spectators and replays just see a sim.
+
+`client/fireplace.html` is the page. One host (`client/host.mjs`: the memory,
+the net and sim workers, the prediction's instance, the sound, one GPU device)
+and each game's frontend (`client/bumper-game.mjs`, `arena-game.mjs`,
+`golf-game.mjs`) mounted on its own canvas as the room moves into it;
+`bumper.html` and `arena.html` are now the same frontends mounted alone. The net
+worker packs each tick's word in the format of the game on now. The room
+(`client/room-render.mjs`) is drawn like the cheese, solved per pixel: a few
+dozen boxes, two pumpkins and the antenna's rods, lit by the fire (it flickers,
+and its shadow is cast through the firebox's mouth), by the TV in the colour
+of the game on it, and by the snow light. The flames are a short march
+through the firebox. While the room is in view the game draws into a texture
+that the TV shows through a curved CRT with scanlines and a shadow mask, and
+those fade as the camera closes in, so the zoom's last frame is the game as it
+draws itself; then the page shows the game's own canvas. The TV's cards (the
+title, the standings) are drawn in the games' 3x5 font.
+`client/fireplace-bot.mjs` is a guest: a brain for each game, asked for the one
+that's on.
+
+**Results.** `test/fireplace.test.mjs` (6 tests): the prefixer; one module with
+every export; the playlist played through on the debug build with the room
+coming and going (bumper balls, the arena cut to 3 min, golf, bumper again,
+everyone in each new game straight after the switch); marshmallows, 3, 2 and 1,
+kept from game to game and lost with the slot; the playlist equal on every
+tick on 1 and 4 threads; and keyframes taken mid-arena, mid-golf and just after a
+switch, each restored into a sim sitting in bumper balls' world, its terrain and
+map rebuilt, every tick after equal to a run that never left. The determinism
+matrix replays 60,000 ticks of twelve guests through bumper balls, the arena
+and golf (the arena from 191 s, golf from 380 s): 27 configurations (Node,
+Deno, Chrome x JIT tiers x 1, 2 and 4 threads), equal on every tick, at about
+0.05 ms a tick on TurboFan. Online, 64 guests for 260 s on one 4-core machine:
+the room moved from bumper balls into the arena, 16,256 interval hashes
+checked, all equal, 11 KB/s down a session. The switch tick costs 34 ms on the
+relay's referee and every client (most of it the arena's 512 x 512 terrain);
+the sim workers catch up past it.
+
+```sh
+node --test test/fireplace.test.mjs
+node tools/genfireplace.mjs --bots 12 --ticks 60000 --out logs/fireplace.qgl
+node harness/matrix.mjs --ticks 60000 --log logs/fireplace.qgl --wasm build/fireplace/game.wasm
+node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--res 960x600]
+```
+
+Not done yet: more games in the playlist, a vote for what's next, names, and a
+way to lean back from the TV mid-game.
 
 ## Bumper balls
 
