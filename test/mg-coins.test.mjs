@@ -82,6 +82,8 @@ function clearWay(g) {
   assert.ok(room > 4, `a clear way out (${room.toFixed(1)} m)`);
   return best;
 }
+// Does coin k lie at least CR_BR + 0.5 from every post's axis (where a ball can reach it, and it shows)?
+const clearOfPosts = (g, k) => bumpers(g.v).every((b) => Math.hypot(k.x - b.x, k.z - b.z) >= L.CR_BR + 0.5 - 1e-3);
 // The coins made on tick t of kind (rain coins land everywhere meanwhile).
 const madeAt = (g, t, kind) => allCoins(g).filter((k) => k.t0 === t && k.kind === kind);
 // The prediction against the confirmed world, as helpers.mjs's predicted(),
@@ -162,6 +164,7 @@ test('the rain: a wave every 0.256 s of a coin per 10 balls and one more, fallin
     assert.deepEqual([k.x0, k.z0, k.y0, k.air], [k.x, k.z, Math.fround(PLAT_Y + L.CR_RAINH), L.CR_RAINAIR]);
     assert.ok(Math.abs(k.h - (L.CR_RAINH - L.CR_CY) / 4) < 1e-5, 'falling from rest');
     assert.ok(Math.hypot(k.x - C, k.z - C) <= R(g) - L.CR_RIM + 1e-3, 'on the disc, in off the rim');
+    assert.ok(clearOfPosts(g, k), 'out of the bumpers');
     assert.ok(k.v === 1 || k.v === L.CR_BIGV);
     // from rest: the first tenth of its fall is a hundredth of the height
     assert.ok(Math.abs(coinAt(k, k.t0 + k.air / 10)[1] - (k.y0 - (k.y0 - YL) / 100)) < 1e-3);
@@ -303,6 +306,80 @@ test('a hard bump knocks up to 3 of the hit ball\'s coins loose to land a few me
   setScore(g, 1, 0);
   assert.equal(ram(10).length, 0);
   assert.equal(allCoins(g).length, 0);
+});
+
+test('a post\'s throw is no hard bump: a ball thrown off a post on the tick another touches it softly keeps its coins', async () => {
+  const g = await room(3);
+  clearCoins(g);
+  noRain(g);
+  const [b] = bumpers(g.v);
+  g.dv.setUint32(L.PG_S + L.CR_BUMP + 8, 1 << 30, true); // dark: no pay
+  const rr = L.CR_BR + 1;
+  // P1 rolling into the post at 5 m/s, a hair off it; P2 alongside, rolling into P1 at 1 m/s
+  const go = (v0, touch) => {
+    put(g, 0, b.x - rr - 0.02, b.z, { vx: v0 });
+    if (touch) put(g, 1, b.x - rr - 0.02, b.z + 1.98, { vz: -1 });
+    else put(g, 1, b.x - 20, b.z + 20);
+    put(g, 2, b.x - 20, b.z - 20);
+    for (const p of [0, 1]) {
+      const a = L.PG_S + L.CR_BALL + p * L.CR_BSIZE;
+      g.dv.setFloat32(a + L.CR_B_VX, g.dv.getFloat32(rec(p) + L.P_VX, true), true);
+      g.dv.setFloat32(a + L.CR_B_VZ, g.dv.getFloat32(rec(p) + L.P_VZ, true), true);
+      g.dv.setUint16(a + L.CR_B_BUMPS, g.dv.getUint16(rec(p) + L.B_BUMPS, true), true);
+      g.dv.setUint32(a + L.CR_B_SAFE, 0, true);
+    }
+    setScore(g, 0, 10);
+    const bumps = [0, 1].map((p) => g.v.partier(p).bumps);
+    const k = g.v.fxCount();
+    g.step();
+    return { lost: fxs(g.v, L.CR_FX_LOSE, k).length, thrown: (g.v.partier(0).m & 15) === 1 && g.v.partier(0).m >>> 4 === ((g.v.tick - 1) & 0x0fffffff),
+      hit: g.v.partier(0).hitFor === L.CREDIT_TICKS - 1, hard: [0, 1].some((p) => g.v.partier(p).bumps !== bumps[p]) };
+  };
+  const both = go(5, true);
+  assert.deepEqual([both.thrown, both.hit, both.hard], [true, true, false], 'thrown off the post, and a soft touch on the same tick');
+  assert.deepEqual([both.lost, score(g, 0)], [0, 10], 'no coin knocked loose');
+  const post = go(5, false);
+  assert.deepEqual([post.thrown, post.hit, post.lost, score(g, 0)], [true, false, 0, 10], 'the post alone');
+  const touch = go(0, true);
+  assert.deepEqual([touch.hit, touch.lost, score(g, 0)], [true, 0, 10], 'the soft touch alone');
+});
+
+test('no coin lands in a bumper, where no ball reaches it or sees it: a jackpot\'s fountain over one, coins knocked loose against one', async () => {
+  const g = await room(30, { seed: 9 });
+  const bs = bumpers(g.v);
+  // the fountain: a jackpot called right on a post's axis
+  clearCoins(g);
+  noRain(g);
+  for (let p = 0; p < 30; p++) put(g, p, C + 300 + 3 * p, C, { y: PLAT_Y + 50, ground: false });
+  g.dv.setFloat32(L.PG_H + L.CR_JX, bs[0].x, true);
+  g.dv.setFloat32(L.PG_H + L.CR_JZ, bs[0].z, true);
+  g.dv.setUint32(L.PG_H + L.CR_JK, 1, true);
+  at(g, L.CR_JACK0);
+  g.step();
+  const jack = allCoins(g).filter((k) => k.kind === L.CR_KJACK);
+  assert.equal(jack.length, L.CR_JACKN0 + 30 / L.CR_JACKNK);
+  assert.ok(jack.every((k) => clearOfPosts(g, k)), 'the fountain\'s coins out of the post');
+  // knocks: P1 still by bumper 1, rammed by P2 from outside it at 10 m/s, again and again
+  const [b] = bs.slice(1);
+  const ux = (b.x - C) / Math.hypot(b.x - C, b.z - C), uz = (b.z - C) / Math.hypot(b.x - C, b.z - C);
+  assert.ok(Math.hypot(b.x - C, b.z - C) + L.CR_BR + 1 + 0.3 + 2.3 < R(g) - 2, 'room outside it');
+  g.dv.setUint32(L.PG_S + L.CR_BUMP + 16 + 8, 1 << 30, true); // dark: no pay
+  let knocked = 0;
+  for (let k = 0; k < 20; k++) {
+    clearCoins(g);
+    noRain(g);
+    const a = L.CR_BR + 1 + 0.3;
+    for (let p = 2; p < 30; p++) put(g, p, C + 300 + 3 * p, C, { y: PLAT_Y + 50, ground: false });
+    put(g, 0, b.x + ux * a, b.z + uz * a);
+    put(g, 1, b.x + ux * (a + 2.3), b.z + uz * (a + 2.3), { vx: -ux * 10, vz: -uz * 10 });
+    setScore(g, 0, 10);
+    g.dv.setUint32(L.PG_S + L.CR_BALL + L.CR_B_SAFE, 0, true);
+    for (let n = 0; n < 6; n++) g.step();
+    const loose = allCoins(g).filter((c) => c.kind === L.CR_KLOOSE);
+    knocked += loose.length;
+    for (const c of loose) assert.ok(clearOfPosts(g, c), `knock ${k}: (${c.x.toFixed(2)}, ${c.z.toFixed(2)}) out of the posts`);
+  }
+  assert.ok(knocked >= 40, `${knocked} coins knocked loose`);
 });
 
 test('off the rim: half your coins gone, spilled back in where you went over as big coins and small; down 2 s, back with the rest', async () => {

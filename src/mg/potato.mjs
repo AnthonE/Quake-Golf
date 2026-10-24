@@ -37,10 +37,10 @@ export const HP_FUSE = 28; // u32 this wave's fuse, ticks from HP_DEAL to HP_BOO
 export const HP_NEXT = 0;
 // In the ball's record, PG_M's four bytes (PG_M = 60; src/mg/*.mjs can't import the layout).
 export const HP_FL = 60; // u8 HP_HOLD | HP_BLOWN
-export const HP_BY = 61; // u8 the slot that passed it on, 255 the deal
+export const HP_BY = 61; // u8 the slot that passed it on, 255 the deal (or the passer has left)
 export const HP_AT = 62; // u16 tick into play it got the bomb
 export const HP_HOLD = 1; // holds a bomb
-export const HP_BLOWN = 2; // went off this tick (the boom's own mark, between its two passes)
+export const HP_BLOWN = 2; // went off at a boom this round (at the last one if B_OUTAT is its tick)
 // FX kinds, FX_MG + 4 * MG_POTATO + k.
 export const HP_FX_PASS = 64; // a bomb passed: owner the one who has it now, shot the one who had it, at its centre, size the fuse's ticks left
 export const HP_FX_BOOM = 65; // a wave goes off: owner 255, shot the holders blown, the stage's centre, size the wave

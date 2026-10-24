@@ -118,8 +118,26 @@ test('the schedule: in the order they drop, every fruit in a lane, its kind\'s s
         const l = Math.round((s.z[k] - s.lz0) / s.lsp);
         assert.ok(l < gap || l >= gap + s.gl, `wave ${w + 1}: none in the gap`);
       }
+      if (at < L.FC_LEN + L.FC_PRE) assert.deepEqual(near(s, at), [], `wave ${w + 1}: no other fruit within half a second of it`);
     }
     assert.equal(s.gl, s.nl >= L.FC_GAP2 ? 2 : 1);
+  }
+});
+
+// The fruit not of a wave dropping within half a second either side of tick `at`: [lane, t0].
+const near = (s, at) => [...Array(s.nf).keys()].filter((k) => !s.wave[k] && s.t0[k] > at - 60 && s.t0[k] < at + 60)
+  .map((k) => [Math.round((s.z[k] - s.lz0) / s.lsp), s.t0[k]]);
+
+test('a wave has the half second either side of it to itself, in every lane: 2 and 64 balls, 12 seeds', async () => {
+  for (const n of [2, 64]) {
+    for (let seed = 1; seed <= 12; seed++) {
+      const g = await room(n, { play: false, seed });
+      const s = stage(g.v);
+      for (let w = 0; w < L.FC_WAVES; w++) {
+        const at = L.FC_WAVE0 + w * L.FC_WAVEI + L.FC_PRE;
+        if (at < L.FC_LEN + L.FC_PRE) assert.deepEqual(near(s, at), [], `${n} balls, seed ${seed}, wave ${w + 1} at ${at}`);
+      }
+    }
   }
 });
 

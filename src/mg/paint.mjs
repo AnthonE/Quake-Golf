@@ -53,4 +53,4 @@ export const PP_OFF = 0xffff;
 export const PP_FX_SPLAT = 72; // a bomb bursts: owner the ball, shot the bomb, pos the bomb on the floor, size the burst's radius
 export const PP_FX_ORB = 73; // a bomb lands: owner 255, shot the bomb, pos it on the floor
 export const PP_FX_RUSH = 74; // the rush begins: owner 255, pos the centre, size the brush
-export const PP_FX_LEAD = 75; // a new leader: owner it, shot the last one (255 none), pos its ball, size its cells
+export const PP_FX_LEAD = 75; // a new leader: owner it, shot the last one (0xffff none: 255 is a slot), pos its ball, size its cells

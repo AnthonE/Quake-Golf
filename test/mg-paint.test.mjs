@@ -331,6 +331,27 @@ test('a ball that leaves takes its paint with it; one that joins in its slot, or
   tally(g, 3);
 });
 
+test('the lead\'s FX: owner the new leader, shot the last, 0xffff for none (255 is a slot: a leader in slot 255 who left is told apart)', async () => {
+  const g = await room(3);
+  for (let p = 0; p < 3; p++) away(g, p, p);
+  at(g, 1000);
+  // a count as the sim keeps it, PG_SCORE with it (else the slot reads as new, and is wiped)
+  const cnt = (p, c) => { g.dv.setUint16(L.PG_S + L.PP_CNT + 2 * p, c, true); g.dv.setUint16(rec(p) + L.PG_SCORE, c, true); };
+  const told = () => fxs(g.v, L.PP_FX_LEAD).at(-1);
+  // the first lead of the round: from nobody
+  g.dv.setUint32(L.PG_H + L.PP_LEAD, 0, true);
+  cnt(0, 5);
+  g.step();
+  assert.deepEqual([told().owner, told().shot, told().size], [0, 0xffff, 5]);
+  assert.equal(g.dv.getUint32(L.PG_H + L.PP_LEAD, true), 1);
+  // last told slot 255, gone since: P2 takes it from slot 255
+  g.dv.setUint32(L.PG_H + L.PP_LEAD, 256, true);
+  g.dv.setUint32(L.PG_H + L.PP_LEADT, g.v.party().t - L.PP_LEADGAP, true);
+  cnt(1, 9);
+  g.step();
+  assert.deepEqual([told().owner, told().shot, told().size], [1, 255, 9]);
+});
+
 test('the end, on the clock: placed by cells, most first, ties sharing; 10 points for 1st and a win, the rest by place', async () => {
   const g = await room(4);
   for (let p = 0; p < 4; p++) put(g, p, C - 6 + 4 * p, C, { y: PLAT_Y + 300, ground: false });

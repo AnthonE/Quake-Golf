@@ -154,9 +154,11 @@
   (!put f32 @(PLAYERS + P_VX) (local.get $pb) (local.get $vx))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz)))
 
-;; The wave goes off: every holder out where it stands, the KO to whoever
-;; passed it the bomb (none for a bomb dealt), then each a blast (those blown
-;; are out already, so it shoves only the balls still in). Then the next
+;; The wave goes off: every holder out where it stands, marked HP_BLOWN for
+;; the rest of the round (the client tells it from a ball that fell on the
+;; tick), the KO to whoever passed it the bomb (none for a bomb dealt), then
+;; each out on this tick a blast (those blown are out already, so it shoves
+;; only the balls still in). Then the next
 ;; wave: its holders picked from the balls left, the edge in for them by the
 ;; deal, HP_REST from now, its fuse a second shorter (and gone off by the
 ;; round's end at the latest).
@@ -175,9 +177,9 @@
         (!inc $n))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
-    (if (i32.and (!at u8 @(PLAYERS + HP_FL) (local.get $pb)) (i32.const @HP_BLOWN))
+    (if (i32.and (i32.ne (i32.and (!at u8 @(PLAYERS + HP_FL) (local.get $pb)) (i32.const @HP_BLOWN)) (i32.const 0))
+                 (i32.eq (!at i32 @(PLAYERS + B_OUTAT) (local.get $pb)) (i32.load (i32.const @HDR_TICK))))
       (then
-        (!put u8 @(PLAYERS + HP_FL) (local.get $pb) (i32.and (!at u8 @(PLAYERS + HP_FL) (local.get $pb)) (i32.const @(255 ^ HP_BLOWN))))
         (call $b_blast (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (call $b_rad (local.get $pb)))
                        (!at f32 @(PLAYERS + P_PZ) (local.get $pb)) (f32.const @HP_BLAST_R) (f32.const @HP_BLAST_S) (local.get $p)))))
   (local.set $w (i32.load (i32.const @(PG_H + HP_WAVE))))
@@ -203,13 +205,21 @@
   (i32.store (i32.const @(PG_H + HP_FUSE)) (i32.sub (local.get $boom) (local.get $deal)))
   (i32.store (i32.const @(PG_H + HP_BOMBS)) (local.get $k)))
 
-;; The deal's FX; every holder in, its bomb stuck no more, that touches a ball
-;; in without one passes it on (in slot order, one pass a holder a tick, the
-;; one that took it stuck now); the fuse's last seconds; then the boom.
+;; The deal's FX; a pass forgotten once its passer has left the room (a
+;; newcomer in the slot gets no KO for it); every holder in, its bomb stuck
+;; no more, that touches a ball in without one passes it on (in slot order,
+;; one pass a holder a tick, the one that took it stuck now); the fuse's last
+;; seconds; then the boom.
 (func $hp_tick
   (local $t i32) (local $p i32) (local $q i32) (local $pb i32) (local $qb i32)
   (local $rp f32) (local $rs f32) (local $px f32) (local $py f32) (local $pz f32) (local $dx f32) (local $dy f32) (local $dz f32)
   (local.set $t (call $p_t (i32.const 0)))
+  (!for $p (i32.const 0) (i32.const @NPLAYER)
+    (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+    (local.set $q (!at u8 @(PLAYERS + HP_BY) (local.get $pb)))
+    (if (i32.and (i32.and (call $hp_holds (local.get $pb)) (i32.lt_u (local.get $q) (i32.const @NPLAYER)))
+                 (i32.eqz (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $q) (i32.const 6))) (i32.const @PF_LIVE))))
+      (then (!put u8 @(PLAYERS + HP_BY) (local.get $pb) (i32.const 255)))))
   (if (i32.eq (local.get $t) (i32.load (i32.const @(PG_H + HP_DEAL))))
     (then (call $fx (i32.const 0) (i32.const @HP_FX_DEAL) (i32.const 255) (i32.load (i32.const @(PG_H + HP_BOMBS)))
                     (f32.load (i32.const @PG_CX)) (f32.const @PLAT_Y) (f32.load (i32.const @PG_CX)) (f32.convert_i32_u (i32.load (i32.const @(PG_H + HP_FUSE)))))))

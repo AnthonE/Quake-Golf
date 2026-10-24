@@ -273,14 +273,14 @@ test('the leader: the most points of the room, a tie keeping who had it; KH_FX_L
   const st = stage(g.v);
   for (let p = 0; p < 3; p++) put(g, p, C + (p - 1) * 6, C + st.rad - 3);
   const lead = () => g.v.dv.getUint32(L.PG_H + L.KH_LEAD, true);
-  assert.equal(lead(), 255, 'nobody before a point');
+  assert.equal(lead(), 0xffff, 'nobody before a point');
   const n0 = fxs(g.v, L.KH_FX_LEAD).length;
   setScore(g, 0, 10); setScore(g, 1, 5);
   g.step();
   assert.equal(lead(), 0);
   let f = fxs(g.v, L.KH_FX_LEAD);
   assert.equal(f.length, n0 + 1);
-  assert.deepEqual([f.at(-1).owner, f.at(-1).shot, f.at(-1).size], [0, 255, 10]);
+  assert.deepEqual([f.at(-1).owner, f.at(-1).shot, f.at(-1).size], [0, 0xffff, 10]);
   setScore(g, 1, 10);
   g.step();
   assert.equal(lead(), 0, 'a tie keeps it');
@@ -294,6 +294,36 @@ test('the leader: the most points of the room, a tie keeping who had it; KH_FX_L
   f = fxs(g.v, L.KH_FX_LEAD);
   assert.equal(lead(), 2);
   assert.deepEqual([f.length, f.at(-1).owner, f.at(-1).shot], [n0 + 2, 2, 1]);
+});
+
+test('a full room: slot 255 is a ball like any, not nobody: it takes the lead from nobody, and a tie for the first point goes by slot order', async () => {
+  const g = await room(256, { seed: 256 });
+  const lead = () => g.v.dv.getUint32(L.PG_H + L.KH_LEAD, true);
+  const zero = () => { for (let p = 0; p < 256; p++) setScore(g, p, 0); };
+  assert.ok(g.v.partier(255).live, 'slot 255 in');
+  zero();
+  g.step();
+  assert.equal(lead(), 0xffff, 'nobody before a point: no crown');
+  assert.equal(stage(g.v).lead < L.NPLAYER, false);
+  const n0 = fxs(g.v, L.KH_FX_LEAD).length;
+  // slot 255's first point: its lead, from nobody
+  setScore(g, 255, 1);
+  g.step();
+  assert.equal(lead(), 255);
+  let f = fxs(g.v, L.KH_FX_LEAD);
+  assert.equal(f.length, n0 + 1, 'YOU TAKE THE LEAD for slot 255');
+  assert.deepEqual([f.at(-1).owner, f.at(-1).shot, f.at(-1).size], [255, 0xffff, 1]);
+  // back to nobody; a second on, 254 and 255 score on one tick: 254's, by slot order, from nobody
+  zero();
+  g.step();
+  assert.equal(lead(), 0xffff);
+  for (let k = 0; k < L.KH_LEADGAP; k++) g.step();
+  setScore(g, 254, 1); setScore(g, 255, 1);
+  g.step();
+  assert.equal(lead(), 254);
+  f = fxs(g.v, L.KH_FX_LEAD);
+  assert.equal(f.length, n0 + 2);
+  assert.deepEqual([f.at(-1).owner, f.at(-1).shot], [254, 0xffff], 'from nobody, not from slot 255');
 });
 
 test('the round ends at 90 s placed by points: the most wins, ties share', async () => {
