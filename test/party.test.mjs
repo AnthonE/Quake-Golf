@@ -55,9 +55,9 @@ test('the layout: the header between golf\'s and Fireplace\'s, the state between
   assert.equal(L.PG_BIG + L.PG_BIG_SIZE, L.REGION + L.REGION_SIZE);
   assert.ok(L.PG_SCORE >= L.B_BUMPS + 2 && L.PG_M + 4 <= L.PSIZE);
   assert.equal(L.MINIGAMES.length, L.NMG);
-  const ids = [L.MG_THINICE, L.MG_COLOR, L.MG_SWEEP, L.MG_LIGHT, L.MG_BOMBS, L.MG_WALL, L.MG_PADS, L.MG_HILL, L.MG_POTATO, L.MG_COINS, L.MG_PAINT];
+  const ids = [L.MG_THINICE, L.MG_COLOR, L.MG_SWEEP, L.MG_LIGHT, L.MG_BOMBS, L.MG_WALL, L.MG_PADS, L.MG_HILL, L.MG_POTATO, L.MG_COINS, L.MG_PAINT, L.MG_RACE, L.MG_CHUTE, L.MG_TAG];
   assert.deepEqual(ids, [...Array(L.NMG).keys()]);
-  assert.deepEqual(L.MINIGAMES.map((m) => m.prefix), ['ti', 'cc', 'sw', 'rl', 'bo', 'wl', 'mp', 'kh', 'hp', 'cr', 'pp']);
+  assert.deepEqual(L.MINIGAMES.map((m) => m.prefix), ['ti', 'cc', 'sw', 'rl', 'bo', 'wl', 'mp', 'kh', 'hp', 'cr', 'pp', 'rc', 'fc', 'tg']);
   assert.equal(L.TI_FX_CRACK, L.FX_MG + 4 * L.MG_THINICE);
 });
 
@@ -66,7 +66,7 @@ test('(!mg type hook args...): an if-chain on PG_GAME over every minigame, the l
   assert.equal(out.match(/\(call \$\w+_spawn \(local\.get \$i\) \(i32\.const 1024\)\)/g).length, L.NMG);
   assert.equal(out.match(/\(if \(result f32 f32 f32\)/g).length, L.NMG - 1);
   assert.ok(out.startsWith('(if (result f32 f32 f32) (i32.eq (i32.load (i32.const @PG_GAME)) (i32.const 0)) (then (call $ti_spawn'));
-  assert.ok(out.includes('(else (call $pp_spawn (local.get $i) (i32.const 1024)))'));
+  assert.ok(out.includes(`(else (call $${L.MINIGAMES.at(-1).prefix}_spawn (local.get $i) (i32.const 1024)))`));
   assert.ok(!expandMacros('(!mg none tick)', makeMacros({ DEBUG: false })).includes('result'));
   assert.match(expandMacros('(!mg i32 over)', makeMacros({ DEBUG: false })), /^\(if \(result i32\) .* \(then \(call \$ti_over\)\)/);
 });
@@ -377,8 +377,8 @@ test('rounds of AI balls on the debug build, no trap: Thin Ice, then the rotatio
   // Thin Ice forced (through the seed), a ball leaving and coming back
   const ti = await playParty({ bytes, mg: L.MG_THINICE, bots: 12, ticks: 5000, leaveAt: 1200 });
   assert.ok(ti.rounds >= 1 && ti.games.every((g) => g === L.MG_THINICE), `${ti.rounds} rounds of ${ti.games}`);
-  // seed 2's rotation opens on Thin Ice, then whatever the PRNG picks next
-  const rot = await playParty({ bytes, seed: 2, bots: 12, ticks: 6500, leaveAt: 1500 });
+  // seed 9's rotation opens on Thin Ice, then whatever the PRNG picks next
+  const rot = await playParty({ bytes, seed: 9, bots: 12, ticks: 6500, leaveAt: 1500 });
   assert.ok(rot.games.length >= 2 && rot.games[0] === L.MG_THINICE && rot.games[1] !== L.MG_THINICE, `minigames ${rot.games}`);
   assert.equal(partySeed(5, 3), (0xa7030005) >>> 0);
   for (const [tag, r, ticks] of [['ti', ti, 5000], ['rot', rot, 6500]]) {

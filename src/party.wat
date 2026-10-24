@@ -22,6 +22,9 @@
 #include "mg/potato.wat"
 #include "mg/coins.wat"
 #include "mg/paint.wat"
+#include "mg/race.wat"
+#include "mg/chute.wat"
+#include "mg/tag.wat"
 
 ;; ---- the room and the round
 

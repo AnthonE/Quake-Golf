@@ -677,6 +677,9 @@ export const MINIGAMES = [
   { key: 'potato', prefix: 'hp', name: 'HOT POTATO' },
   { key: 'coins', prefix: 'cr', name: 'COIN RUSH' },
   { key: 'paint', prefix: 'pp', name: 'PAINT PARTY' },
+  { key: 'race', prefix: 'rc', name: 'DOWNHILL' },
+  { key: 'chute', prefix: 'fc', name: 'FRUIT CHUTE' },
+  { key: 'tag', prefix: 'tg', name: 'TAG' },
 ]; // index = MG_*
 export const MG_THINICE = 0;
 export const MG_COLOR = 1;
@@ -689,7 +692,10 @@ export const MG_HILL = 7;
 export const MG_POTATO = 8;
 export const MG_COINS = 9;
 export const MG_PAINT = 10;
-export const NMG = 11;
+export const MG_RACE = 11;
+export const MG_CHUTE = 12;
+export const MG_TAG = 13;
+export const NMG = 14;
 
 export const PK_OUT = 0; // out is out: the last ball in wins
 export const PK_SCORE = 1; // a ball that falls comes back; placed by PG_SCORE at the end
@@ -737,6 +743,9 @@ export * from './mg/hill.mjs';
 export * from './mg/potato.mjs';
 export * from './mg/coins.mjs';
 export * from './mg/paint.mjs';
+export * from './mg/race.mjs';
+export * from './mg/chute.mjs';
+export * from './mg/tag.mjs';
 
 // ---- Fireplace: every game in one module (build/fireplace/game.wasm), a
 // playlist of matches the room plays through, Mario Party style; people come
