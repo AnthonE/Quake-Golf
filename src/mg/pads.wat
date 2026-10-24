@@ -168,10 +168,11 @@
         (!st u8 @(PG_S + MP_HOLD) (local.get $i) (local.get $best))
         (!st u8 @(PG_S + MP_PADOF) (local.get $best) (local.get $i))
         (!inc $held))))
-  ;; the final, two balls in and one pad held: a point to its holder, and
-  ;; only its MP_FINALS-th puts the other out
+  ;; the final, two balls in and the one pad lit held: a point to its holder,
+  ;; and only its MP_FINALS-th puts the other out (two lit, a ball lost since
+  ;; the stop, is no final: the one that missed had a pad)
   (local.set $owner (i32.const 255))
-  (if (i32.eq (local.get $held) (i32.const 1))
+  (if (i32.and (i32.eq (local.get $held) (i32.const 1)) (i32.eq (i32.load (i32.const @(PG_H + MP_NPAD))) (i32.const 1)))
     (then
       (!for $p (i32.const 0) (i32.const @NPLAYER)
         (local.set $pb (i32.shl (local.get $p) (i32.const 6)))

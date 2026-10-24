@@ -261,6 +261,33 @@ test('the final: the last two play for two claims of the one pad', async () => {
   assert.deepEqual([g.v.partier(0).place, g.v.partier(1).place, g.v.partier(0).pts, g.v.partier(1).pts, g.v.partier(0).wins], [1, 2, 10, 1, 1]);
 });
 
+test('two left of three after the stop, two pads lit: a claim of one is no final, the ball that missed is out', async () => {
+  const g = await room(3, { seed: 13 });
+  const s = stage(g.v);
+  assert.equal(s.npad, 2);
+  stepTo(g, s.stop + 1);
+  // P3 drops under the floor in the scramble and is out before the claim
+  put(g, 2, C, C, { y: PLAT_Y - L.OUT_DEPTH - 1, ground: false });
+  g.step();
+  assert.ok(g.v.partier(2).out, 'P3 out');
+  assert.equal(stage(g.v).npad, 2, 'the pads lit stay');
+  stepTo(g, s.claim);
+  const [a, b] = ends(g);
+  put(g, 0, a[0], a[1]);
+  put(g, 1, ...offPads(g));
+  assert.ok(Math.hypot(g.v.partier(1).pos[0] - b[0], g.v.partier(1).pos[2] - b[1]) > L.MP_PAD_R, 'P2 off pad 1 as well');
+  const k0 = g.v.fxCount();
+  g.step();
+  const claim = fxs(g.v, L.MP_FX_CLAIM, k0)[0];
+  assert.deepEqual([claim.owner, claim.shot, claim.size], [255, 1, 1], 'no final\'s point: one out');
+  assert.deepEqual([won(g, 0), won(g, 1)], [0, 0]);
+  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).out), [false, true, true]);
+  const r = g.v.party();
+  assert.equal(r.state, L.H_OVER);
+  assert.equal(r.winner, 0);
+  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).place), [1, 2, 3]);
+});
+
 test('fewer balls at the stop than at the song\'s start: fewer pads light', async () => {
   const g = await room(8, { seed: 19 });
   const s = stage(g.v);
