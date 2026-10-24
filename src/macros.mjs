@@ -1,6 +1,7 @@
 // Macros for the hand-written WAT. Each takes raw s-expression strings and
 // returns WAT text; the assembler re-scans the output, so macros may nest.
 // Layout constants stay as @NAME here and are folded after expansion.
+import * as layout from './layout.mjs';
 import { ARMS, PLAYLIST, FP_MATCHES, GAMES } from './layout.mjs';
 
 const SHIFT = { f32: 2, i32: 2, i64: 3, u16: 1, u8: 0, v128: 2 };
@@ -81,6 +82,14 @@ export function makeMacros({ DEBUG }) {
         out = `(select ${c(ARMS[k][field])} ${out} (i32.eq ${w} (i32.const ${k})))`;
       }
       return out;
+    },
+
+    // (!tab NAME i): element i of the layout's array NAME (i32s) as a chain of
+    // selects, so the constants inline; the last element for any i past it.
+    tab: (name, i) => {
+      const a = layout[name];
+      if (!Array.isArray(a)) throw new Error(`no layout array ${name}`);
+      return a.slice(0, -1).reduceRight((out, v, k) => `(select (i32.const ${v}) ${out} (i32.eq ${i} (i32.const ${k})))`, `(i32.const ${a.at(-1)})`);
     },
 
     // Fireplace: (!pick type golf arena bumper), the expression for the game on now

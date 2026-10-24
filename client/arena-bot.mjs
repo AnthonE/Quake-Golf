@@ -3,10 +3,13 @@
 // It finds the nearest enemy it can see, turns onto them with a human's
 // lag and wobble, strafes, picks the gun that suits the range, throws a
 // frag now and then, butts anyone too close, and when nobody is in sight
-// walks to a weapon pad and picks up what's on it. Deterministic from its
-// seed and what it sees, so a match of bots is an ordinary event log. Walls
-// it can't see through; one in its way it goes round, sidling and jumping
-// until it moves again.
+// walks to a weapon pad and picks up what's on it. Under a mode with sides
+// (layout.mjs, TEAM_MODES) it leaves its own side alone; a zombie or the
+// juggernaut runs straight at the nearest enemy, seen or not, jumping, and
+// swings the sword; Infection's humans keep their distance and shoot.
+// Deterministic from its seed and what it sees, so a match of bots is an
+// ordinary event log. Walls it can't see through; one in its way it goes
+// round, sidling and jumping until it moves again.
 import * as L from '../src/layout.mjs';
 import { arenaWord, arenaFrame, frameDue, boxClear } from '../src/arena-view.mjs';
 import { aimAt } from './bot.mjs';
@@ -60,6 +63,7 @@ export class Fighter {
     this.wantUse = false; this.wantReload = false;
     this.lag = 0;
     this.stuck = 0; this.detour = 0; this.detourUntil = 0; this.was = null;
+    this.prey = -1;
   }
 
   rand() { let x = this.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.rng = x >>> 0; return this.rng / 4294967296; }
@@ -81,11 +85,16 @@ export class Fighter {
     // the nearest enemy in sight, looked for every 16 ticks (each bot on its own
     // tick of the 16, so a room of them spreads the work); between looks the
     // one chosen is kept while it lives and, checked every 4 ticks, is in sight
-    const alive = (q) => q >= 0 && view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] === (L.PF_LIVE | (view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & L.PF_GROUND));
+    const mode = view.dv.getUint32(L.AH_MODE, true);
+    const alive = (q) => q >= 0 && (view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === L.PF_LIVE && !view.ally(this.slot, q);
     const chest = (q) => { const b = L.PLAYERS + q * L.PSIZE; return [view.dv.getFloat32(b + L.P_PX, true), view.dv.getFloat32(b + L.P_PY, true) + 1.2, view.dv.getFloat32(b + L.P_PZ, true)]; };
+    // a sword with legs (a zombie, the juggernaut) hunts; so does everyone after the juggernaut
+    const hunter = me.zombie || me.jugg;
+    const hunts = hunter || mode === L.M_JUGGERNAUT;
     let best = this.target;
     if (((t + this.slot) & 15) === 0 || !alive(best)) {
       const near = [];
+      this.prey = -1;
       for (let q = 0; q < L.NPLAYER; q++) {
         if (q === this.slot || !alive(q)) continue;
         const c = chest(q);
@@ -93,6 +102,7 @@ export class Fighter {
         if (d < 150) near.push([d, q]);
       }
       near.sort((a, b) => a[0] - b[0]);
+      if (hunts && near.length) this.prey = near[0][1];
       best = -1;
       for (const [, q] of near.slice(0, 6)) if (sees(view, eye, chest(q))) { best = q; break; }
     } else if (((t + this.slot) & 3) === 0 && !sees(view, eye, chest(best))) best = -1;
@@ -136,6 +146,9 @@ export class Fighter {
       if (t >= this.strafeUntil) { this.strafe = this.rand() < 0.5 ? 4 : 8; this.strafeUntil = t + 60 + Math.floor(this.rand() * 120); }
       const close = me.weapon === L.W_SWORD || me.weapon === L.W_SHOTGUN;
       move = this.strafe | (d > (close ? 2 : 35) ? 1 : d < 8 && !close ? 2 : 0);
+      // a hunter runs straight in, jumping; Infection's humans back away from a zombie inside 14 m
+      if (hunter) { move = 1 | (d > 10 || d < 6 ? this.strafe : 0); if (this.rand() < (d < 9 ? 0.05 : 0.02)) jump = 1; }
+      else if (mode === L.M_INFECTION && d < 14) move = this.strafe | 2;
       // a gun nearby: sidle to it, still shooting
       if (near && !here) {
         const a = Math.atan2(near.pos[2] - me.pos[2], near.pos[0] - me.pos[0]) - this.yaw / TURN * 2 * Math.PI;
@@ -143,6 +156,13 @@ export class Fighter {
         move = (fw > 0.3 ? 1 : fw < -0.3 ? 2 : 0) | (rt > 0.3 ? 8 : rt < -0.3 ? 4 : 0);
       }
       if (this.rand() < 0.01) jump = 1;
+    } else if (hunts && alive(this.prey)) {
+      // nobody in sight, but someone to hunt: straight at them, jumping
+      const c = chest(this.prey);
+      const aim = aimAt(eye, [c[0], eye[1], c[2]]);
+      this.turnTo(aim.yaw, 512, 0.2);
+      move = 1;
+      if (this.rand() < (hunter ? 0.02 : 0.004)) jump = 1;
     } else {
       // nobody in sight: a pad with something better, else a spawn point, and on
       if (!this.goal || t >= this.goalUntil || Math.hypot(this.goal[0] - me.pos[0], this.goal[2] - me.pos[2]) < 1.2) {

@@ -105,6 +105,8 @@
   (call $sincos (i32.shl (i32.and (local.get $in) (i32.const 0x7ff)) (i32.const 3)))
   (local.set $c) (local.set $s)
   (call $a_shoot (local.get $p) (local.get $d) (local.get $in) (local.get $s) (local.get $c))
+  ;; a kill may have put the shooter on another side (the juggernaut's): its flags as they are now
+  (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
   (local.set $in (i32.or (i32.and (local.get $in) (i32.const 0x7ff))
                          (i32.shl (i32.and (i32.shr_u (local.get $in) (i32.const @AW_MOVE)) (i32.const 31)) (i32.const 24))))
 #else
@@ -125,7 +127,12 @@
     (then
       (local.set $wx (f32.div (local.get $wx) (local.get $len)))
       (local.set $wz (f32.div (local.get $wz) (local.get $len)))
+#if ARENA
+      ;; a zombie's legs, or the juggernaut's
+      (local.set $wish (select (f32.const @ZRUN) (f32.const @RUN) (i32.and (local.get $fl) (i32.const @(PF_ZOMBIE | PF_JUGG)))))))
+#else
       (local.set $wish (f32.const @RUN))))
+#endif
   (local.set $px (!at f32 @(PLAYERS + P_PX) (local.get $pb)))
   (local.set $py (!at f32 @(PLAYERS + P_PY) (local.get $pb)))
   (local.set $pz (!at f32 @(PLAYERS + P_PZ) (local.get $pb)))
@@ -145,7 +152,11 @@
       (local.set $vz) (local.set $vx)
       (if (i32.and (local.get $in) (i32.const 0x10000000))
         (then
+#if ARENA
+          (local.set $vy (select (f32.const @ZJUMP) (f32.const @JUMP) (i32.and (local.get $fl) (i32.const @(PF_ZOMBIE | PF_JUGG)))))
+#else
           (local.set $vy (f32.const @JUMP))
+#endif
           (local.set $fl (i32.and (local.get $fl) (i32.const @(255 ^ PF_GROUND)))))))
     (else
       (call $accel (local.get $vx) (local.get $vz) (local.get $wx) (local.get $wz)

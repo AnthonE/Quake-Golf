@@ -274,6 +274,8 @@ export const PHYS = {
   AIRCAP: '1', // Quake's 30-unit air wishspeed cap
   GP_DT: '0.16', // 20 m/s^2 on players, per tick
   JUMP: '7',
+  ZRUN: '12.5', // the arena's zombies and juggernaut run a quarter faster
+  ZJUMP: '8.5', // and jump 1.8 m, not 1.2
   SNAP: '0.25', // the ground follows walking feet within this
   PVMAX2: '6400', // (80 m/s)^2
   // weapons
@@ -409,6 +411,7 @@ export const COOL_TICKS = 80;
 export const SWAP_TICKS = 40;
 export const A_FUSE = 225; // 1.8 s
 
+
 // The map (tools/map.mjs builds it from maps/<name>/ into the arena's wasm, as
 // a passive data segment that init copies out): static, the same on every
 // machine, outside the region like the terrain, so never hashed or
@@ -487,6 +490,69 @@ export const FX_SPAWN = 7;
 export const FX_PICKUP = 8;
 export const FX_MELEE = 9;
 export const FX_TELE = 10; // a fighter through a teleporter: where it came out, the slot as owner
+
+// Modes: the rules of a match, chosen at run time as its countdown starts, all
+// on the one build. Match k of a room (HDR_HOLE counts them) plays
+// ARENA_MODES[k % length], so a room's first match is always M_FIESTA (the
+// build's own rules above: Fiesta, or slayer with FIESTA 0). A seed whose top
+// byte is FORCE_MODE plays mode (seed >>> 16) & 0xff every match, for gates
+// and dev. M_FIESTA leaves every field below at 0, so a Fiesta's region is
+// what it always was.
+//   M_INFECTION (Halo's): at the countdown's end one fighter in ten (at least
+//   one) is drawn a zombie: an energy sword that never runs out, ZRUN and
+//   ZJUMP, no shields; humans get a shotgun, a magnum and two frags. Neither
+//   side hurts its own. A human who dies comes back a zombie; if the zombies
+//   all leave, another is drawn. Over when no human is left, or at the clock.
+//   M_GUNGAME (Arsenal's): the LADDER's guns in order; a kill moves the killer
+//   up a rung (its gun, full, at once), an assassination moves the victim
+//   down one, the first kill with the sword wins. No pads.
+//   M_JUGGERNAUT: one fighter drawn the juggernaut (the sword, an
+//   overshield, a zombie's legs); everyone else is on one side against it.
+//   Kill it to become it; a kill as the juggernaut is a point, JUGG_POINTS win.
+export const M_FIESTA = 0;
+export const M_INFECTION = 1;
+export const M_GUNGAME = 2;
+export const M_JUGGERNAUT = 3;
+export const MODES = [
+  { name: FIESTA ? 'FIESTA' : 'SLAYER', rules: FIESTA ? 'RANDOM GUNS  MOST KILLS IN 10 MIN' : `${FRAG_LIMIT} KILLS WIN`, ticks: MATCH_TICKS },
+  { name: 'INFECTION', rules: 'ZOMBIES HAVE SWORDS  STAY HUMAN FOR 3 MIN', ticks: 22500 },
+  { name: 'GUN GAME', rules: 'EVERY KILL A NEW GUN  FIRST SWORD KILL WINS', ticks: 37500 },
+  { name: 'JUGGERNAUT', rules: 'KILL THE JUGGERNAUT TO BECOME IT  10 POINTS', ticks: 37500 },
+];
+export const MODE_TICKS = MODES.map((m) => m.ticks);
+export const ARENA_MODES = [M_FIESTA, M_INFECTION, M_GUNGAME, M_JUGGERNAUT];
+export const FORCE_MODE = 0xa8;
+export const TEAM_MODES = (1 << M_INFECTION) | (1 << M_JUGGERNAUT); // modes with sides: no hurting your own
+export const LADDER = [W_AR, W_BR, W_MAGNUM, W_SHOTGUN, W_PLASMA, W_NEEDLER, W_SNIPER, W_ROCKET, W_SWORD];
+export const JUGG_POINTS = 10;
+export const ZRESPAWN_TICKS = 250; // 2 s: a zombie comes back sooner
+export const OVERSHIELD = 200; // the juggernaut's shields; they recharge only to 100
+// In the header past golf's fields (inside the prediction's copy):
+export const AH_MODE = REGION + 0x48; // u32 M_*: this match's
+export const AH_HUMANS = REGION + 0x4c; // u32 Infection: live humans, counted every tick of play
+export const AH_ZOMBIES = REGION + 0x50; // u32 Infection: live zombies
+export const AH_LEADER = REGION + 0x54; // u32 gun game: the leader + 1; Juggernaut: the juggernaut + 1 (0 none)
+export const AH_WINNER = REGION + 0x58; // u32 gun game: the sword's killer + 1; Juggernaut: who reached JUGG_POINTS + 1
+// A fighter's side, in P_FL (the prediction reads it: a zombie's legs are predicted):
+export const PF_ZOMBIE = 16; // Infection: a zombie
+export const PF_JUGG = 32; // Juggernaut: the juggernaut
+// Per fighter, past the spawn points (hashed, in every keyframe, not in the
+// prediction's copy: only the confirmed world reads it), cleared as a mode is picked:
+export const MODE_REC = ARENA + 0x300; // 256 x 8 B
+export const MR_SIZE = 8;
+export const MR_RUNG = 0; // u8 gun game: the rung (0 the assault rifle .. 8 the sword, 9 won)
+export const MR_PLACE = 1; // u8 where it finished (1 first, ties share), set as a match of a mode ends
+export const MR_POINTS = 2; // u16 Infection: humans infected; Juggernaut: kills as the juggernaut
+export const MR_HUMAN = 4; // u16 Infection: ticks lived as a human
+// FX_MODE: a mode's news for the feed, what happened as its size, who as owner, whom as shot.
+export const FX_MODE = 14;
+export const MX_INFECT = 1; // owner infected shot (owner == shot: a human died alone and turned)
+export const MX_ZOMBIE = 2; // owner was drawn a zombie
+export const MX_LAST = 3; // owner is the last human
+export const MX_RUNG = 4; // owner moved up to rung shot
+export const MX_DEMOTE = 5; // owner was moved down to rung shot
+export const MX_WIN = 6; // owner won the match
+export const MX_JUGG = 7; // owner is the juggernaut
 
 // ---- Bumper balls: src/ built with BUMPER (build/bumper/game.wasm). The
 // same world, netcode and lockstep; every player is a ball now, and the golf

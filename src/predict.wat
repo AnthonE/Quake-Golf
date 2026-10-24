@@ -29,7 +29,8 @@
         (i32.store (i32.const @(HDR_STATE + PRED_D)) (i32.const @H_PLAY))
         (i32.store (i32.const @(HDR_START + PRED_D)) (local.get $t))
 #if ARENA
-        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @MATCH_TICKS)))))
+        (local.set $o (i32.load (i32.const @(AH_MODE + PRED_D))))
+        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (!tab MODE_TICKS (local.get $o))))))
 #else
 #if BUMPER
         (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @ROUND_TICKS)))))
