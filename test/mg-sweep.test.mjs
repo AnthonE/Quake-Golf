@@ -99,8 +99,9 @@ test('the schedule: still for the grace, one bar turning faster and faster, a ba
     moving++;
   }
   assert.ok(moving > 11000);
-  assert.deepEqual([0, L.SW_TS[0] - 1, L.SW_TS[0], L.SW_TS[1], L.SW_TS[2], 15000].map(barsAt), [1, 1, 2, 3, 4, 4]);
-  assert.ok(solidAt(0, 0) && !solidAt(1, L.SW_TS[0] - 1) && solidAt(1, L.SW_TS[0]) && solidAt(3, L.SW_TS[2]));
+  assert.deepEqual([0, L.SW_TS[0], L.SW_TS[0] + 1, L.SW_TS[1] + 1, L.SW_TS[2] + 1, 15000].map(barsAt), [1, 1, 2, 3, 4, 4]);
+  // a new bar is solid from its first still tick
+  assert.ok(solidAt(0, 0) && !solidAt(1, L.SW_TS[0]) && solidAt(1, L.SW_TS[0] + 1) && !solidAt(3, L.SW_TS[2]) && solidAt(3, L.SW_TS[2] + 1));
   // rad/s at the start and two minutes in
   assert.ok(Math.abs(L.SW_S0 * L.SW_RAD_TICK - 0.8) < 1e-3);
   assert.ok(Math.abs(spinAt(st, 15000)) > 2 && Math.abs(spinAt(st, 15000)) < 2.4, `${spinAt(st, 15000)} rad/s at the end`);
@@ -229,16 +230,16 @@ test('the post: a ball rolling into it bounces off at half the speed and never g
   assert.ok(out > 3 && out <= 4.01, `bounced off at ${out.toFixed(2)} m/s`);
 });
 
-test('a still bar holds a ball off and doesn\'t fling it: in the grace, and a new bar in its pause', async () => {
-  for (const [t0, k] of [[5, 0], [L.SW_TS[0] + 3, 1]]) {
+test('a still bar holds a ball off and doesn\'t fling it: in the grace, and a new bar in its pause, from the tick it comes in', async () => {
+  for (const [t0, k] of [[5, 0], [L.SW_TS[0] + 3, 1], [L.SW_TS[0], 1]]) {
     const g = await room(2, { seed: 8 });
     const st = stage(g.v);
     at(g, t0);
     assert.equal(spinAt(st, t0 + 1), 0, 'still');
-    // across the bar's axis 0.5 m, 7 m out
-    const a = bar(st, k, t0);
+    // across the bar's axis 0.5 m, 7 m out, on the side it was turning to as it stopped
+    const a = bar(st, k, t0), side = way(st, L.SW_TS[0]);
     const [x, z] = on(st, a, 7);
-    put(g, 0, f(x - Math.sin(a) * 0.5), f(z + Math.cos(a) * 0.5));
+    put(g, 0, f(x - Math.sin(a) * 0.5 * side), f(z + Math.cos(a) * 0.5 * side));
     put(g, 1, ...on(st, a + Math.PI / 2 + 0.4, 8));
     const k0 = g.v.fxCount();
     for (let i = 0; i < 60; i++) g.step();
@@ -280,6 +281,32 @@ test('the rings: the outer ring drops on its tick and takes a ball on it; inside
   }
   const st = { r0: f(40) };
   assert.equal(rimAt(st, L.SW_TR0 + (L.SW_RINGS - 1) * L.SW_TRI), L.SW_RMIN);
+});
+
+test('balls that went off ticks apart don\'t share the win: the first is out in its place, the last on wins alone (or the two that went together share it)', async () => {
+  for (const n of [2, 3]) {
+    const g = await room(n, { seed: 12 });
+    const st = stage(g.v);
+    at(g, 20);
+    // P1 off the platform, falling; 40 ticks on the rest go off, on one tick
+    put(g, 0, C + st.r0 + 1.5, C, { y: PLAT_Y - 0.5, ground: false });
+    for (let k = 0; k < 40; k++) g.step();
+    assert.ok(g.v.partier(0).falling && !g.v.partier(0).out, 'going out');
+    for (let p = 1; p < n; p++) put(g, p, C - st.r0 - 1.5, C + 3 * p, { y: PLAT_Y - 0.5, ground: false });
+    let k = 0;
+    while (g.v.party().state === L.H_PLAY && k++ < 400) g.step();
+    const r = g.v.party();
+    assert.equal(r.state, L.H_OVER);
+    const ps = Array.from({ length: n }, (_, q) => q);
+    assert.ok(g.v.partier(0).out, 'P1 out first');
+    if (n === 2) {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [2, 1]);
+      assert.equal(r.winner, 1, 'the last on wins alone');
+    } else {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [3, 1, 1]);
+      assert.equal(r.winner, 255, 'the two that went together share it');
+    }
+  }
 });
 
 test('the end: the last ball on wins; two flung off together share the win', async () => {

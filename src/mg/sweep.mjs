@@ -57,6 +57,8 @@ export const SW_RAD = 0; // f32 the platform's radius at the start
 export const SW_A0 = 4; // u32 the first bar's angle at the start, 2^-24 turn
 export const SW_DIR = 8; // i32 1 or -1: the way the bars turn at first (1: x towards z)
 // A ball's PG_M: the times a bar flung it this round.
+// In PG_S: u16 per slot, the tick into play it started going out, plus 1 (0 not yet: over's).
+export const SW_FELL = 0;
 // FX kinds, FX_MG + 4 * MG_SWEEP + k.
 export const SW_FX_HIT = 40; // a bar flings a ball: owner the ball, shot the bar, at the ball, size how fast (m/s)
 export const SW_FX_BEAM = 41; // a bar is coming: shot its number (1..3), at the centre, size the ticks till it moves
