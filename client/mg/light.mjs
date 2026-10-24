@@ -18,6 +18,7 @@ const TICK = 0.008;
 const N = (k) => Math.fround(Number(L.BPHYS[k]));
 const ACC = N('B_ACC_DT'), DRAG = N('B_DRAG'), IDLE = Math.fround(L.RL_IDLE);
 const DOLL = 30; // m past the finish line to the doll
+const DOLL_K = 1.6; // her scale: her head 20 m up, over everything, seen from the start line
 const LAMPS = 25; // m between the lamps along the rails
 const GRASS = [[0.36, 0.64, 0.25], [0.3, 0.56, 0.21]];
 const SAND = [0.86, 0.76, 0.56];
@@ -47,7 +48,13 @@ export function stage(view) {
   return memo;
 }
 // Cycle c's green and red in ticks ($rl_green, $rl_red).
-export const greenOf = (st, c) => (c === 0 ? L.RL_G0A + hash32(st.s, st.h, L.RL_KG) % L.RL_G0N : L.RL_GA + hash32(st.s, st.h, L.RL_KG + c) % L.RL_GN);
+export function greenOf(st, c) {
+  const h = hash32(st.s, st.h, L.RL_KG + c);
+  if (c === 0) return L.RL_G0A + h % L.RL_G0N;
+  return c >= L.RL_PEEK0 && h >>> 28 < L.RL_PEEKS ? L.RL_PA + h % L.RL_PN : L.RL_GA + h % L.RL_GN;
+}
+// Is cycle c's green a peek?
+export const peekOf = (st, c) => greenOf(st, c) < L.RL_GA;
 export const redOf = (st, c) => L.RL_RA + hash32(st.s, st.h, L.RL_KR + c) % L.RL_RN;
 // Cycle c's first tick into play.
 export function startOf(st, c) {
@@ -103,13 +110,21 @@ function racers(view) {
   view._rl = { tick: view.tick, bank: view.bank, grid, all };
   return view._rl;
 }
-// The racers ahead of (x, z) (toward the finish) within `ahead` m and `side` m across, but slot.
-function ahead(w, x, z, slot, aheadM, side) {
+// The racers ahead of (x, z) (toward the finish) within `aheadM` m and `side`
+// m across, but slot, where they'll be `dt` s on (the world seen is that old):
+// [{ dz, dx, vz }].
+function ahead(w, x, z, slot, aheadM, side, dt) {
   const out = [];
-  for (let i = Math.floor((x - side) / 4); i <= Math.floor((x + side) / 4); i++) {
-    for (let j = Math.floor((z - aheadM) / 4); j <= Math.floor(z / 4); j++) {
+  const reach = 12 * dt;
+  for (let i = Math.floor((x - side - reach) / 4); i <= Math.floor((x + side + reach) / 4); i++) {
+    for (let j = Math.floor((z - aheadM - reach) / 4); j <= Math.floor((z + reach) / 4); j++) {
       const list = w.grid.get(i * 4096 + j);
-      if (list) for (const b of list) if (b.slot !== slot && b.z < z && z - b.z < aheadM && Math.abs(b.x - x) < side) out.push(b);
+      if (!list) continue;
+      for (const b of list) {
+        if (b.slot === slot) continue;
+        const dz = z - (b.z + b.vz * dt), dx = b.x + b.vx * dt - x;
+        if (dz > 0 && dz < aheadM && Math.abs(dx) < side) out.push({ dz, dx, vz: b.vz });
+      }
     }
   }
   return out;
@@ -121,11 +136,12 @@ const pushedDist = (v, n) => { const s = DRAG * (1 - DRAG ** n) / (1 - DRAG); re
 const luck = (st, slot, c, k) => hash32(slot * 977 + k, c, st.s ^ 0x5bd1e995) / 2 ** 32;
 
 // What the ball does on tick `tick`: on green, roll for the line in a lane
-// clear of slower balls ahead, and let go in time to be under RL_VMAX (with
-// a margin its skill sets) when red looks, unless it can be over the line
+// clear of the balls ahead, and let go in time to be under RL_VMAX (with a
+// margin its skill sets) when red looks, unless it can be over the line
 // first; on red, no keys. Now and then a clumsy one lets go late (its luck,
-// a cycle at a time) and is caught; one closing on a slower ball just ahead
-// lets go early rather than hit it.
+// a cycle at a time) and is caught. Following close behind another it lets
+// go sooner (the one ahead may brake first, and it sees that a round trip
+// late), and closing on a slower one it lets go at once rather than hit it.
 function plan(view, me, bot, tick) {
   const o = view.bank || 0;
   if (view.dv.getUint32(L.HDR_STATE + o, true) !== L.H_PLAY) return null;
@@ -147,37 +163,40 @@ function plan(view, me, bot, tick) {
     mem.margin = 3 + Math.round((1 - skill) * 26 * rand(1));
     mem.late = rand(2) < 0.16 * (1 - skill) ** 1.5 ? Math.round(14 + 34 * rand(3)) : 0;
   }
-  // the lane: the way ahead along the field, round any slower ball in it
+  // the lane: the way ahead along the field, clear of the balls in it
   const R = racers(view);
+  const dt = Math.max(0, Math.min(40, (tick - view.tick) | 0)) * TICK;
   if (mem.lane === undefined || Math.abs(mem.lane - x) > 6) mem.lane = x;
   const lim = st.hw - 2;
   const cost = (lx) => {
-    let s = Math.abs(lx - x) * 0.25 + (Math.abs(lx - st.cx) > lim ? 50 : 0);
-    for (const r of ahead(R, lx, z, slot, 10, 2.3)) s += (10 - (z - r.z)) * (r.vz > vz - 1 ? 0.3 : 1);
+    let s = Math.abs(lx - x) * 0.3 + (Math.abs(lx - st.cx) > lim ? 50 : 0);
+    for (const r of ahead(R, lx, z, slot, 12, 2.4, dt)) s += (12 - r.dz) * (r.vz < vz - 1 ? 1 : 0.5);
     return s;
   };
   if (!mem.at || t - mem.at >= 20) {
     mem.at = t;
     let best = Infinity;
-    for (const dx of [0, -2.5, 2.5, -5, 5]) { const s = cost(mem.lane + dx); if (s < best) { best = s; mem.next = mem.lane + dx; } }
+    for (const dx of [0, -1.25, 1.25, -2.5, 2.5, -3.75, 3.75, -5, 5]) { const s = cost(mem.lane + dx); if (s < best) { best = s; mem.next = mem.lane + dx; } }
     mem.lane = Math.max(st.cx - lim, Math.min(st.cx + lim, mem.next));
   }
   const yaw = Math.atan2(-8, mem.lane - x);
   if (t >= w.r0 && t < w.e - 10) return { yaw, move: 0 };
   // on green: can it be over before red looks?
   const look = (t < w.r0 ? w.j : startOf(st, w.c + 1) + greenOf(st, w.c + 1) + L.RL_GRACE) - t;
-  if (pushedDist(v, look - 2) > z - st.zf + 0.5) return { yaw, move: 1 };
+  if (pushedDist(v, look - 2) > z - st.zf + 1.5) return { yaw, move: 1 };
   // once it has let go this green it stays off (what it reckons of its speed
   // after letting go runs low: the words in flight aren't all its last)
   if (mem.off === w.c) return { yaw, move: 0 };
   // a slower ball ahead in the lane it would reach within the second: don't run into it
-  for (const r of ahead(R, x, z, slot, 7, 2.2)) {
+  let follow = 0;
+  for (const r of ahead(R, x, z, slot, 8, 2.3, dt)) {
     const close = -vz + r.vz;
-    if (close > 0.5 && (z - r.z - 2) / close < 0.8) return { yaw, move: 0 };
+    if (close > 0.5 && (r.dz - 2) / close < 0.8) return { yaw, move: 0 };
+    follow = 24;
   }
   // push on while a push to the next think and braking from there gets under the limit in time
   const hold = 4;
-  const left = look - hold - mem.margin + mem.late;
+  const left = look - hold - mem.margin - follow + mem.late;
   const ok = left > 0 && pushed(v, hold) * IDLE ** left < L.RL_VMAX * 0.92;
   if (!ok && t < w.r0) mem.off = w.c;
   return { yaw, move: ok ? 1 : 0 };
@@ -185,43 +204,47 @@ function plan(view, me, bot, tick) {
 
 // ---- drawing
 
-// The doll, her body facing away down the yard, her head turned to `a`
-// (radians, atan2(dz, dx): -pi/2 her back to the field, pi/2 staring at it),
-// her eyes lit red by `eye` 0..1.
+// The doll, giant (DOLL_K times a girl of 15 m), her body facing away down
+// the yard, her head turned to `a` (radians, atan2(dz, dx): -pi/2 her back to
+// the field, pi/2 staring at it), her eyes lit red by `eye` 0..1. Returns where
+// her eyes are, for what they sweep and zap.
 function doll(sc, out, x0, z0, a, eye) {
-  const y0 = PLAT_Y;
-  const back = -1; // the body faces -z
+  const k = DOLL_K, y0 = PLAT_Y;
+  const cyl = (x, y, z, r, hh, c, look) => sc.cyl(x0 + x * k, y0 + y * k, z0 + z * k, r * k, hh * k, ...c, look);
+  const ball = (x, y, z, r, c, look, la = 0) => sc.sphere(x0 + x * k, y0 + y * k, z0 + z * k, r * k, ...c, look, la);
   for (const s of [-1, 1]) {
-    sc.box(x0 + s * 1.0, y0 + 0.35, z0 + back * 0.3, 0.55, 0.35, 0.95, 0, 0.13, 0.1, 0.1, LOOK.PLASTIC);
-    sc.cyl(x0 + s * 1.0, y0 + 1.3, z0, 0.58, 0.6, 0.98, 0.98, 0.96, LOOK.MATTE);
-    sc.cyl(x0 + s * 1.0, y0 + 3.0, z0, 0.5, 1.6, ...SKIN, LOOK.MATTE);
-    sc.cyl(x0 + s * 2.35, y0 + 8.1, z0, 0.58, 1.1, ...SHIRT, LOOK.PLASTIC);
-    sc.cyl(x0 + s * 2.4, y0 + 6.3, z0, 0.46, 0.75, ...SKIN, LOOK.MATTE);
-    sc.sphere(x0 + s * 2.4, y0 + 5.4, z0, 0.56, ...SKIN, LOOK.MATTE);
+    sc.box(x0 + s * k, y0 + 0.35 * k, z0 - 0.3 * k, 0.55 * k, 0.35 * k, 0.95 * k, 0, 0.13, 0.1, 0.1, LOOK.PLASTIC);
+    cyl(s, 1.3, 0, 0.58, 0.6, [0.98, 0.98, 0.96], LOOK.MATTE);
+    cyl(s, 3.1, 0, 0.5, 1.6, SKIN, LOOK.MATTE);
+    cyl(s * 2.3, 8.0, 0, 0.6, 1.2, SHIRT, LOOK.PLASTIC);
+    cyl(s * 2.35, 6.2, 0, 0.46, 0.75, SKIN, LOOK.MATTE);
+    ball(s * 2.35, 5.3, 0, 0.56, SKIN, LOOK.MATTE);
   }
-  sc.cyl(x0, y0 + 4.7, z0, 2.75, 0.5, ...DRESS, LOOK.PLASTIC);
-  sc.cyl(x0, y0 + 5.7, z0, 2.45, 0.5, ...DRESS, LOOK.PLASTIC);
-  sc.cyl(x0, y0 + 6.7, z0, 2.15, 0.5, ...DRESS, LOOK.PLASTIC);
-  sc.cyl(x0, y0 + 7.9, z0, 1.85, 0.7, ...DRESS, LOOK.PLASTIC);
-  sc.cyl(x0, y0 + 9.0, z0, 2.05, 0.4, ...SHIRT, LOOK.PLASTIC);
-  sc.cyl(x0, y0 + 9.65, z0, 0.72, 0.35, ...SKIN, LOOK.MATTE);
+  // the pinafore: a skirt and its bodice; the shirt's shoulders, the neck
+  cyl(0, 5.6, 0, 2.7, 1.3, DRESS, LOOK.PLASTIC);
+  cyl(0, 7.9, 0, 1.95, 1.0, DRESS, LOOK.PLASTIC);
+  cyl(0, 9.1, 0, 2.05, 0.35, SHIRT, LOOK.PLASTIC);
+  cyl(0, 9.75, 0, 0.72, 0.35, SKIN, LOOK.MATTE);
   // the head: skin, the hair a sphere a little behind the face, bangs, pigtails
-  const hy = y0 + 12.3, fx = Math.cos(a), fz = Math.sin(a), sx = -fz, sz = fx;
-  sc.sphere(x0, hy, z0, 2.4, ...SKIN, LOOK.MATTE);
-  sc.sphere(x0 - fx * 0.55, hy + 0.3, z0 - fz * 0.55, 2.45, ...HAIR, LOOK.PLASTIC);
-  sc.box(x0 + fx * 1.25, hy + 1.55, z0 + fz * 1.25, 1.75, 0.55, 0.75, a + Math.PI / 2, ...HAIR, LOOK.PLASTIC);
+  const fx = Math.cos(a), fz = Math.sin(a), sx = -fz, sz = fx, hy = 12.4;
+  ball(0, hy, 0, 2.4, SKIN, LOOK.MATTE);
+  ball(-fx * 0.55, hy + 0.3, -fz * 0.55, 2.45, HAIR, LOOK.PLASTIC);
+  sc.box(x0 + fx * 1.25 * k, y0 + (hy + 1.55) * k, z0 + fz * 1.25 * k, 1.75 * k, 0.55 * k, 0.75 * k, a + Math.PI / 2, ...HAIR, LOOK.PLASTIC);
+  let eyes = null;
   for (const s of [-1, 1]) {
-    sc.sphere(x0 + sx * s * 2.45 - fx * 0.3, hy - 0.7, z0 + sz * s * 2.45 - fz * 0.3, 1.0, ...HAIR, LOOK.PLASTIC);
-    sc.sphere(x0 + sx * s * 2.0, hy - 0.1, z0 + sz * s * 2.0, 0.42, 1, 0.82, 0.2, LOOK.PLASTIC);
+    ball(sx * s * 2.45 - fx * 0.3, hy - 0.7, sz * s * 2.45 - fz * 0.3, 1.0, HAIR, LOOK.PLASTIC);
+    ball(sx * s * 2.0, hy - 0.1, sz * s * 2.0, 0.42, [1, 0.82, 0.2], LOOK.PLASTIC);
     // the eyes, black, or lit red when she looks; the cheeks
-    const ex = x0 + fx * 2.15 + sx * s * 0.8, ez = z0 + fz * 2.15 + sz * s * 0.8;
-    if (eye > 0) sc.sphere(ex, hy + 0.25, ez, 0.36, 1, 0.15 + 0.2 * (1 - eye), 0.1, LOOK.GLOW, 0.4 + 1.4 * eye);
-    else sc.sphere(ex, hy + 0.25, ez, 0.34, 0.06, 0.05, 0.05, LOOK.PLASTIC);
-    sc.sphere(x0 + fx * 2.05 + sx * s * 1.35, hy - 0.55, z0 + fz * 2.05 + sz * s * 1.35, 0.36, 1, 0.62, 0.6, LOOK.MATTE);
-    if (eye > 0) out.glow.push({ pos: [ex + fx * 0.3, hy + 0.25, ez + fz * 0.3], size: 1.2 + 1.4 * eye, color: [1, 0.15, 0.1, 0.7 * eye], kind: SPRITE.FLASH, minpx: 2 });
+    const ex = fx * 2.15 + sx * s * 0.8, ez = fz * 2.15 + sz * s * 0.8;
+    if (eye > 0) ball(ex, hy + 0.25, ez, 0.36, [1, 0.15 + 0.2 * (1 - eye), 0.1], LOOK.GLOW, 0.4 + 1.4 * eye);
+    else ball(ex, hy + 0.25, ez, 0.34, [0.06, 0.05, 0.05], LOOK.PLASTIC);
+    ball(fx * 2.05 + sx * s * 1.35, hy - 0.55, fz * 2.05 + sz * s * 1.35, 0.36, [1, 0.62, 0.6], LOOK.MATTE);
+    const at = [x0 + (ex + fx * 0.3) * k, y0 + (hy + 0.25) * k, z0 + (ez + fz * 0.3) * k];
+    if (eye > 0) out.glow.push({ pos: at, size: (1.2 + 1.4 * eye) * k, color: [1, 0.15, 0.1, 0.7 * eye], kind: SPRITE.FLASH, minpx: 2 });
+    eyes = eyes ? [(eyes[0] + at[0]) / 2, at[1], (eyes[2] + at[2]) / 2] : at;
   }
-  sc.box(x0 + fx * 2.3, hy - 0.95, z0 + fz * 2.3, 0.38, 0.12, 0.1, a + Math.PI / 2, 0.85, 0.2, 0.2, LOOK.MATTE);
-  return [x0 + fx * 2.4, hy + 0.25, z0 + fz * 2.4];
+  sc.box(x0 + fx * 2.3 * k, y0 + (hy - 0.95) * k, z0 + fz * 2.3 * k, 0.38 * k, 0.12 * k, 0.1 * k, a + Math.PI / 2, 0.85, 0.2, 0.2, LOOK.MATTE);
+  return eyes;
 }
 
 // A traffic light: red over amber over green, the lit one glowing.
@@ -247,8 +270,8 @@ let heard = { c: -1, ph: '' };
 
 export default {
   id: L.MG_LIGHT, key: 'light', name: 'RED LIGHT',
-  hint: 'ROLL ON GREEN  LET GO AND STOP ON RED  FIRST OVER THE LINE WINS',
-  rules: 'FIRST OVER THE LINE WINS  MOVE ON RED AND YOU ARE OUT',
+  hint: 'ROLL ON GREEN  LET GO OF THE KEYS BEFORE SHE TURNS ROUND',
+  rules: 'FIRST OVER THE LINE WINS  CAUGHT MOVING ON RED AND YOU ARE OUT',
   ownScore: true,
   env: 'day',
 
@@ -284,12 +307,14 @@ export default {
       const za = zs - (k * (zs - zf)) / bands, zc = zs - ((k + 1) * (zs - zf)) / bands;
       sc.box(cx, PLAT_Y - 0.3, (za + zc) / 2, wide, 0.3, (za - zc) / 2, 0, ...GRASS[k & 1], LOOK.MATTE);
     }
-    // the lines: the start, every 25 m, the finish chequered under its arch
+    // the lines: the start, every 25 m, the finish chequered between two chequered pylons (no bar over it: nothing hides the doll)
     sc.box(cx, PLAT_Y + 0.01, zs, hw, 0.02, 0.3, 0, 0.97, 0.97, 0.95, LOOK.MATTE);
     for (let d = LAMPS; d < L.RL_FIELD; d += LAMPS) sc.box(cx, PLAT_Y + 0.005, zs - d, hw, 0.015, 0.1, 0, 0.95, 0.95, 0.9, LOOK.MATTE, 0, 0, 0.65);
     sc.box(cx, PLAT_Y + 0.01, zf, hw, 0.02, 1, 0, 0.97, 0.97, 0.97, LOOK.CHECKER, 1);
-    for (const s of [-1, 1]) sc.box(cx + s * (hw + 0.9), PLAT_Y + 4.5, zf, 0.45, 4.5, 0.45, 0, 0.95, 0.95, 0.95, LOOK.PLASTIC);
-    sc.box(cx, PLAT_Y + 9.3, zf, hw + 1.4, 0.8, 0.45, 0, 0.97, 0.97, 0.97, LOOK.CHECKER, 0.8);
+    for (const s of [-1, 1]) {
+      sc.box(cx + s * (hw + 1), PLAT_Y + 3.5, zf, 0.7, 3.5, 0.7, 0, 0.97, 0.97, 0.97, LOOK.CHECKER, 0.7);
+      sc.sphere(cx + s * (hw + 1), PLAT_Y + 7.6, zf, 0.7, 1, 0.85, 0.25, LOOK.GLOW, 1.2);
+    }
     // the rails: posts and two bars down each side, round the back and the yard's end
     const fence = (xa, za, xb, zb2) => {
       const len = Math.hypot(xb - xa, zb2 - za), yaw = Math.atan2(zb2 - za, xb - xa), mx = (xa + xb) / 2, mz = (za + zb2) / 2;
@@ -315,8 +340,8 @@ export default {
 
     // the yard: the tree, the traffic lights, the doll
     const zd = zf - DOLL;
-    sc.cyl(cx + 7, PLAT_Y + 5, zd - 7, 1.0, 5, 0.42, 0.3, 0.2, LOOK.WOOD);
-    for (const [dx, dy, dz, r] of [[0, 11, 0, 4.6], [-2.8, 9.4, 1.2, 3.2], [2.9, 9.8, -1, 3.4], [0.5, 13.6, -0.5, 3]]) sc.sphere(cx + 7 + dx, PLAT_Y + dy, zd - 7 + dz, r, 0.26, 0.52, 0.2, LOOK.MATTE);
+    sc.cyl(cx + 13, PLAT_Y + 6, zd - 9, 1.2, 6, 0.42, 0.3, 0.2, LOOK.WOOD);
+    for (const [dx, dy, dz, r] of [[0, 13, 0, 5.4], [-3.2, 11.2, 1.4, 3.8], [3.4, 11.6, -1.2, 4], [0.6, 16, -0.6, 3.6]]) sc.sphere(cx + 13 + dx, PLAT_Y + dy, zd - 9 + dz, r, 0.26, 0.52, 0.2, LOOK.MATTE);
     signal(sc, out, cx - 9, zd + 2, lit);
     signal(sc, out, cx + 9 + 4, zd + 2, lit);
     // the head comes round through the turn (easing in, snapping round at the end) and back as green starts
@@ -444,9 +469,9 @@ export default {
     const x0 = (COLS / 2 - 16) * 4, x1 = (COLS / 2 + 16) * 4;
     const blink = Math.floor(t / 12) & 1;
     const [r, gg, b] = ph === 'green' ? [0.06, 0.55, 0.18] : ph === 'turn' ? (blink ? [0.9, 0.55, 0.05] : [0.6, 0.3, 0.02]) : [0.75, 0.06, 0.05];
-    ctx.rect?.(x0, 11, x1, 31, r, gg, b, 0.8);
-    const words = ph === 'green' ? 'GREEN LIGHT  ROLL' : ph === 'turn' ? 'SHE IS TURNING  LET GO' : ph === 'grace' ? 'RED LIGHT  STOP' : 'RED LIGHT  DO NOT MOVE';
-    ctx.centre(2, words, ph === 'turn' ? C.YELLOW : C.WHITE);
+    ctx.rect?.(x0, 12, x1, 31, r, gg, b, 0.8);
+    const words = ph === 'green' ? (peekOf(st, w.c) ? 'QUICK GREEN  SHE WILL PEEK' : 'GREEN LIGHT  ROLL') : ph === 'turn' ? 'SHE IS TURNING  LET GO' : ph === 'grace' ? 'RED LIGHT  STOP' : 'RED LIGHT  DO NOT MOVE';
+    ctx.centre(2, words, C.WHITE);
     // the song's bar: how much of it is left before she turns; on red, how long she looks
     const n = 30, u = ph === 'green' ? 1 - (t - w.s) / (w.w - w.s) : ph === 'turn' ? 0 : (w.e - t) / (w.e - w.r0);
     const fill = Math.max(0, Math.min(n, Math.round(u * n)));

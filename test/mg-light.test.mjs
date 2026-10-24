@@ -6,7 +6,7 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import * as L from '../src/layout.mjs';
-import light, { stage, when, phaseOf, fateOf, greenOf, redOf, startOf } from '../client/mg/light.mjs';
+import light, { stage, when, phaseOf, fateOf, greenOf, redOf, startOf, peekOf } from '../client/mg/light.mjs';
 
 const C = L.B_CX;
 const TICK = 0.008;
@@ -104,16 +104,21 @@ test('the grid puts the fewest party points in front: a newcomer in the countdow
   assert.ok(z(1) > front, 'P2, with 41');
 });
 
-test('the lights: green then red, their lengths from the round\'s seed; the JS mirror is the sim\'s: a ball rolling flat out is caught on the tick red looks, not before', async () => {
+test('the lights: green (now and then a peek) then red, their lengths from the round\'s seed; the JS mirror is the sim\'s: a ball rolling flat out is caught on the tick red looks, not before', async () => {
   for (const seed of [7, 8, 1234]) {
-    const g = await room(2, { seed });
+    const g = await room(3, { seed });
     const st = stage(g.v);
     assert.ok(greenOf(st, 0) >= L.RL_G0A && greenOf(st, 0) < L.RL_G0A + L.RL_G0N);
-    for (let c = 1; c < 30; c++) {
-      assert.ok(greenOf(st, c) >= L.RL_GA && greenOf(st, c) < L.RL_GA + L.RL_GN);
+    let peeks = 0;
+    for (let c = 1; c < 40; c++) {
+      const g0 = greenOf(st, c);
+      if (g0 < L.RL_GA) { assert.ok(c >= L.RL_PEEK0 && g0 >= L.RL_PA && g0 < L.RL_PA + L.RL_PN, `a peek, ${g0} ticks`); assert.ok(peekOf(st, c)); peeks++; }
+      else assert.ok(g0 < L.RL_GA + L.RL_GN);
+      assert.ok(g0 >= L.RL_PA + 0 && g0 > L.RL_TURN + 40, 'long enough for her to turn away and back');
       assert.ok(redOf(st, c) >= L.RL_RA && redOf(st, c) < L.RL_RA + L.RL_RN);
       assert.equal(startOf(st, c + 1) - startOf(st, c), greenOf(st, c) + redOf(st, c));
     }
+    assert.ok(peeks >= 3 && peeks <= 20, `${peeks} peeks in 40 greens`);
     // P1 flat out from the start: through the first green, the turn and red's grace, caught as it looks
     put(g, 0, C, st.zs, { vz: -10 });
     g.step([[L.EV_INPUT, 0, FWD]]);
@@ -127,7 +132,7 @@ test('the lights: green then red, their lengths from the round\'s seed; the JS m
     while (!g.v.partier(0).out) { assert.ok(playT(g) <= w.j, 'not caught before red looks'); g.step(); }
     const b = g.v.partier(0);
     assert.equal((b.outAt - start) | 0, w.j, `seed ${seed}: caught as red looks`);
-    assert.ok(!g.v.partier(1).out, 'P2, still, isn\'t');
+    assert.ok(!g.v.partier(1).out && !g.v.partier(2).out, 'the still ones aren\'t');
     // and in a later cycle too: P2 rolls on from that red's end, flat out, and is caught as the next looks
     const w1 = when(st, startOf(st, 1));
     at(g, w1.s);
@@ -135,6 +140,15 @@ test('the lights: green then red, their lengths from the round\'s seed; the JS m
     g.step([[L.EV_INPUT, 1, FWD]]);
     while (!g.v.partier(1).out) g.step();
     assert.equal((g.v.partier(1).outAt - g.v.party().start) | 0, w1.j, `seed ${seed}: the second cycle's look`);
+    // and through a peek: the green over almost as it starts
+    let c = L.RL_PEEK0;
+    while (!peekOf(st, c)) c++;
+    const wp = when(st, startOf(st, c));
+    at(g, wp.s);
+    put(g, 2, C - 5, st.zs, { vz: -10 });
+    g.step([[L.EV_INPUT, 2, FWD]]);
+    while (!g.v.partier(2).out) g.step();
+    assert.equal((g.v.partier(2).outAt - g.v.party().start) | 0, wp.j, `seed ${seed}: a peek's look`);
   }
 });
 

@@ -14,11 +14,16 @@
 ;; are the confirmed world's, a round trip late like any out; your own speed
 ;; is predicted exactly, so you see what the judge sees.
 
-;; Cycle c's green and red, in ticks: from the round's seed.
+;; Cycle c's green and red, in ticks: from the round's seed. From cycle
+;; RL_PEEK0, RL_PEEKS greens in 16 are a peek: she has barely turned away
+;; before she turns back.
 (func $rl_green (param $c i32) (result i32)
-  (if (result i32) (i32.eqz (local.get $c))
-    (then (i32.add (i32.const @RL_G0A) (i32.rem_u (call $p_seed (i32.const @RL_KG)) (i32.const @RL_G0N))))
-    (else (i32.add (i32.const @RL_GA) (i32.rem_u (call $p_seed (i32.add (i32.const @RL_KG) (local.get $c))) (i32.const @RL_GN))))))
+  (local $h i32)
+  (local.set $h (call $p_seed (i32.add (i32.const @RL_KG) (local.get $c))))
+  (if (i32.eqz (local.get $c)) (then (return (i32.add (i32.const @RL_G0A) (i32.rem_u (local.get $h) (i32.const @RL_G0N))))))
+  (if (i32.and (i32.ge_u (local.get $c) (i32.const @RL_PEEK0)) (i32.lt_u (i32.shr_u (local.get $h) (i32.const 28)) (i32.const @RL_PEEKS)))
+    (then (return (i32.add (i32.const @RL_PA) (i32.rem_u (local.get $h) (i32.const @RL_PN))))))
+  (i32.add (i32.const @RL_GA) (i32.rem_u (local.get $h) (i32.const @RL_GN))))
 
 (func $rl_red (param $c i32) (result i32)
   (i32.add (i32.const @RL_RA) (i32.rem_u (call $p_seed (i32.add (i32.const @RL_KR) (local.get $c))) (i32.const @RL_RN))))

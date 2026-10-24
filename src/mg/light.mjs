@@ -22,14 +22,18 @@ export const RL_TURN = 88; // ticks the doll takes to turn round, the end of eve
 export const RL_GRACE = 44; // ticks of red before it looks: 0.35 s
 export const RL_BOUNCE = 0.3; // what a rail gives back of a ball's speed into it
 // The schedule, in ticks from play's start, from $p_seed: cycle c is a green
-// of RL_GA + (its seed mod RL_GN) ticks (the first, RL_G0A + mod RL_G0N),
-// then a red of RL_RA + (mod RL_RN).
+// of RL_GA + (its seed mod RL_GN) ticks (the first, RL_G0A + mod RL_G0N; a
+// peek, RL_PA + mod RL_PN), then a red of RL_RA + (mod RL_RN).
 export const RL_G0A = 500; // the first green, 4 to 5.5 s: everyone gets going
 export const RL_G0N = 188;
 export const RL_GA = 225; // the rest, 1.8 to 5.5 s
 export const RL_GN = 463;
 export const RL_RA = 250; // red, 2 to 3.5 s
 export const RL_RN = 188;
+export const RL_PEEK0 = 2; // from the third green, RL_PEEKS in 16 (by the top bits of its seed) are a peek:
+export const RL_PEEKS = 4;
+export const RL_PA = 130; // 1.04 to 1.6 s, the doll's turn and hardly more
+export const RL_PN = 70;
 export const RL_KG = 0x30000; // $p_seed keys: green c from RL_KG + c, red c from RL_KR + c, ball p's grid tie-break from RL_KGRID + p
 export const RL_KR = 0x31000;
 export const RL_KGRID = 0x32000;

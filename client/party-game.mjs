@@ -246,7 +246,10 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     if (external) yaw = get(L.CL_YAW);
     // the bot drives the slots as the keys and mouse would
     if (bot && me?.live && st === 2) {
-      const word = bot.think(view, g.tick, Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE)));
+      // for your own slot, and for the tick the word goes out for: the prediction's, lag ahead of the world it sees
+      const lag = Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE));
+      bot.slot = slot;
+      const word = bot.think(view, g.tick + lag, lag);
       yaw = word & (TURN - 1);
       aim();
       set(L.CL_MOVE, ((word >>> 24) & 15) | (((word >>> 28) & 1) << 4));
