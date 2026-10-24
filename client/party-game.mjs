@@ -16,14 +16,16 @@
 //   draw(view, ctx, out): ctx { tick (the confirmed tick), dt (s past it, to now), t (s into play at tick + dt),
 //       ptick, pt (the same on the prediction's clock: the tick your own ball is drawn at, fractional; tick + dt
 //       when nothing is predicted), now (ms), ms (since the last frame), cam [x, y, z], slot, me (your partier()
-//       record, confirmed, or null), pme (the prediction's, or null), view, pview (the prediction's View) };
+//       record, confirmed, or null), pme (the prediction's, or null), view, pview (the prediction's View), sound };
 //     out { scene, solid [], glow [], beams [], decals [], casters [] (round things for the shadow map: [x, y, z, -r]),
-//       paint (null, or set it to a paint layer) }: the balls go in after it, into the same arrays.
+//       paint (null, or set it to a paint layer), music (set false to hush the round's music this frame) }: the balls
+//       go in after it, into the same arrays.
 //   frame(view) -> { centre: [x, y, z], radius, shape: 'disc' | 'square' }
 //   fx(f, ctx): f a confirmed FX record ({ tick, kind, owner, shot, pos, size }) whose kind is FX_MG + 4 * id + k;
 //     ctx { slot, glow({ pos, size, color, kind, life (ms), grow }), sound, banner(text, color, ms), feed(text, color),
 //       name(p) ('YOU' or 'P12'), dist (m from the camera), C, now, view }
 //   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
+//   sink(f, name, view) -> the feed's line for an FX_SINK (f; name(p) as fx's), optional: null for the usual FELL / KNOCKED OUT
 //   music(view, ptick) -> false to hush the round's music for now (optional; ptick the prediction's clock, as draw's)
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
@@ -179,7 +181,9 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       case L.FX_SINK: {
         const score = g.kind === L.PK_SCORE;
         const by = f.shot === 255 ? '' : ` BY ${name(f.shot, slot)}`;
-        pushFeed(f.shot === 255 ? `${name(f.owner, slot)} FELL` : `${name(f.owner, slot)} KNOCKED ${score ? 'OFF' : 'OUT'}${by}`, f.owner === slot ? C.RED : f.shot === slot ? C.GREEN : C.WHITE);
+        // the minigame may say how a ball went out (a bomb, a zap) where falling isn't the word
+        const said = MG[g.game]?.sink?.(f, (p) => name(p, slot), view);
+        pushFeed(said || (f.shot === 255 ? `${name(f.owner, slot)} FELL` : `${name(f.owner, slot)} KNOCKED ${score ? 'OFF' : 'OUT'}${by}`), f.owner === slot ? C.RED : f.shot === slot ? C.GREEN : C.WHITE);
         glows.push({ pos: [f.pos[0], f.pos[1] + 0.5, f.pos[2]], size: 3, color: [0.6, 0.85, 1, 0.9], kind: SPRITE.RING, born: now, life: 600, grow: true });
         sound.sink(f.owner === slot ? 0 : d);
         if (f.owner === slot) {
@@ -244,8 +248,11 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     if (external) yaw = get(L.CL_YAW);
     // the bot drives the slots as the keys and mouse would
     if (bot && me?.live && st === 2) {
-      bot.slot = slot; // made before the room gave us a slot: it steers our own ball
-      const word = bot.think(view, g.tick, Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE)));
+      // it steers the page's own slot (made before the room gave one), for the tick the word goes out for:
+      // the prediction's, lag ahead of the world it sees
+      if (bot.slot !== slot) { bot.slot = slot; bot.round = -1; }
+      const lag = Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE));
+      const word = bot.think(view, g.tick + lag, lag);
       yaw = word & (TURN - 1);
       aim();
       set(L.CL_MOVE, ((word >>> 24) & 15) | (((word >>> 28) & 1) << 4));
@@ -287,7 +294,6 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     }
     lastSecs = secs;
     lastState = g.state;
-    sound.music(g.state === L.H_PLAY ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(g.hole + 7, 0x9e3779b9)) >>> 0 : null, g.state === L.H_PLAY && (mod.music?.(view, ptick) ?? true));
 
     // who the camera follows: you, or (out, watching) a ball still in, the winner when it's over
     const mine = pme && !pme.out ? pme : null;
@@ -353,10 +359,12 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     // the stage, as the minigame draws it
     scene.clear();
     const solid = [], glow = [], beams = [], decals = [], extra = [];
-    const out = { scene, solid, glow, beams, decals, casters: extra, paint: null };
+    const out = { scene, solid, glow, beams, decals, casters: extra, paint: null, music: true };
     const t = g.state === L.H_PLAY ? g.t * TICK + dt : 0;
     const pt = g.state === L.H_PLAY ? (ptick - g.start) * TICK : 0;
-    mod.draw?.(view, { tick: g.tick, dt, t, ptick, pt, now, ms, cam, slot, me, pme, view, pview }, out);
+    mod.draw?.(view, { tick: g.tick, dt, t, ptick, pt, now, ms, cam, slot, me, pme, view, pview, sound }, out);
+    const tune = g.state === L.H_PLAY && out.music !== false && (mod.music?.(view, ptick) ?? true);
+    sound.music(g.state === L.H_PLAY ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(g.hole + 7, 0x9e3779b9)) >>> 0 : null, tune);
 
     // the balls, their riders and what they hold, rockets, then what glows
     const casters = [];
