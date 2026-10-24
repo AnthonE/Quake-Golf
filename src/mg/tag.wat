@@ -306,6 +306,8 @@
                   (call $tg_make (local.get $p) (i32.const 254) (local.get $t) (local.get $free))
                   (br $dealt)))
               (local.set $r (i32.sub (local.get $r) (i32.const 1)))))))))
+  ;; the clock's tick tags nobody: whoever is free at it shares first
+  (if (i32.ge_u (local.get $t) (i32.load (i32.const @PG_LEN))) (then (return)))
   ;; the its in that can tag, as this tick's tags begin (in B_SCR, rebuilt every tick)
   (local.set $its (i32.const 0))
   (!for $p (i32.const 0) (i32.const @NPLAYER)

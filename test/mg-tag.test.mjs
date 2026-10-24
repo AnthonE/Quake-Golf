@@ -322,7 +322,7 @@ test('catch the last one free and win, a point over it; it comes 2nd, the rest b
   assert.equal(fxs(g.v, L.TG_FX_TAG).at(-1).shot, 0, 'P1 caught the last one: none left');
 });
 
-test('at the clock the free share the win; a lone ball plays on free to it', async () => {
+test('at the clock the free share the win, a touch on its tick tagging nobody; a lone ball plays on free to it', async () => {
   const g = await room(3, { clean: true });
   for (let p = 0; p < 3; p++) mark(g, p, FREE);
   mark(g, 0, IT);
@@ -336,6 +336,24 @@ test('at the clock the free share the win; a lone ball plays on free to it', asy
   assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).place), [3, 1, 1]);
   assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).wins), [0, 1, 1]);
   assert.equal(r.winner, 255, 'shared');
+  // a touch on the clock's tick tags nobody: free at the clock, a share of the win; a tick before, it's 2nd
+  for (const [before, it] of [[1, true], [0, false]]) {
+    const h = await room(3, { clean: true });
+    for (let p = 0; p < 3; p++) mark(h, p, FREE);
+    mark(h, 0, IT);
+    put(h, 0, C - 10, C);
+    put(h, 1, C + 8, C - 6);
+    put(h, 2, C + 8, C + 6);
+    at(h, L.TG_LEN - 3);
+    for (let k = 0; k < 3 - before; k++) h.step();
+    put(h, 2, C - 10 + 2.1, C);
+    while (h.v.party().state === L.H_PLAY) h.step();
+    assert.equal(role(h, 2), it ? IT : FREE, `touched ${before} tick before the clock`);
+    assert.deepEqual([1, 2].map((p) => h.v.partier(p).score), [90, it ? 89 : 90]);
+    assert.deepEqual([0, 1, 2].map((p) => h.v.partier(p).place), it ? [3, 1, 2] : [3, 1, 1]);
+    assert.deepEqual([0, 1, 2].map((p) => h.v.partier(p).wins), it ? [0, 1, 0] : [0, 1, 1]);
+    assert.equal(h.v.party().winner, it ? 1 : 255);
+  }
   // one ball: nobody it, a point a second, the round to the clock
   const s = await room(1, { clean: true });
   assert.equal(s.v.partier(0).m, FREE);
