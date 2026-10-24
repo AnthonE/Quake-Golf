@@ -30,8 +30,10 @@ export const TG_PE = 0.8; // a pillar's bounce: the speed into it comes back thi
 export const TG_KICK = 3; // m/s more off a pillar hit harder than TG_KMIN
 export const TG_KMIN = 2;
 export const TG_WE = 0.5; // the rim's bounce
-// Springs to the free and dashes to the its: TG_GIVE0 ticks into play, then every TG_GIVE, to every ball holding none.
+// Springs to the free TG_GIVE0 ticks into play and dashes to the its from
+// TG_DASH0, then each every TG_GIVE, to every ball holding none.
 export const TG_GIVE0 = 250; // 2 s
+export const TG_DASH0 = 875; // 7 s
 export const TG_GIVE = 1250; // 10 s
 // Its header, byte offsets in PG_H.
 export const TG_RAD = 0; // f32 the arena's radius

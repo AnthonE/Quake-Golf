@@ -155,38 +155,51 @@ test('a touch is ball to ball in 3D, skins within TG_TOUCH: over its head is cle
   assert.equal(role(g, 3), FREE, 'clear over its head');
 });
 
-test('a point a second while free, frozen once it; at 2 s and every 10 s a spring to each free ball, a dash to each it, holding none', async () => {
+test('a point a second while free, frozen once it; at 2 s and every 10 s a spring to each free ball, from 7 s a dash to each it, holding none', async () => {
   const g = await room(3, { clean: true });
   for (let p = 0; p < 3; p++) mark(g, p, FREE);
   mark(g, 0, IT);
   put(g, 0, C - 8, C);
   put(g, 1, C + 8, C - 4);
   put(g, 2, C + 8, C + 4);
+  const items = () => [0, 1, 2].map((p) => g.v.partier(p).item);
   while (playT(g) < L.TG_GIVE0) {
     g.step();
     const t = playT(g) - 1;
     assert.equal(g.v.partier(1).score, Math.floor(t / L.TG_SEC), 'a point a second');
     assert.equal(g.v.partier(0).score, 0, 'an it scores nothing');
-    assert.deepEqual([g.v.partier(0).item, g.v.partier(1).item], [0, 0], 'nothing before 2 s');
+    assert.deepEqual(items(), [0, 0, 0], 'nothing before 2 s');
   }
   g.step();
-  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).item), [L.PU_DASH, L.PU_SPRING, L.PU_SPRING], 'a dash for the it, springs for the free at 2 s');
-  // P2 springs: up, and a new one at the next give; P3 keeps its own and gets no second; P1 dashes
-  g.step([[L.EV_INPUT, 1, partyWord({ use: 1 })], [L.EV_INPUT, 0, partyWord({ yaw: 8192, use: 1 })]]);
-  assert.deepEqual([g.v.partier(0).item, g.v.partier(1).item], [0, 0]);
+  assert.deepEqual(items(), [0, L.PU_SPRING, L.PU_SPRING], 'springs for the free at 2 s');
+  // P2 springs: up, and a new one at the next give; P3 keeps its own and gets no second
+  g.step([[L.EV_INPUT, 1, partyWord({ use: 1 })]]);
+  assert.equal(g.v.partier(1).item, 0);
   assert.ok(g.v.partier(1).vel[1] > 10 && !g.v.partier(1).ground, 'up it goes');
-  assert.ok(g.v.partier(0).vel[0] < -15, 'the it dashes');
   let n = 0;
   while (!g.v.partier(1).ground && n++ < 400) g.step();
   assert.ok(n > 100, `${n} ticks in the air`);
   assert.equal(fxs(g.v, L.FX_BLAST).length, 1, 'a stomp where it lands');
+  // the it's dash, at 7 s: P1 dashes with it
+  at(g, L.TG_DASH0 - 1);
+  g.step();
+  assert.equal(g.v.partier(0).item, 0, 'no dash yet');
+  g.step();
+  assert.deepEqual(items(), [L.PU_DASH, 0, L.PU_SPRING], 'a dash for the it at 7 s');
+  g.step([[L.EV_INPUT, 0, partyWord({ yaw: 8192, use: 1 })]]);
+  assert.equal(g.v.partier(0).item, 0);
+  assert.ok(g.v.partier(0).vel[0] < -15, 'the it dashes');
   at(g, L.TG_GIVE0 + L.TG_GIVE - 1);
   g.step();
-  assert.deepEqual([g.v.partier(0).item, g.v.partier(1).item], [0, 0], 'not yet');
+  assert.equal(g.v.partier(1).item, 0, 'not yet');
   g.step();
-  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).item), [L.PU_DASH, L.PU_SPRING, L.PU_SPRING], 'again at 12 s');
+  assert.deepEqual(items(), [0, L.PU_SPRING, L.PU_SPRING], 'springs again at 12 s');
+  at(g, L.TG_DASH0 + L.TG_GIVE);
+  g.step();
+  assert.equal(g.v.partier(0).item, L.PU_DASH, 'a dash again at 17 s');
   // tagged: the spring goes, the points stop; a dash at the next give
   const p0 = g.v.partier(0).pos;
+  put(g, 0, p0[0], p0[2]); // still (the clock jumped; it was mid-dash)
   put(g, 2, p0[0] + 2.1, p0[2]);
   g.step();
   const s = g.v.partier(2).score;
@@ -194,7 +207,7 @@ test('a point a second while free, frozen once it; at 2 s and every 10 s a sprin
   for (let k = 0; k < 300; k++) g.step();
   assert.equal(g.v.partier(2).score, s, 'frozen');
   assert.equal(g.v.partier(1).score, Math.floor((playT(g) - 1) / L.TG_SEC));
-  at(g, L.TG_GIVE0 + 2 * L.TG_GIVE);
+  at(g, L.TG_DASH0 + 2 * L.TG_GIVE);
   g.step();
   assert.equal(g.v.partier(2).item, L.PU_DASH, 'an it now: a dash');
 });
@@ -394,7 +407,7 @@ test('the prediction matches the confirmed ball bit for bit: into a pillar and o
   // D: as an it, the push, a dash handed out and used, the pillars
   mark(g, 0, IT, 0);
   put(g, 0, px + 6, pz, { vx: -3 });
-  at(g, L.TG_GIVE0 + 4 * L.TG_GIVE - 40);
+  at(g, L.TG_DASH0 + 4 * L.TG_GIVE - 40);
   const uses = fxs(g.v, L.FX_USE).length;
   const d = run((k) => partyWord({ yaw: k < 150 ? yawTo(px, pz) : (k * 131) & 16383, move: 1, use: k >= 60 ? 2 : 1 }), 400);
   assert.ok(d.pill < L.TG_PR + 1.6, `an it against the pillar (${d.pill.toFixed(2)} m)`);

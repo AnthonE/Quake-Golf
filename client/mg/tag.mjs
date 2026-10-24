@@ -34,7 +34,7 @@ export function stage(view) {
   if (st && st.r === r && st.np === np && st.hole === hole && st.seed === seed && st.cx === cx) return st;
   const px = new Float64Array(np), pz = new Float64Array(np);
   for (let k = 0; k < np; k++) { px[k] = dv.getFloat32(L.PG_S + L.TG_PILL + 8 * k, true); pz[k] = dv.getFloat32(L.PG_S + L.TG_PILL + 8 * k + 4, true); }
-  st = { r, np, hole, seed, cx, px, pz, nit: dv.getUint32(L.PG_H + L.TG_NIT + o, true), lit: new Float32Array(np) };
+  st = { r, np, hole, seed, cx, px, pz, lit: new Float32Array(np) };
   STAGES.set(dv.buffer, st);
   return st;
 }
@@ -96,7 +96,7 @@ const playing = (view) => view.dv.getUint32(L.HDR_STATE + (view.bank || 0), true
 // The its near a free ball, the nearest NEAR_MAX within 18 m, for its danger:
 // once a think (the bot asks 90 times).
 const NEAR_MAX = 8;
-const NEAR = { slot: -1, tick: -1, w: null, st: null, list: [] };
+const NEAR = { slot: -1, w: null, st: null, list: [] };
 function nearIts(view, me, w) {
   if (NEAR.slot === me.slot && NEAR.w === w) return NEAR.list;
   NEAR.slot = me.slot; NEAR.w = w; NEAR.st = stage(view);
@@ -175,8 +175,10 @@ function flee(view, me, bot, w, st) {
   if (!its.length) {
     // none near: the open floor away from the nearest few, held for a second
     if (mem.drift && w.tick - mem.drift.at < 125 && Math.hypot(mem.drift.x - x, mem.drift.z - z) > 3) return { goal: [mem.drift.x, mem.drift.z] };
-    near = within(w.itGrid, x, z, 60, me.slot, []).slice(0, 6);
-    if (!near.length) near = w.its.slice(0, 6);
+    near = within(w.itGrid, x, z, 60, me.slot, []);
+    if (!near.length) near = w.its.slice();
+    near.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z) || a.slot - b.slot);
+    near.length = Math.min(near.length, 6);
   }
   const lim = st.r - 2.5;
   let best = null, score = -Infinity;
@@ -207,8 +209,8 @@ function flee(view, me, bot, w, st) {
   return { goal: best };
 }
 
-// Ticks from t (into play) to the next handing out of springs and dashes.
-const nextGive = (t) => (t < L.TG_GIVE0 ? L.TG_GIVE0 - t : L.TG_GIVE - ((t - L.TG_GIVE0) % L.TG_GIVE));
+// Ticks from t (into play) to the next handing out of springs (from t0 TG_GIVE0) or dashes (TG_DASH0).
+const nextGive = (t, t0) => (t < t0 ? t0 - t : L.TG_GIVE - ((t - t0) % L.TG_GIVE));
 
 // ---- drawing
 
@@ -349,12 +351,12 @@ export default {
       for (const b of w.free) { const d = Math.hypot(b.x - me.pos[0], b.z - me.pos[2]); if (d < bd) { bd = d; best = b; } }
       ctx.centre(row, t < 375 ? 'YOU\'RE IT!  TAG SOMEONE' : 'YOU\'RE IT', C.RED);
       if (best) ctx.centre(row + 1, w.free.length === 1 ? `CATCH P${best.slot + 1} TO WIN  ${Math.round(bd)} M` : `NEAREST FREE P${best.slot + 1}  ${Math.round(bd)} M`, w.free.length === 1 ? C.YELLOW : C.WHITE);
-      if (me.item !== L.PU_DASH) ctx.centre(row + 2, `NEXT DASH IN ${Math.ceil(nextGive(g.t) / 125)}`, C.GREY);
+      if (me.item !== L.PU_DASH) ctx.centre(row + 2, `NEXT DASH IN ${Math.ceil(nextGive(g.t, L.TG_DASH0) / 125)}`, C.GREY);
     } else if (me.m & IN) {
       let bd = Infinity;
       for (const b of w.its) bd = Math.min(bd, Math.hypot(b.x - me.pos[0], b.z - me.pos[2]));
       ctx.centre(row, w.free.length === 1 ? 'THE LAST ONE FREE  RUN!' : `FREE  NEAREST IT ${Number.isFinite(bd) ? Math.round(bd) : '-'} M`, bd < 6 ? C.RED : bd < 14 ? C.YELLOW : C.GREEN);
-      if (me.item !== L.PU_SPRING) ctx.centre(row + 1, `NEXT SPRING IN ${Math.ceil(nextGive(g.t) / 125)}`, C.GREY);
+      if (me.item !== L.PU_SPRING) ctx.centre(row + 1, `NEXT SPRING IN ${Math.ceil(nextGive(g.t, L.TG_GIVE0) / 125)}`, C.GREY);
     }
   },
 
@@ -408,7 +410,7 @@ export default {
         if (item === L.PU_DASH && b.ground && h.d > 2.6 && h.d < 5 + 3 * (bot?.skill ?? 0.6)) {
           const vx = bot?.vel?.[0] ?? b.vel[0], vz = bot?.vel?.[1] ?? b.vel[2], sp = Math.hypot(vx, vz);
           const gx = h.goal[0] - x, gz = h.goal[1] - z, gd = Math.hypot(gx, gz) || 1;
-          use = sp > 4 && (gx * vx + gz * vz) / (gd * sp) > 0.93 && (w.tick + me.slot) % 3 === 0;
+          use = sp > 4 && (gx * vx + gz * vz) / (gd * sp) > 0.93 && (w.tick + b.slot) % 3 === 0;
         }
         return { yaw: Math.atan2(h.goal[1] - z, h.goal[0] - x), move: 1, use };
       }

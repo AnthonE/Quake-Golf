@@ -2,7 +2,8 @@
 ;; round. One ball in TG_PER starts it, in the middle; the rest start free
 ;; round them. An it that touches a free ball (after the bumps, slot order)
 ;; makes it it too. A free ball scores a point a second; every TG_GIVE ticks
-;; a free ball is handed a spring, an it a dash; an it rolls a little faster.
+;; a free ball is handed a spring, and half way between, an it a dash; an it
+;; rolls a little faster.
 ;; Nobody falls (PK_SCORE, but the rim keeps every ball in). The round ends
 ;; when nobody is free, the one who caught the last free ball a point over
 ;; it and first, or at the clock with the free sharing first; the rest by
@@ -225,15 +226,16 @@
   (!put f32 @(PLAYERS + P_VX) (local.get $pb) (local.get $vx))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz))
   ;; in the round: a free ball's points are its seconds; on the schedule, a
-  ;; spring to a free ball holding nothing, a dash to an it
+  ;; spring to a free ball holding nothing, and between, a dash to an it
   (if (i32.and (local.get $m) (i32.const @TG_M_IN))
     (then
       (local.set $t (call $p_t (local.get $d)))
       (if (i32.eqz (i32.and (local.get $m) (i32.const @TG_M_IT)))
         (then (!put u16 @(PLAYERS + PG_SCORE) (local.get $pb) (i32.div_u (local.get $t) (i32.const @TG_SEC)))))
+      (local.set $k (select (i32.const @TG_DASH0) (i32.const @TG_GIVE0) (i32.and (local.get $m) (i32.const @TG_M_IT))))
       (if (i32.and (i32.eqz (!at u8 @(PLAYERS + B_ITEM) (local.get $pb)))
-                   (i32.and (i32.ge_u (local.get $t) (i32.const @TG_GIVE0))
-                            (i32.eqz (i32.rem_u (i32.sub (local.get $t) (i32.const @TG_GIVE0)) (i32.const @TG_GIVE)))))
+                   (i32.and (i32.ge_u (local.get $t) (local.get $k))
+                            (i32.eqz (i32.rem_u (i32.sub (local.get $t) (local.get $k)) (i32.const @TG_GIVE)))))
         (then (!put u8 @(PLAYERS + B_ITEM) (local.get $pb)
                 (select (i32.const @PU_DASH) (i32.const @PU_SPRING) (i32.and (local.get $m) (i32.const @TG_M_IT)))))))))
 
