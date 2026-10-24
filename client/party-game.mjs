@@ -24,6 +24,7 @@
 //     ctx { slot, glow({ pos, size, color, kind, life (ms), grow }), sound, banner(text, color, ms), feed(text, color),
 //       name(p) ('YOU' or 'P12'), dist (m from the camera), C, now, view }
 //   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
+//   music(view, ptick) -> false to hush the round's music for now (optional; ptick the prediction's clock, as draw's)
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
 //     The frontend keeps rows 0 and 1 (the clock, who's left or the scores, the round's name), the middle band
@@ -243,6 +244,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     if (external) yaw = get(L.CL_YAW);
     // the bot drives the slots as the keys and mouse would
     if (bot && me?.live && st === 2) {
+      bot.slot = slot; // made before the room gave us a slot: it steers our own ball
       const word = bot.think(view, g.tick, Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE)));
       yaw = word & (TURN - 1);
       aim();
@@ -285,7 +287,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     }
     lastSecs = secs;
     lastState = g.state;
-    sound.music(g.state === L.H_PLAY ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(g.hole + 7, 0x9e3779b9)) >>> 0 : null, g.state === L.H_PLAY);
+    sound.music(g.state === L.H_PLAY ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(g.hole + 7, 0x9e3779b9)) >>> 0 : null, g.state === L.H_PLAY && (mod.music?.(view, ptick) ?? true));
 
     // who the camera follows: you, or (out, watching) a ball still in, the winner when it's over
     const mine = pme && !pme.out ? pme : null;
