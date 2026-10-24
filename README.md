@@ -674,7 +674,7 @@ the standings are party points, then wins. `?bot=1` hands your ball to an AI;
 | 0 | THIN ICE | last one in | three floors of hex ice; a tile cracks under your ball and drops 0.64 s later; fall through all three and you're out |
 | 1 | COLOR CALL | last one in | hex tiles in 4 or 5 colours; a colour is called, 2.6 s shrinking to 1.2 s, then every other colour drops for 1.5 s; from the 5th call the outer ring goes for good, from the 18th only the one called tile holds |
 | 2 | SWEEPER | last one in | bars sweep round from a post at ball height, faster every second; hop them; a second bar at 16 s, a third at 36, a fourth at 56, each one reversing them; the outer rings drop from 66 s |
-| 3 | RED LIGHT | finishing order | 170 m to the line past a giant doll; roll while she sings, and 0.35 s after she turns, anything faster than 1.2 m/s is caught; bumps are on until she looks |
+| 3 | RED LIGHT | finishing order | 170 m to the line past a giant doll; roll while she sings, and 0.35 s after she turns, anything faster than 1.2 m/s is caught; bumps are on until she looks, without bumper's kick once red starts |
 | 4 | BOMB RAIN | last one in | bombs fall where a ring on the floor says, half of them aimed at a ball; big ones blow craters in the tiles; the rim crumbles in to 10 m |
 | 5 | THE WALL | last one in | walls with gaps sweep across a square stage and carry off what they meet; faster, fewer gaps, and from 40 s every other wall sways |
 | 6 | MUSICAL PADS | last one in | the music stops, pads light up, half as many as balls left; 4 s later everyone not on a pad is out; a gold pad pays a power-up |
@@ -732,13 +732,14 @@ danger, its goal and the room from rivals, and lets a minigame steer outright
 builds' bytes unchanged, rounds laid out for 1 to 256 balls, the rotation, a
 forced minigame, both kinds of end, places and points, late joiners, the
 prediction, and rounds of AI balls equal on every tick on 1 and 4 threads.
-Each minigame has its own file (`test/mg-<key>.test.mjs`, 157 tests in all):
+Each minigame has its own file (`test/mg-<key>.test.mjs`, 175 tests in all):
 its stage for 1, 8, 64 and 256 balls, each rule, the prediction through its
 hazards, and rounds of 8 and 64 AI balls on the debug build, equal on 1 and 4
 threads. Every minigame's recorded log, 20,000 ticks of 16 AI balls, replays
 equal on every tick in all 27 configurations of the determinism matrix.
 Online, a relay on Party's sim with Chrome and 31 AI balls through the
 rotation for 420 s: 32 sessions, 13,151 interval hashes checked, all equal;
+with 63 AI balls for 200 s, 64 sessions and 12,535 hashes, all equal;
 and each minigame forced, most with 16 and with 128 balls, every hash equal. Party's
 wasm is 69 KB, 29 KB gzipped; a tick of 256 balls is 0.2 ms.
 

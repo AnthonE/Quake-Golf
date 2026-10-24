@@ -16,7 +16,7 @@ read the section for whatever you touch.
 ```sh
 npm ci && sh tools/install-deno.sh   # once: wabt, binaryen, Deno 2.9.7 in .tools/
 npm run build                        # every sim; prints each wasm's sha256
-npm test                             # node --test test/*.test.mjs, a few minutes
+npm test                             # node --test test/*.test.mjs, 354 tests, about 5 min
 node --test test/bumper.test.mjs     # one file
 node harness/matrix.mjs --ticks 20000 --log logs/x.qgl --wasm build/<sim>/game.wasm   # Node, Deno, Chrome x JIT tiers x 1/2/4 threads
 node net/play.mjs [--arena [--mode k] | --bumper | --party [--mg k] | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
