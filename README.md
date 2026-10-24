@@ -10,13 +10,15 @@ Target: the newest Chrome; the server is Deno. The same sim also runs as
 Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 **[Fireplace](#fireplace)** is all of it as one party game: the room plays
-bumper balls, the arena and golf in turn, Mario Party style, and people come
-and go as they like, from a living room with a fire going and the game on the TV.
+bumper balls, [Party](#party)'s minigames, the arena and golf in turn, Mario Party style, and people
+come and go as they like, from a living room with a fire going and the game on
+the TV. What comes next is [docs/roadmap.md](docs/roadmap.md).
 
 ## Where it is
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| P1 · Party | bumper balls' ball and a minigame a round, fourteen of them (Thin Ice, Color Call, Sweeper, Red Light, Bomb Rain, The Wall, Musical Pads, King of the Hill, Hot Potato, Coin Rush, Paint Party, Downhill, Fruit Chute, Tag), every stage on a schedule so the prediction is exact through it; a renderer for any stage in bumper balls' look; each minigame's AI rounds equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal | **passed** · [Party](#party) |
 | F1 · Fireplace | every game in one module, each bit for bit its own build; a playlist the room plays through, everyone moved into the next game on one tick, marshmallows for the top three; keyframes from any game restored into another's world; the playlist equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal across a switch; a page that is a living room, the TV closing in to fill the screen | **passed** · [Fireplace](#fireplace) |
 | B1 · bumper balls | every player a ball on a wheel of Swiss cheese whose holes are the golf cup made big: bump the others in, keep out yourself, the last ball rolling wins; the rim crumbling and the holes widening, power-ups dropping from the sky; rounds of AI balls equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [bumper balls](#bumper-balls) |
 | A3 · Blood Gulch | a map with structures in the game rules, not just the picture: two bases you walk into (doors, a room, stairs to a hatch, a roof, a bridge), a cave through a ridge, teleporters; walls stop bodies, bullets, rockets, frags and blasts; the map built from images and a JSON file at build time; a match of fighters on it equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [Blood Gulch](#blood-gulch-structures-and-maps) |
@@ -37,13 +39,15 @@ and go as they like, from a living room with a fire going and the game on the TV
 
 Not a golfer? The same engine runs a deathmatch: `src/` built with `ARENA`
 set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
-prediction, spectators and replays, up to 256 in a room. The mode is
-Fiesta: ten minutes, everyone spawns with two guns drawn at random, the
-most kills at the end wins, on [Blood Gulch](#blood-gulch-structures-and-maps):
-a walled box canyon with a base at each end you can walk into and up onto,
-a teleporter behind each, a cave through the north ridge, boulders for
-cover. (Set `FIESTA = 0` in `src/layout.mjs` for slayer instead:
-an assault rifle and a magnum, guns on pads about the floor, first to 25.)
+prediction, spectators and replays, up to 256 in a room. A room's first
+match is a Fiesta: ten minutes, everyone spawns with two guns drawn at
+random, the most kills at the end wins; the matches after it go round the
+[modes](#modes), Infection, gun game and Juggernaut. All of them are on
+[Blood Gulch](#blood-gulch-structures-and-maps): a walled box canyon with a
+base at each end you can walk into and up onto, a teleporter behind each, a
+cave through the north ridge, boulders for cover. (Set `FIESTA = 0` in
+`src/layout.mjs` for slayer instead of Fiesta: an assault rifle and a
+magnum, guns on pads about the floor, first to 25.)
 
 ```sh
 npm ci && sh tools/install-deno.sh   # once
@@ -151,6 +155,104 @@ node tools/genarena.mjs --bots 8 --ticks 20000 --out logs/arena.qgl
 node harness/matrix.mjs --ticks 20000 --log logs/arena.qgl --wasm build/arena/game.wasm
 node net/run-arena.mjs [--bots 7] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05]
 node --test test/map.test.mjs
+```
+
+### Modes
+
+Each match plays one of four modes, chosen as its countdown starts: match k
+of a room plays `ARENA_MODES[k % 4]` (`src/layout.mjs`), Fiesta, Infection,
+gun game, Juggernaut, and round again. So a room opens on a Fiesta;
+Fireplace's arena, one match long, plays whichever mode the room draws for
+it (see Fireplace). A seed whose top byte is `0xA8` plays mode
+`(seed >>> 16) & 0xff` every match: `node
+net/play.mjs --arena --mode 1` is a room of Infection only (`tools/genarena.mjs`
+and `net/run-arena.mjs` take `--mode` too).
+
+![Infection in Chrome: the humans in blue keep together; P10 has just infected P14](docs/a4-infection.png)
+
+| Mode | Spawns with | Ends | Places |
+| --- | --- | --- | --- |
+| Fiesta | two guns at random, two frags | 10 min | kills, then deaths |
+| Infection | humans: a shotgun and a magnum, full, two frags; zombies: an energy sword that never runs out, no shields, 100 health, 12.5 m/s and a 1.8 m jump (a human's are 10 m/s and 1.2 m), half the damage of any gun but the shotgun | no human left, or 3 min | humans still alive (shared), then time lived as a human, then infections |
+| Gun game | its rung's gun in both hands: assault rifle, battle rifle, magnum, shotgun, plasma rifle, needler, sniper rifle, rocket launcher, energy sword | the first kill with the sword, or 5 min | rung, then kills |
+| Juggernaut | as in Fiesta; the juggernaut the sword, 200 shields and a zombie's legs | 10 points, or 5 min | points, then kills |
+
+Infection draws one zombie for every ten fighters (at least one) from the
+room's PRNG at the countdown's end. A human who dies, to anything, comes
+back a zombie 2 s later, at the spawn point (of four drawn) whose nearest
+human is nearest 25 m off; a join during play is a zombie; if the zombies
+all leave, another is drawn. A zombie has no shields, so a head shot that
+kills through them (the battle rifle's, the magnum's) is only a hit; the
+sniper's still kills. Neither side hurts its own: the check is in damage,
+melee's choice of target, splash and needles (a bullet still stops on a
+teammate). In gun game a kill moves its killer up a rung, the new gun in
+both hands, full, at once; an assassination moves its victim down one; on
+the sword only a sword kill counts. In Juggernaut whoever kills the
+juggernaut becomes it, everyone else is on one side, and the juggernaut's
+kills are its points.
+
+**How it fits.** The mode is a word of the header, `AH_MODE` at `REGION +
+0x48`, followed to `0x5c` by the humans and zombies counted every tick, the
+gun game's leader or the juggernaut, and a winner; all inside the
+prediction's copy. A fighter's side is a bit of its flags, `PF_ZOMBIE` (16)
+or `PF_JUGG` (32), so the prediction runs a zombie's legs as the confirmed
+world does. What only the confirmed world reads (the rung, the place,
+infections or points, ticks as a human) is 8 bytes a fighter at `MODE_REC`,
+`REGION + 0xc400`, hashed and in every keyframe. Draws, conversions,
+promotions and places are serial and in slot order like the rest of the
+match. A Fiesta writes none of it: 20,000 ticks of a Fiesta of eight AI
+fighters and 30,000 ticks of Fireplace hash on every tick as they did before
+modes, and the bots send the same words. The page draws zombies green, the
+juggernaut gold and everyone else in one blue when a mode has sides, shows
+the mode and its rule over the countdown, its count on the HUD (humans left;
+your rung of 9, the gun next and the leader; the juggernaut and the points),
+its news in the feed ("P12 INFECTED P40", "P3 IS ON THE SWORD") and its own
+columns on the board. The AI fighter leaves its own side alone; a zombie or
+the juggernaut runs at the nearest enemy, seen or not, zigzagging and
+jumping; Infection's humans keep together, back away inside 14 m and
+shoot.
+
+**Results.** `test/arena-modes.test.mjs` (12 tests): the rotation from a
+Fiesta with every mode field 0, a forced mode match after match and an
+unknown one played as a Fiesta; Infection's draw (one zombie of 2 and of 9,
+two of 25) and loadouts; a conversion (the victim a zombie, back in 2 s with
+the sword, the infection counted, no frag for it) and a sword that never
+runs out; no friendly fire from the shotgun, the magnum, needles, a frag
+(which still hurts its thrower) or a zombie's sword; a zombie at 12.5 m/s
+against 10 and jumping 1.84 m against 1.25, a magnum's head shot on a zombie
+a hit for 14, and the prediction equal to the confirmed world bit for bit
+through a zombie's runs, jumps and swings; the end with no human left and at
+the clock, places in that order, survivors sharing first; a late join a
+zombie and a zombie drawn when they all leave; gun game's ladder, its
+respawns, an assassination's demotion, a rifle kill on the sword rung that
+counts for nothing and the sword kill that ends the match on its tick; the
+prediction bit for bit after a respawn on a new rung; Juggernaut's draw, its
+overshield, the killer taking over, ten points, and a new juggernaut after
+one dies by its own frag; and eight AI fighters in each mode on the debug
+build, equal on every tick on 1 and 4 threads.
+
+How long Infection lasts was tuned on AI fighters, who aim better than most
+people: at first (a zombie spawning as far from the humans as anyone, a
+magnum head shot killing it) a lone zombie against fifteen humans infected
+nobody in a minute online. With the rules above, sixteen fighters on four
+seeds play matches of 45 to 147 s, and one the humans hold to the clock;
+eight fighters, 35 to 138 s. Eight fighters' gun game took 205 s to its
+sword kill. The determinism matrix replays 20,000 ticks of eight AI fighters
+in each of Infection (two matches over in it), gun game and Juggernaut: 27
+configurations each (Node, Deno, Chrome x JIT tiers x 1, 2 and 4 threads),
+equal on every tick, at 0.05 to 0.09 ms a tick on TurboFan in Deno and
+Chrome. Online, `net/run-arena.mjs --mode 1 --bots 15 --seconds 60`: 16
+sessions, 960 interval hashes checked by the referee, all equal, 14.4 bytes
+a closed tick on average, 5.6 KB/s down and 1.9 KB/s up a session, two
+zombies and 14 humans at the minute's end; `--mode 2` the same way: 960
+hashes, all equal, 64 kills. (The page's AI fighter had been playing slot
+0's view whatever its own slot; it plays its own now.)
+
+```sh
+node --test test/arena-modes.test.mjs
+node tools/genarena.mjs --bots 8 --ticks 20000 --mode 1 --out logs/arena-infection.qgl   # 2 gun game, 3 Juggernaut
+node harness/matrix.mjs --ticks 20000 --log logs/arena-infection.qgl --wasm build/arena/game.wasm
+node net/run-arena.mjs --mode 1 [--bots 15] [--seconds 60]
 ```
 
 ### Blood Gulch: structures and maps
@@ -273,7 +375,7 @@ bundle fits one datagram again. The late inputs and the relay's few stalls
 are this one machine running the relay, the referee, 255 bots and a headless
 Chrome at once.
 
-Not done yet: teams, vehicles, dropped weapons, a manual reload while firing,
+Not done yet: team slayer, vehicles, dropped weapons, a manual reload while firing,
 and a second map (though [making one](#making-a-map) is now a paint program
 and a text editor away).
 
@@ -286,10 +388,11 @@ going, snow at the window, a walnut console TV with rabbit ears. Click and you
 sit down: the camera closes in on the TV until its glass fills the screen, and
 you're in whatever the room is playing. When a game ends it pulls back to the
 room, and the TV shows the marshmallows and what's on next; then it closes in
-again. The room plays the playlist through, bumper balls (two rounds), a
-three-minute Fiesta in the arena, a hole of golf, again; the top three of each
-game get 3, 2 and 1 marshmallows. Join any time, into whatever is on (or the
-next round of it); leave any time.
+again. The room plays the playlist through: bumper balls (two rounds), party
+(three minigames), the arena (one three-minute match of Fiesta, Infection,
+gun game or Juggernaut, drawn for it), party again, a hole of golf, and round
+again; the top three of each game get 3, 2 and 1 marshmallows. Join any time,
+into whatever is on (or the next round of it); leave any time.
 
 ```sh
 node net/play.mjs --fireplace            # the relay on Fireplace's sim, 15 guests, the page; open the URL it prints
@@ -299,71 +402,100 @@ node net/play.mjs --fireplace --bots 0   # just people
 Click (or Enter) to sit down; then each game's own controls. `?bot=1` sits a
 guest at the controls; `?watch=1` spectates; F goes fullscreen.
 
-**How it fits on the engine.** `build/fireplace/game.wasm` is golf, the arena
-and bumper balls in one module: `tools/asm.mjs` expands each exactly as its
-own build is, puts its every identifier under a prefix (`$g.`, `$a.`, `$b.`)
-and makes its exports internal, and appends `src/fireplace.wat`. That sends
-every export to the game on now (the header's `FP_GAME`) and runs the playlist
-at the end of each tick. The ball phases and the barrier are the same code in
-every game, so the worker threads never change games. When a game's last match
-ends, its result is scored (golf: strokes; the arena: kills, then deaths;
-bumper: rounds won, then KOs, then bumps), the marshmallows handed out and the
-result held 6 s. Then the region is wiped but for the tick, the PRNG and the
-playlist's own state, the next game's world is built on a seed drawn from the
-room's PRNG, and everyone in the room is joined into it on that tick, keeping
-their input words when the two games read the same word (golf's, which bumper
-shares). What lasts from game to game (the marshmallows) sits in 8 KiB of the
-region no game touches. A game's static world (the terrain, the arena's map)
-is outside the region, so a keyframe from another game would land on the
-wrong ground: `FP_WORLD` says which world is built, and when the region comes
-from outside, `regrid` stashes it (`FP_STASH`), builds that game's world under
-it and puts it back. Nothing else changed: the relay, referee, keyframes,
-spectators and replays just see a sim.
+**How it fits on the engine.** `build/fireplace/game.wasm` is golf, the arena,
+bumper balls and party in one module: `tools/asm.mjs` expands each exactly as
+its own build is, puts its every identifier under a prefix (`$g.`, `$a.`,
+`$b.`, `$p.`) and makes its exports internal, and appends `src/fireplace.wat`.
+That sends every export to the game on now (the header's `FP_GAME`) and runs
+the playlist at the end of each tick. The ball phases and the barrier are the
+same code in every game, so the worker threads never change games. The
+playlist goes by position, not by game (`PLAYLIST` in `src/layout.mjs`): the
+count of games played (`FP_COUNT`'s high half) mod its length picks the next
+entry, so party comes round twice. When a game's last match ends, its result
+is scored (golf: strokes; the arena: a Fiesta by kills, then deaths, any other
+mode by the places it gives; bumper: rounds won, then KOs, then bumps; party:
+party points, then minigames won), the marshmallows handed out, the next
+entry's seed drawn and the result held 6 s. Then the region is wiped but for
+the tick, the PRNG and the playlist's own state, the next game's world is
+built on that seed, and everyone in the room is joined into it on that tick
+(bumper and party lay one round out with everyone in it), keeping their input
+words when the two games read the same word (golf's, which bumper and party
+share). The seed is a hash of the room's PRNG and the games played (`FP_NEXT`,
+`REGION + 0xe400`). The arena's forces a mode: `0xA8` in its top byte, the
+mode in the next, drawn by `$rand` from the four, never the one the arena
+played last (`FP_MODE`, `REGION + 0xe404`), and drawn as the game before ends
+so the TV can name it; whatever the mode, the match is cut to 3 min
+(Infection's already is; gun game and Juggernaut lose 2 min, a Fiesta 7).
+Party's keeps its top byte off `0xA7`, which would play one minigame only.
+What lasts from game to game (the marshmallows, the arena's last mode, the
+next seed) sits in 8 KiB of the region no game touches. A game's static world
+(the terrain, the arena's map) is outside the region, so a keyframe from
+another game would land on the wrong ground: `FP_WORLD` says which world is
+built, and when the region comes from outside, `regrid` stashes it
+(`FP_STASH`), builds that game's world under it and puts it back. Nothing else
+changed: the relay, referee, keyframes, spectators and replays just see a sim.
 
 `client/fireplace.html` is the page. One host (`client/host.mjs`: the memory,
 the net and sim workers, the prediction's instance, the sound, one GPU device)
-and each game's frontend (`client/bumper-game.mjs`, `arena-game.mjs`,
-`golf-game.mjs`) mounted on its own canvas as the room moves into it;
-`bumper.html` and `arena.html` are now the same frontends mounted alone. The net
-worker packs each tick's word in the format of the game on now. The room
-(`client/room-render.mjs`) is drawn like the cheese, solved per pixel: a few
-dozen boxes, two pumpkins and the antenna's rods, lit by the fire (it flickers,
-and its shadow is cast through the firebox's mouth), by the TV in the colour
-of the game on it, and by the snow light. The flames are a short march
-through the firebox. While the room is in view the game draws into a texture
-that the TV shows through a curved CRT with scanlines and a shadow mask, and
-those fade as the camera closes in, so the zoom's last frame is the game as it
-draws itself; then the page shows the game's own canvas. The TV's cards (the
-title, the standings) are drawn in the games' 3x5 font.
-`client/fireplace-bot.mjs` is a guest: a brain for each game, asked for the one
-that's on.
+and each game's frontend (`client/bumper-game.mjs`, `party-game.mjs`,
+`arena-game.mjs`, `golf-game.mjs`) mounted on its own canvas as the room moves
+into it (bumper balls and party at the window's size, golf and the arena at
+320 x 200); `bumper.html`, `party.html` and `arena.html` are the same
+frontends mounted alone. The net worker packs each tick's word in the format
+of the game on now. The room (`client/room-render.mjs`) is drawn like the
+cheese, solved per pixel: a few dozen boxes, two pumpkins and the antenna's
+rods, lit by the fire (it flickers, and its shadow is cast through the
+firebox's mouth), by the TV in the colour of the game on it, and by the snow
+light. The flames are a short march through the firebox. While the room is in
+view the game draws into a texture that the TV shows through a curved CRT with
+scanlines and a shadow mask, and those fade as the camera closes in, so the
+zoom's last frame is the game as it draws itself; then the page shows the
+game's own canvas. The TV's cards (the title, the standings, what's next, the
+arena by its mode: "NEXT: ARENA INFECTION") are drawn in the games' 3x5 font.
+`client/fireplace-bot.mjs` is a guest: a brain for each game (party's is
+`client/party-bot.mjs`'s Partier), asked for the one that's on.
 
-**Results.** `test/fireplace.test.mjs` (6 tests): the prefixer; one module with
-every export; the playlist played through on the debug build with the room
-coming and going (bumper balls, the arena cut to 3 min, golf, bumper again,
-everyone in each new game straight after the switch); marshmallows, 3, 2 and 1,
-kept from game to game and lost with the slot; the playlist equal on every
-tick on 1 and 4 threads; and keyframes taken mid-arena, mid-golf and just after a
-switch, each restored into a sim sitting in bumper balls' world, its terrain and
-map rebuilt, every tick after equal to a run that never left. The determinism
-matrix replays 60,000 ticks of twelve guests through bumper balls, the arena
-and golf (the arena from 191 s, golf from 380 s): 27 configurations (Node,
-Deno, Chrome x JIT tiers x 1, 2 and 4 threads), equal on every tick, at about
-0.05 ms a tick on TurboFan. Online, 64 guests for 260 s on one 4-core machine:
-the room moved from bumper balls into the arena, 16,256 interval hashes
-checked, all equal, 11 KB/s down a session. The switch tick costs 34 ms on the
-relay's referee and every client (most of it the arena's 512 x 512 terrain);
-the sim workers catch up past it.
+**Results.** `test/fireplace.test.mjs` (9 tests, 47 s here): the prefixer; one
+module with every export; the playlist on the debug build from bumper balls
+round to bumper balls again, the room coming and going (each game's matches:
+two rounds, three minigames, one match cut to 3 min, one hole; everyone in
+each new game straight after its switch; no party seed forcing a minigame);
+the arena's seed drawn as the party before it ended, and the mode it played;
+marshmallows, 3, 2 and 1, by each game's places (party's by points, then wins;
+a mode's by its own), summed from game to game and lost with the slot; the
+mode's draw (any of the four, then never the last, 40 draws each way), each
+mode's match cut to 3 min and placed by the mode; a party seed that came out
+with `0xA7` on top turned off it; the playlist equal on every tick on 1 and 4
+threads through bumper balls and the switch into party; and keyframes taken
+just into party, mid-party, mid-arena and mid-golf, each restored into a sim
+sitting in bumper balls' world, its terrain and map rebuilt, every tick after
+equal to a run that never left. The determinism matrix replays 145,000 ticks
+of twelve guests, the playlist round once with the minigames as they stand at
+this commit: bumper balls, party from 191 s (Tag, Paint Party, Musical Pads),
+the arena from 495 s (Juggernaut, drawn), party from 684 s (Color Call, Red
+Light, Hot Potato), golf from 970 s and bumper balls again from 1129 s: 27
+configurations (Node, Deno, Chrome x JIT tiers x 1, 2 and 4 threads), equal on
+every tick, at 0.056 to 0.058 ms a tick on TurboFan in Deno and Chrome, the
+region's hash included. Online, `net/run-fireplace.mjs --bots 15 --seconds
+270` on one 4-core machine shared with other work: 16 sessions (15 guests and
+Chrome), the room moved from bumper balls into party at 147 s, 4,174 interval
+hashes checked by the referee, all equal, 7 bytes a closed tick on average,
+3.8 KB/s down and 2.0 KB/s up a session. On SwiftShader the switch into party
+holds up the page's GPU for about 40 s while party's pipelines compile
+(bumper's take about 14 s as the page starts); its sim worker and its hashes
+carry on, and it catches up. The switch tick costs 30 to 46 ms (measured
+with the machine busy) on the relay's referee and every client (most of it
+the 512 x 512 terrain each game builds); the sim workers catch up past it.
 
 ```sh
 node --test test/fireplace.test.mjs
-node tools/genfireplace.mjs --bots 12 --ticks 60000 --out logs/fireplace.qgl
-node harness/matrix.mjs --ticks 60000 --log logs/fireplace.qgl --wasm build/fireplace/game.wasm
-node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--res 960x600]
+node tools/genfireplace.mjs --bots 12 --ticks 145000 --out logs/fireplace.qgl   # or --games 6: 1500 ticks into bumper balls again
+node harness/matrix.mjs --ticks 145000 --log logs/fireplace.qgl --wasm build/fireplace/game.wasm
+node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--res 960x600] [--port 4433]
 ```
 
-Not done yet: more games in the playlist, a vote for what's next, names, and a
-way to lean back from the TV mid-game.
+Not done yet: a vote for what's next, names, and a way to lean back from the
+TV mid-game.
 
 ## Bumper balls
 
@@ -513,6 +645,112 @@ node net/run-bumper.mjs [--bots 15] [--chrome 1] [--seconds 100] [--impair delay
 ```
 
 Not done yet: teams, a lobby between rounds, and the cheese tilting.
+
+## Party
+
+![Fruit Chute with 128 balls: the belt carrying everyone down, fruit rolling down the lanes](docs/p1-chute-128.png)
+
+Bumper balls' ball, and every round a different minigame: fourteen of them,
+after Mario Party, Fall Guys, Squid Game and Roblox, up to 256 in a room.
+`src/` built with `BUMPER` and `PARTY` set (`build/party/game.wasm`), with the
+same lockstep, relays, keyframes, prediction, spectators and replays.
+
+```sh
+node net/play.mjs --party               # the relay on Party's sim, 15 AI balls, the page; open the URL it prints
+node net/play.mjs --party --mg 3        # every round Red Light (a minigame's number, below)
+node net/play.mjs --party --bots 255    # a full room
+```
+
+The controls are bumper balls': the mouse turns you, WASD rolls, Space hops,
+a click uses what you hold, Tab shows the standings. A round is a 6 s title
+card (the minigame's name, how it plays, how it's won), the round, and 5 s of
+its result; the next minigame is drawn from the room's PRNG, never one of the
+last two. A win is 10 party points and last place 1, in even steps between;
+the standings are party points, then wins. `?bot=1` hands your ball to an AI;
+`?watch=1` spectates.
+
+| # | Minigame | Won by | How it plays |
+| --- | --- | --- | --- |
+| 0 | THIN ICE | last one in | three floors of hex ice; a tile cracks under your ball and drops 0.64 s later; fall through all three and you're out |
+| 1 | COLOR CALL | last one in | hex tiles in 4 or 5 colours; a colour is called, 2.6 s shrinking to 1.2 s, then every other colour drops for 1.5 s; from the 5th call the outer ring goes for good, from the 18th only the one called tile holds |
+| 2 | SWEEPER | last one in | bars sweep round from a post at ball height, faster every second; hop them; a second bar at 16 s, a third at 36, a fourth at 56, each one reversing them; the outer rings drop from 66 s |
+| 3 | RED LIGHT | finishing order | 170 m to the line past a giant doll; roll while she sings, and 0.35 s after she turns, anything faster than 1.2 m/s is caught; bumps are on until she looks, without bumper's kick once red starts |
+| 4 | BOMB RAIN | last one in | bombs fall where a ring on the floor says, half of them aimed at a ball; big ones blow craters in the tiles; the rim crumbles in to 10 m |
+| 5 | THE WALL | last one in | walls with gaps sweep across a square stage and carry off what they meet; faster, fewer gaps, and from 40 s every other wall sways |
+| 6 | MUSICAL PADS | last one in | the music stops, pads light up, half as many as balls left; 4 s later everyone not on a pad is out; a gold pad pays a power-up |
+| 7 | KING OF THE HILL | points | a hill swells out of the floor every 15 s, its top zone shrinking; a point a tick on it, two on the crown; two hills from 48 balls, three from 128 |
+| 8 | HOT POTATO | last one in | a bomb for every three balls; touch someone to pass it; a holder rolls 15% faster; the fuse is 12 s, a second shorter each wave |
+| 9 | COIN RUSH | points | coins rain on a pinball disc; take one by touching it; a hard bump knocks up to 3 of yours loose, a fall spills half; jackpots called 3 s ahead; a frenzy for the last 15 s |
+| 10 | PAINT PARTY | points | a 256 x 256 grid of cells; every cell you roll over is yours until someone rolls over it; paint bombs burst 4 m round; the last 10 s paint wider |
+| 11 | DOWNHILL | finishing order | 450 to 600 m of track from 100 m up: drops, banked bends, a jump over a gap, a funnel, bumpers, spinners and sweepers, boost pads and power-up boxes |
+| 12 | FRUIT CHUTE | finishing order | a 100 m conveyor rising 20 m carries everyone down at 3 m/s while grapes, apples, oranges and melons roll down its lanes |
+| 13 | TAG | points | one it for every 16 balls; an it that touches you makes you it; a point a second free; springs for the free, dashes for the its |
+
+**How it fits on the engine.** `src/party.wat` is the framework: the rounds,
+the rotation, joins, the ball's roll over any stage, outs, places and points.
+bumper.wat's ball, power-ups, bumps and blasts stay; its cheese and its round
+are behind `#if !PARTY`, so bumper balls' own build is bit for bit what it was.
+Each minigame is its own file, `src/mg/<key>.wat` (its constants in
+`src/mg/<key>.mjs`, re-exported by `src/layout.mjs`), and supplies nine
+hooks under its prefix: `setup` lays the stage out for the balls in,
+`spawn` places them, `start` and `tick` run its world, `over` ends it early,
+`out` hears of a ball going out, and `begin` (one ball's own start as play
+starts), `ground` (the top of what's solid under a point) and `push`
+(kinematic hazards on one ball) run on either bank, the confirmed world or
+the prediction. The `(!mg)` macro calls the one on now.
+State lives in 112 bytes of the header (in the prediction's copy), 7.75 KiB
+past the projectiles and the 448 KiB golf keeps its balls in, all hashed and
+in every keyframe.
+
+Every stage moves on a schedule: what a ball meets (a falling tile, a bar,
+a wall, a fruit, a bomb's blast, a hill) is a function of the tick, the round's
+seed and state the confirmed world fixed at least a second before, so the
+prediction rolls your ball through it exactly as the confirmed world will,
+and you dodge on the next frame at any latency. Thin Ice's tile drops 0.64 s
+after your ball cracks it, so the prediction cracks your ball's ice itself
+(marked in its own FX ring), and is exact as far ahead as it runs. Only ball against ball (a
+bump, a pass, a tag, a claim) is the confirmed world's and comes a round trip
+later, eased in like any correction. The minigames' tests check the
+prediction bit for bit against the confirmed ball through each hazard.
+
+`client/party.html` is the page (`client/party-game.mjs`), and
+`client/party-render.mjs` its renderer: bumper balls' look made general. The
+stage is instanced solids (boxes, cylinders, hex prisms, spheres) in ten
+looks (matte, plastic, ice that cracks, metal, hazard stripes, glow, paint,
+checker, wood, rubber), lit by the sun and the sky with a shadow map, tone
+mapped, at the window's resolution with 4x multisampling; flat decals for
+rings, zones and pads; a paint layer for Paint Party's grid; four skies
+(day, sunset, night, snow). Each minigame's client module
+(`client/mg/<key>.mjs`) draws its stage into a scene, turns its FX into
+flashes and sounds, writes its HUD lines and gives the AI ball its sense of
+the stage. `client/party-bot.mjs` is the AI ball: it rolls its own ball ahead
+0.45 to 0.85 s for 16 headings and coasting, scores each by the minigame's
+danger, its goal and the room from rivals, and lets a minigame steer outright
+(Red Light's brakes). 255 of them take 1.2 to 2.1 ms a tick.
+
+**Results.** `test/party.test.mjs` (16 tests) covers the framework: the other
+builds' bytes unchanged, rounds laid out for 1 to 256 balls, the rotation, a
+forced minigame, both kinds of end, places and points, late joiners, the
+prediction, and rounds of AI balls equal on every tick on 1 and 4 threads.
+Each minigame has its own file (`test/mg-<key>.test.mjs`, 175 tests in all):
+its stage for 1, 8, 64 and 256 balls, each rule, the prediction through its
+hazards, and rounds of 8 and 64 AI balls on the debug build, equal on 1 and 4
+threads. Every minigame's recorded log, 20,000 ticks of 16 AI balls, replays
+equal on every tick in all 27 configurations of the determinism matrix.
+Online, a relay on Party's sim with Chrome and 31 AI balls through the
+rotation for 420 s: 32 sessions, 13,151 interval hashes checked, all equal;
+with 63 AI balls for 200 s, 64 sessions and 12,535 hashes, all equal;
+and each minigame forced, most with 16 and with 128 balls, every hash equal. Party's
+wasm is 69 KB, 29 KB gzipped; a tick of 256 balls is 0.2 ms.
+
+```sh
+node --test test/party.test.mjs test/mg-*.test.mjs
+node tools/genparty.mjs --bots 16 --ticks 20000 --out logs/party.qgl [--mg k]
+node harness/matrix.mjs --ticks 20000 --log logs/party.qgl --wasm build/party/game.wasm
+node net/run-party.mjs [--mg k] [--bots 15] [--chrome 1] [--seconds 60] [--res 1280x800]
+```
+
+Not done yet: teams, and power-ups in more of the minigames.
 
 ## Play it
 

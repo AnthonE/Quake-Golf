@@ -2,28 +2,30 @@
 
 One engine, hand-written WebAssembly (no compiler), deterministic lockstep at
 125 Hz: only inputs cross the network, and every machine steps the same bits.
-Three games build from `src/`: golf (`build/game.wasm`), the arena with
-`ARENA` set (`build/arena/`), and bumper balls with `BUMPER` set
-(`build/bumper/`). **Fireplace** (`build/fireplace/`) is the party game made
-of them: all three in one module, a playlist the room plays through, a living
+Four games build from `src/`: golf (`build/game.wasm`), the arena with
+`ARENA` set (`build/arena/`), bumper balls with `BUMPER` set
+(`build/bumper/`), and party, a minigame a round, with `BUMPER` and `PARTY`
+(`build/party/`). **Fireplace** (`build/fireplace/`) is the party game made
+of them: all four in one module, a playlist the room plays through, a living
 room for a menu (`client/fireplace.html`). `xbox/sim/` is a frozen fork of
 `src/` for the original Xbox (`build/xbox/`). README.md is the long-form doc;
-read the section for whatever you touch.
+read the section for whatever you touch. `docs/roadmap.md` is the plan for
+what comes next.
 
 ## Commands
 
 ```sh
 npm ci && sh tools/install-deno.sh   # once: wabt, binaryen, Deno 2.9.7 in .tools/
 npm run build                        # every sim; prints each wasm's sha256
-npm test                             # node --test test/*.test.mjs, about 40 s
+npm test                             # node --test test/*.test.mjs, 354 tests, about 5 min
 node --test test/bumper.test.mjs     # one file
 node harness/matrix.mjs --ticks 20000 --log logs/x.qgl --wasm build/<sim>/game.wasm   # Node, Deno, Chrome x JIT tiers x 1/2/4 threads
-node net/play.mjs [--arena | --bumper | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
-node net/run-arena.mjs / run-bumper.mjs / run-fireplace.mjs / run-n1.mjs ...   # online gates: relay, bot host, headless Chrome, every hash checked
+node net/play.mjs [--arena [--mode k] | --bumper | --party [--mg k] | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
+node net/run-arena.mjs / run-bumper.mjs / run-party.mjs / run-fireplace.mjs / run-n1.mjs ...   # online gates: relay, bot host, headless Chrome, every hash checked
 ```
 
 Logs for the matrix come from `tools/genlog.mjs`, `gengame.mjs`,
-`genarena.mjs`, `genbumper.mjs`, `genfireplace.mjs`. Gates write `traces/`
+`genarena.mjs`, `genbumper.mjs`, `genparty.mjs`, `genfireplace.mjs`. Gates write `traces/`
 (screenshots included). Headless Chrome is Playwright's preinstalled Chromium
 on SwiftShader: pictures are right, frame rates mean nothing, and drawing to an
 on-screen canvas destroys the GPU device, so gate pages run with `?present=0`
@@ -52,7 +54,7 @@ shell whose own command line contains the name: it kills that shell.
   steering only, never fed back. Mirror the sim's integer semantics, e.g. i32
   subtraction wraps (`(a - b) | 0`).
 
-## Layout and the three games
+## Layout and the games
 
 - `src/layout.mjs` is the one memory map for the WAT (`@NAME`, `@(expr)`),
   the harness, the net code and the clients. Physics literals sit in `PHYS`
@@ -61,17 +63,37 @@ shell whose own command line contains the name: it kills that shell.
   their differences behind `#if ARENA` / `#if BUMPER` (nesting works, `#if !X`
   too). Changing a mode must leave the other builds bit-identical: compare the
   sha256s `npm run build` prints before and after.
+- Party (`src/party.wat`) is bumper's ball with bumper.wat's cheese and round
+  behind `#if !PARTY`. Each minigame is `src/mg/<key>.wat` (nine hooks under
+  its prefix, called through `(!mg)`), its constants in `src/mg/<key>.mjs`
+  (re-exported by layout.mjs; literal numbers, no imports), its client module
+  `client/mg/<key>.mjs`, its tests `test/mg-<key>.test.mjs`. State only in
+  `PG_H` (header, in the prediction's copy), `PG_S`, `PG_BIG` and the record's
+  party fields. `begin` (a ball's own start), `ground` and `push` run on the
+  prediction's bank too: they read bank d's header, confirmed state fixed at
+  least as far ahead as the prediction runs (the host's 201 ticks), and bank
+  d's FX ring (what its own ball did this run: Thin Ice's own cracks), and
+  write only that ball's record and that ring. A seed whose top byte is 0xA7
+  forces a minigame (`--mg k`).
+- The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut)
+  are picked per match at run time, not built: `AH_MODE` at `REGION + 0x48`,
+  a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`), per-fighter state at `MODE_REC`.
+  A Fiesta must leave all of it 0, so its region stays what it was;
+  `forcedSeed(m)` (`arena-view.mjs`) makes a room play one mode.
 - `xbox/sim/` is frozen. Net and harness code shared by both sims reads
   memory through names that must mean the same in both layouts
   (`test/fork.test.mjs`); add new names, don't move old ones.
 - Fireplace (`src/fireplace.wat`): each game is its own build under a prefix
-  (`tools/asm.mjs` `prefixed()`), so a change to a game changes Fireplace too.
-  The playlist's state is the header's last 16 bytes (`FP_GAME`...) and
-  `REGION + 0xe000` (8 KiB no game uses): keep games out of both. A game's
-  static world (terrain, map) is rebuilt by `regrid` when a keyframe from
-  another game arrives (`FP_WORLD`, `FP_STASH` at `0x360000`).
+  (`tools/asm.mjs` `prefixed()`, `GAMESETS`), so a change to a game changes
+  Fireplace too. The playlist's state is the header's last 16 bytes
+  (`FP_GAME`...) and `REGION + 0xe000` (8 KiB no game uses: marshmallows,
+  `FP_NEXT`, `FP_MODE`): keep games out of both. `PLAYLIST` goes by position
+  (games played mod its length), so a game may come twice; the next seed is
+  drawn as a game ends (the arena's forces a mode, party's never a minigame).
+  A game's static world (terrain, map) is rebuilt by `regrid` when a keyframe
+  from another game arrives (`FP_WORLD`, `FP_STASH` at `0x360000`).
 - Inputs are one u32 word per player per tick (golf's layout in
-  `src/view.mjs`; the arena's in `arena-view.mjs`; bumper reuses golf's).
+  `src/view.mjs`; the arena's in `arena-view.mjs`; bumper and party reuse golf's).
   Keep fields that rarely change still: wire v4 codes deltas.
 
 ## Clients

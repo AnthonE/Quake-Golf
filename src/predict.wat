@@ -29,10 +29,17 @@
         (i32.store (i32.const @(HDR_STATE + PRED_D)) (i32.const @H_PLAY))
         (i32.store (i32.const @(HDR_START + PRED_D)) (local.get $t))
 #if ARENA
-        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @MATCH_TICKS)))))
+        (local.set $o (i32.load (i32.const @(AH_MODE + PRED_D))))
+        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (!tab MODE_TICKS (local.get $o))))))
 #else
 #if BUMPER
+#if PARTY
+        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.load (i32.const @(PG_LEN + PRED_D)))))
+        ;; the ball's own start, as the confirmed world's begins every ball
+        (!mg none begin (local.get $p) (i32.const @PRED_D))))
+#else
         (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @ROUND_TICKS)))))
+#endif
 #else
         (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @LIMIT_TICKS)))))
 #endif

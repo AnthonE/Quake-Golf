@@ -274,6 +274,8 @@ export const PHYS = {
   AIRCAP: '1', // Quake's 30-unit air wishspeed cap
   GP_DT: '0.16', // 20 m/s^2 on players, per tick
   JUMP: '7',
+  ZRUN: '12.5', // the arena's zombies and juggernaut run a quarter faster
+  ZJUMP: '8.5', // and jump 1.8 m, not 1.2
   SNAP: '0.25', // the ground follows walking feet within this
   PVMAX2: '6400', // (80 m/s)^2
   // weapons
@@ -409,6 +411,7 @@ export const COOL_TICKS = 80;
 export const SWAP_TICKS = 40;
 export const A_FUSE = 225; // 1.8 s
 
+
 // The map (tools/map.mjs builds it from maps/<name>/ into the arena's wasm, as
 // a passive data segment that init copies out): static, the same on every
 // machine, outside the region like the terrain, so never hashed or
@@ -487,6 +490,71 @@ export const FX_SPAWN = 7;
 export const FX_PICKUP = 8;
 export const FX_MELEE = 9;
 export const FX_TELE = 10; // a fighter through a teleporter: where it came out, the slot as owner
+
+// Modes: the rules of a match, chosen at run time as its countdown starts, all
+// on the one build. Match k of a room (HDR_HOLE counts them) plays
+// ARENA_MODES[k % length], so a room's first match is always M_FIESTA (the
+// build's own rules above: Fiesta, or slayer with FIESTA 0). A seed whose top
+// byte is FORCE_MODE plays mode (seed >>> 16) & 0xff every match, for gates
+// and dev. M_FIESTA leaves every field below at 0, so a Fiesta's region is
+// what it always was.
+//   M_INFECTION (Halo's): at the countdown's end one fighter in ten (at least
+//   one) is drawn a zombie: an energy sword that never runs out, ZRUN and
+//   ZJUMP, no shields (and so no dying to a head shot that kills through
+//   them), half the damage of any gun but the shotgun; humans get a shotgun,
+//   a magnum and two frags. Neither side hurts its own. A human who dies
+//   comes back a zombie; if the zombies all leave, another is drawn. Over
+//   when no human is left, or at the clock.
+//   M_GUNGAME (Arsenal's): the LADDER's guns in order; a kill moves the killer
+//   up a rung (its gun, full, at once), an assassination moves the victim
+//   down one, the first kill with the sword wins. No pads.
+//   M_JUGGERNAUT: one fighter drawn the juggernaut (the sword, an
+//   overshield, a zombie's legs); everyone else is on one side against it.
+//   Kill it to become it; a kill as the juggernaut is a point, JUGG_POINTS win.
+export const M_FIESTA = 0;
+export const M_INFECTION = 1;
+export const M_GUNGAME = 2;
+export const M_JUGGERNAUT = 3;
+export const MODES = [
+  { name: FIESTA ? 'FIESTA' : 'SLAYER', rules: FIESTA ? 'RANDOM GUNS  MOST KILLS IN 10 MIN' : `${FRAG_LIMIT} KILLS WIN`, ticks: MATCH_TICKS },
+  { name: 'INFECTION', rules: 'ZOMBIES HAVE SWORDS  STAY HUMAN FOR 3 MIN', ticks: 22500 },
+  { name: 'GUN GAME', rules: 'EVERY KILL A NEW GUN  FIRST SWORD KILL WINS', ticks: 37500 },
+  { name: 'JUGGERNAUT', rules: 'KILL THE JUGGERNAUT TO BECOME IT  10 POINTS', ticks: 37500 },
+];
+export const MODE_TICKS = MODES.map((m) => m.ticks);
+export const ARENA_MODES = [M_FIESTA, M_INFECTION, M_GUNGAME, M_JUGGERNAUT];
+export const FORCE_MODE = 0xa8;
+export const TEAM_MODES = (1 << M_INFECTION) | (1 << M_JUGGERNAUT); // modes with sides: no hurting your own
+export const LADDER = [W_AR, W_BR, W_MAGNUM, W_SHOTGUN, W_PLASMA, W_NEEDLER, W_SNIPER, W_ROCKET, W_SWORD];
+export const JUGG_POINTS = 10;
+export const ZRESPAWN_TICKS = 250; // 2 s: a zombie comes back sooner
+export const OVERSHIELD = 200; // the juggernaut's shields; they recharge only to 100
+// In the header past golf's fields (inside the prediction's copy):
+export const AH_MODE = REGION + 0x48; // u32 M_*: this match's
+export const AH_HUMANS = REGION + 0x4c; // u32 Infection: live humans, counted every tick of play
+export const AH_ZOMBIES = REGION + 0x50; // u32 Infection: live zombies
+export const AH_LEADER = REGION + 0x54; // u32 gun game: the leader + 1; Juggernaut: the juggernaut + 1 (0 none)
+export const AH_WINNER = REGION + 0x58; // u32 gun game: the sword's killer + 1; Juggernaut: who reached JUGG_POINTS + 1
+// A fighter's side, in P_FL (the prediction reads it: a zombie's legs are predicted):
+export const PF_ZOMBIE = 16; // Infection: a zombie
+export const PF_JUGG = 32; // Juggernaut: the juggernaut
+// Per fighter, past the spawn points (hashed, in every keyframe, not in the
+// prediction's copy: only the confirmed world reads it), cleared as a mode is picked:
+export const MODE_REC = ARENA + 0x300; // 256 x 8 B
+export const MR_SIZE = 8;
+export const MR_RUNG = 0; // u8 gun game: the rung (0 the assault rifle .. 8 the sword, 9 won)
+export const MR_PLACE = 1; // u8 where it finished (1 first, ties share), set as a match of a mode ends
+export const MR_POINTS = 2; // u16 Infection: humans infected; Juggernaut: kills as the juggernaut
+export const MR_HUMAN = 4; // u16 Infection: ticks lived as a human
+// FX_MODE: a mode's news for the feed, what happened as its size, who as owner, whom as shot.
+export const FX_MODE = 14;
+export const MX_INFECT = 1; // owner infected shot (owner == shot: a human died alone and turned)
+export const MX_ZOMBIE = 2; // owner was drawn a zombie
+export const MX_LAST = 3; // owner is the last human
+export const MX_RUNG = 4; // owner moved up to rung shot
+export const MX_DEMOTE = 5; // owner was moved down to rung shot
+export const MX_WIN = 6; // owner won the match
+export const MX_JUGG = 7; // owner is the juggernaut
 
 // ---- Bumper balls: src/ built with BUMPER (build/bumper/game.wasm). The
 // same world, netcode and lockstep; every player is a ball now, and the golf
@@ -589,33 +657,130 @@ export const BPHYS = {
   ORB_FALL: '0.08', // 10 m/s, per tick
 };
 
+// ---- Party: src/ built with BUMPER and PARTY (build/party/game.wasm).
+// Bumper balls' ball, and every round a different minigame on its own stage,
+// up to 256 in a room. bumper.wat's ball, power-ups, bumps and blasts stay;
+// its cheese and its round give way to src/party.wat, the framework (rounds,
+// rotation, joins, the ball's move over any stage, outs, places, points),
+// which calls each minigame's hooks (src/mg/<key>.wat, named $<prefix>_<hook>)
+// through (!mg). A minigame's own constants live in src/mg/<key>.mjs, every
+// name under its prefix in capitals, and are re-exported below.
+export const MINIGAMES = [
+  { key: 'thinice', prefix: 'ti', name: 'THIN ICE' },
+  { key: 'color', prefix: 'cc', name: 'COLOR CALL' },
+  { key: 'sweep', prefix: 'sw', name: 'SWEEPER' },
+  { key: 'light', prefix: 'rl', name: 'RED LIGHT' },
+  { key: 'bombs', prefix: 'bo', name: 'BOMB RAIN' },
+  { key: 'wall', prefix: 'wl', name: 'THE WALL' },
+  { key: 'pads', prefix: 'mp', name: 'MUSICAL PADS' },
+  { key: 'hill', prefix: 'kh', name: 'KING OF THE HILL' },
+  { key: 'potato', prefix: 'hp', name: 'HOT POTATO' },
+  { key: 'coins', prefix: 'cr', name: 'COIN RUSH' },
+  { key: 'paint', prefix: 'pp', name: 'PAINT PARTY' },
+  { key: 'race', prefix: 'rc', name: 'DOWNHILL' },
+  { key: 'chute', prefix: 'fc', name: 'FRUIT CHUTE' },
+  { key: 'tag', prefix: 'tg', name: 'TAG' },
+]; // index = MG_*
+export const MG_THINICE = 0;
+export const MG_COLOR = 1;
+export const MG_SWEEP = 2;
+export const MG_LIGHT = 3;
+export const MG_BOMBS = 4;
+export const MG_WALL = 5;
+export const MG_PADS = 6;
+export const MG_HILL = 7;
+export const MG_POTATO = 8;
+export const MG_COINS = 9;
+export const MG_PAINT = 10;
+export const MG_RACE = 11;
+export const MG_CHUTE = 12;
+export const MG_TAG = 13;
+export const NMG = 14;
+
+export const PK_OUT = 0; // out is out: the last ball in wins
+export const PK_SCORE = 1; // a ball that falls comes back; placed by PG_SCORE at the end
+export const PGF_BUMPS = 1; // PG_FLAGS: balls bump
+export const PGF_NOKICK = 2; // PG_FLAGS: a bump has no kick, only what the balls bring (elastic)
+export const P_COUNT = 750; // 6 s countdown, the minigame's title up
+export const P_OVER = 625; // 5 s of the result
+export const FX_MG = 32; // minigame k's own FX kinds are FX_MG + 4k .. FX_MG + 4k + 3
+export const P_STEP = '0.3'; // a ball rolls up onto anything this much higher than its bottom
+
+// The header, past golf's fields (inside the prediction's copy; Fireplace owns 0xf0..0x100).
+export const PG_GAME = REGION + 0x48; // u32 MG_* of the round now (or the next, while laid out for the countdown)
+export const PG_KIND = REGION + 0x4c; // u32 PK_*
+export const PG_LEN = REGION + 0x50; // u32 the round's length in ticks, from the countdown's end
+export const PG_FLOOR = REGION + 0x54; // f32 the lowest floor's top: a ball OUT_DEPTH under it is out (or down)
+export const PG_SIZE = REGION + 0x58; // f32 the stage's radius (or half-width), for the camera, the minimap, the bots
+export const PG_ACC = REGION + 0x5c; // f32 the push, times bumper's
+export const PG_DRAG = REGION + 0x60; // f32 rolling drag a tick with keys held
+export const PG_IDLE = REGION + 0x64; // f32 rolling drag a tick with no move keys: lower brakes harder
+export const PG_HOP = REGION + 0x68; // f32 hop speed; 0: no hop
+export const PG_RESPAWN = REGION + 0x6c; // u32 PK_SCORE: ticks a fallen ball waits
+export const PG_FLAGS = REGION + 0x70; // u32 PGF_*
+export const PG_FORCE = REGION + 0x74; // u32 0, or MG + 1: every round is that minigame
+export const PG_PREV = REGION + 0x78; // u32 the last minigame played (low byte) and the one before, 255 for none
+export const PG_CX = REGION + 0x7c; // f32 the stage's centre, world x and z
+export const PG_H = REGION + 0x80; // 112 B the minigame's own header (phase, timings, the call, seeds), to 0xf0
+export const PG_H_SIZE = 112;
+// A ball's fields past bumper's, in bytes golf leaves free.
+export const PG_SCORE = 56; // u16 this round's score, zeroed each round
+export const PG_PTS = 58; // u16 party points, every round so far
+export const PG_M = 60; // u32 the minigame's own field, zeroed each round
+// Hashed and in every keyframe, not in the prediction's copy; zeroed before each round's setup.
+export const PG_S = REGION + 0xc100; // 7936 B small minigame state, to 0xe000 (Fireplace owns 0xe000..0x10000)
+export const PG_S_SIZE = 0xe000 - 0xc100;
+export const PG_BIG = REGION + 0x10000; // big minigame state (tiles, grids), to the region's end: party has no golf balls
+export const PG_BIG_SIZE = REGION_SIZE - 0x10000;
+
+export * from './mg/thinice.mjs';
+export * from './mg/color.mjs';
+export * from './mg/sweep.mjs';
+export * from './mg/light.mjs';
+export * from './mg/bombs.mjs';
+export * from './mg/wall.mjs';
+export * from './mg/pads.mjs';
+export * from './mg/hill.mjs';
+export * from './mg/potato.mjs';
+export * from './mg/coins.mjs';
+export * from './mg/paint.mjs';
+export * from './mg/race.mjs';
+export * from './mg/chute.mjs';
+export * from './mg/tag.mjs';
+
 // ---- Fireplace: every game in one module (build/fireplace/game.wasm), a
 // playlist of matches the room plays through, Mario Party style; people come
 // and go as they please. Each game is its own build, unchanged, under a prefix
-// ($g. golf, $a. the arena, $b. bumper balls); src/fireplace.wat dispatches
-// every export to the game on now and, at the end of a tick, runs the
-// playlist: when a game's last match ends it hands out marshmallows (3, 2 and 1
-// for the top three), holds the result, then wipes the world, builds the next
-// game's on a fresh seed and joins everyone in the room into it.
+// ($g. golf, $a. the arena, $b. bumper balls, $p. party); src/fireplace.wat
+// dispatches every export to the game on now and, at the end of a tick, runs
+// the playlist: when a game's last match ends it hands out marshmallows (3, 2
+// and 1 for the top three), holds the result, then wipes the world, builds the
+// next game's on a fresh seed and joins everyone in the room into it.
 export const G_GOLF = 0;
 export const G_ARENA = 1;
 export const G_BUMPER = 2;
-export const GAMES = ['GOLF', 'ARENA', 'BUMPER BALLS'];
-export const PLAYLIST = [G_BUMPER, G_ARENA, G_GOLF];
-export const FP_MATCHES = [1, 1, 2]; // by game: matches it plays before the next game (bumper: rounds)
+export const G_PARTY = 3;
+export const GAMES = ['GOLF', 'ARENA', 'BUMPER BALLS', 'PARTY'];
+// By position, so a game may come round more than once: the room plays entry
+// (games played) % length next.
+export const PLAYLIST = [G_BUMPER, G_PARTY, G_ARENA, G_PARTY, G_GOLF];
+export const FP_MATCHES = [1, 1, 2, 3]; // by game: matches it plays before the next game (bumper's rounds, party's minigames)
 export const FP_HOLD = 750; // 6 s of the result, the standings, then the next game
-export const FP_ARENA_TICKS = 22500; // a Fiesta of 3 min, not 10
+export const FP_ARENA_TICKS = 22500; // an arena match of 3 min, whatever its mode (Infection's is 3 already; the rest 5 or 10)
 export const FP_GOLF_TICKS = 18750; // a hole of at most 2.5 min, not 4
+export const FP_PARTY_FORCE = 0xa7; // a party seed with this top byte plays one minigame only (party.wat's $bumper_gen): Fireplace's never has it
 // In the header's last 16 bytes, which no game uses (inside the prediction's copy):
 export const FP_GAME = REGION + 0xf0; // u32 G_*: the game on now
 export const FP_STAGE = REGION + 0xf4; // u32 0 playing, 1 its last result held
 export const FP_AT = REGION + 0xf8; // u32 tick the held result gives way to the next game
-export const FP_COUNT = REGION + 0xfc; // u8 matches of this game over | u8 its last state seen | u16 games the room has played
+export const FP_COUNT = REGION + 0xfc; // u8 matches of this game over | u8 its last state seen | u16 games the room has played (the playlist's position)
 // 8 KiB of the region that no game touches: what lasts from game to game.
 export const FP = REGION + 0xe000;
 export const FP_MALLOWS = FP; // u16[256] marshmallows, ever
 export const FP_LAST = FP + 0x200; // u8[256] where each came in the last game (0: not in it)
 export const FP_GOT = FP + 0x300; // u8[256] marshmallows each got for it
+export const FP_NEXT = FP + 0x400; // u32 the next game's seed, drawn as this one's result is held (the arena's forces a mode)
+export const FP_MODE = FP + 0x404; // u8 1 + the index in ARENA_MODES of the arena's last mode (0: none yet); the next is another
 // Outside the region: which game's static world (terrain, map) is built, so a
 // keyframe from another game rebuilds it; and a stash for the region while it is.
 export const FP_WORLD = 0x320; // u32 game + 1 (0 none), u32 its seed
