@@ -589,6 +589,87 @@ export const BPHYS = {
   ORB_FALL: '0.08', // 10 m/s, per tick
 };
 
+// ---- Party: src/ built with BUMPER and PARTY (build/party/game.wasm).
+// Bumper balls' ball, and every round a different minigame on its own stage,
+// up to 256 in a room. bumper.wat's ball, power-ups, bumps and blasts stay;
+// its cheese and its round give way to src/party.wat, the framework (rounds,
+// rotation, joins, the ball's move over any stage, outs, places, points),
+// which calls each minigame's hooks (src/mg/<key>.wat, named $<prefix>_<hook>)
+// through (!mg). A minigame's own constants live in src/mg/<key>.mjs, every
+// name under its prefix in capitals, and are re-exported below.
+export const MINIGAMES = [
+  { key: 'thinice', prefix: 'ti', name: 'THIN ICE' },
+  { key: 'color', prefix: 'cc', name: 'COLOR CALL' },
+  { key: 'sweep', prefix: 'sw', name: 'SWEEPER' },
+  { key: 'light', prefix: 'rl', name: 'RED LIGHT' },
+  { key: 'bombs', prefix: 'bo', name: 'BOMB RAIN' },
+  { key: 'wall', prefix: 'wl', name: 'THE WALL' },
+  { key: 'pads', prefix: 'mp', name: 'MUSICAL PADS' },
+  { key: 'hill', prefix: 'kh', name: 'KING OF THE HILL' },
+  { key: 'potato', prefix: 'hp', name: 'HOT POTATO' },
+  { key: 'coins', prefix: 'cr', name: 'COIN RUSH' },
+  { key: 'paint', prefix: 'pp', name: 'PAINT PARTY' },
+]; // index = MG_*
+export const MG_THINICE = 0;
+export const MG_COLOR = 1;
+export const MG_SWEEP = 2;
+export const MG_LIGHT = 3;
+export const MG_BOMBS = 4;
+export const MG_WALL = 5;
+export const MG_PADS = 6;
+export const MG_HILL = 7;
+export const MG_POTATO = 8;
+export const MG_COINS = 9;
+export const MG_PAINT = 10;
+export const NMG = 11;
+
+export const PK_OUT = 0; // out is out: the last ball in wins
+export const PK_SCORE = 1; // a ball that falls comes back; placed by PG_SCORE at the end
+export const PGF_BUMPS = 1; // PG_FLAGS: balls bump
+export const P_COUNT = 750; // 6 s countdown, the minigame's title up
+export const P_OVER = 625; // 5 s of the result
+export const FX_MG = 32; // minigame k's own FX kinds are FX_MG + 4k .. FX_MG + 4k + 3
+export const P_STEP = '0.3'; // a ball rolls up onto anything this much higher than its bottom
+
+// The header, past golf's fields (inside the prediction's copy; Fireplace owns 0xf0..0x100).
+export const PG_GAME = REGION + 0x48; // u32 MG_* of the round now (or the next, while laid out for the countdown)
+export const PG_KIND = REGION + 0x4c; // u32 PK_*
+export const PG_LEN = REGION + 0x50; // u32 the round's length in ticks, from the countdown's end
+export const PG_FLOOR = REGION + 0x54; // f32 the lowest floor's top: a ball OUT_DEPTH under it is out (or down)
+export const PG_SIZE = REGION + 0x58; // f32 the stage's radius (or half-width), for the camera, the minimap, the bots
+export const PG_ACC = REGION + 0x5c; // f32 the push, times bumper's
+export const PG_DRAG = REGION + 0x60; // f32 rolling drag a tick with keys held
+export const PG_IDLE = REGION + 0x64; // f32 rolling drag a tick with no move keys: lower brakes harder
+export const PG_HOP = REGION + 0x68; // f32 hop speed; 0: no hop
+export const PG_RESPAWN = REGION + 0x6c; // u32 PK_SCORE: ticks a fallen ball waits
+export const PG_FLAGS = REGION + 0x70; // u32 PGF_*
+export const PG_FORCE = REGION + 0x74; // u32 0, or MG + 1: every round is that minigame
+export const PG_PREV = REGION + 0x78; // u32 the last minigame played (low byte) and the one before, 255 for none
+export const PG_CX = REGION + 0x7c; // f32 the stage's centre, world x and z
+export const PG_H = REGION + 0x80; // 112 B the minigame's own header (phase, timings, the call, seeds), to 0xf0
+export const PG_H_SIZE = 112;
+// A ball's fields past bumper's, in bytes golf leaves free.
+export const PG_SCORE = 56; // u16 this round's score, zeroed each round
+export const PG_PTS = 58; // u16 party points, every round so far
+export const PG_M = 60; // u32 the minigame's own field, zeroed each round
+// Hashed and in every keyframe, not in the prediction's copy; zeroed before each round's setup.
+export const PG_S = REGION + 0xc100; // 7936 B small minigame state, to 0xe000 (Fireplace owns 0xe000..0x10000)
+export const PG_S_SIZE = 0xe000 - 0xc100;
+export const PG_BIG = REGION + 0x10000; // big minigame state (tiles, grids), to the region's end: party has no golf balls
+export const PG_BIG_SIZE = REGION_SIZE - 0x10000;
+
+export * from './mg/thinice.mjs';
+export * from './mg/color.mjs';
+export * from './mg/sweep.mjs';
+export * from './mg/light.mjs';
+export * from './mg/bombs.mjs';
+export * from './mg/wall.mjs';
+export * from './mg/pads.mjs';
+export * from './mg/hill.mjs';
+export * from './mg/potato.mjs';
+export * from './mg/coins.mjs';
+export * from './mg/paint.mjs';
+
 // ---- Fireplace: every game in one module (build/fireplace/game.wasm), a
 // playlist of matches the room plays through, Mario Party style; people come
 // and go as they please. Each game is its own build, unchanged, under a prefix
