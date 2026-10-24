@@ -2,12 +2,11 @@
 ;; catch floor at PLAT_Y to a finish line FC_RISE m up, walls down both sides.
 ;; The belt carries every ball on it down at FC_BELT; a dispenser over its top
 ;; drops giant fruit (grapes, apples, bouncing oranges, melons) that roll
-;; down it in lanes and burst on a grate a little above its foot, knocking
-;; back any ball they meet.
-;; Nobody falls out: there are walls all round, and the foot runs onto the
-;; catch floor. Over the line a ball is out of play, placed by the order it
-;; crossed in and parked in the pen past the line; the rest are placed by how
-;; far up they stood at the end.
+;; down it in lanes, knocking back any ball they meet, and burst on a grate
+;; a little above its foot. Nobody falls out: there are walls all round, and
+;; the foot runs onto the catch floor. Over the line a ball is out of play,
+;; placed by the order it crossed in and parked in the pen past the line; the
+;; rest are placed by how far up they stood at the end.
 ;;
 ;; The schedule (every fruit's lane, kind, speed and the tick it drops) is
 ;; laid by setup from the PRNG, in PG_BIG, before the countdown: long before

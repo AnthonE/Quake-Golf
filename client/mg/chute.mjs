@@ -1,20 +1,20 @@
 // FRUIT CHUTE, as drawn and as the AI ball sees it. The belt is slats of
 // dark rubber stepping up the slope, every fifth one yellow, all of them
 // sliding down at the belt's speed; foam walls down both sides; a red
-// dispenser across its top whose hatches light over a lane a moment before
-// a fruit drops there (all of them but the gap before a wave); the fruit as
-// big glossy spheres rolling down, a leaf turning with them, bursting into
-// juice on the grate above the foot. Past the line, a gold pen where the finishers bounce in
-// the order they came. Every fruit is the sim's schedule (src/mg/chute.wat,
-// in PG_BIG) worked forward to the frame's tick, so what is drawn and what
-// the bots dodge is what the sim does.
+// dispenser across its top whose hatch over a lane lights, and a lamp on its
+// face takes the fruit's colour, the second before a fruit drops there (all
+// of them but the gap before a wave); the fruit as big glossy spheres rolling
+// down, a leaf turning with them, bursting into juice on the grate above the
+// foot. Past the line, a gold pen where the finishers bounce in the order
+// they came. Every fruit is the sim's schedule (src/mg/chute.wat, in PG_BIG)
+// worked forward to the frame's tick, so what is drawn and what the bots
+// dodge is what the sim does.
 import * as L from '../../src/layout.mjs';
 import { PLAT_Y } from '../../src/party-view.mjs';
-import { LOOK, SPRITE, DECAL, COLS } from '../party-render.mjs';
+import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
-const TURN = 16384;
 const RB = 1; // a ball's radius
 const TOP = PLAT_Y + L.FC_RISE;
 const SLAT = 0.5; // m of belt a slat
@@ -68,15 +68,17 @@ export function stage(view) {
 // The floor's top at x ($fc_surf).
 export const surf = (s, x) => PLAT_Y + Math.min(Math.max(x - s.x0, 0), L.FC_RUN) * L.FC_SLOPE;
 export const laneZ = (s, l) => s.lz0 + l * s.lsp;
-// The fruit out on tick tt of the schedule's clock (fractional: drawn between ticks): the window the buckets give.
+// The fruit out on tick tt of the schedule's clock (fractional: drawn
+// between ticks): the window the buckets give.
 function window(s, tt) {
   const b = Math.max(0, Math.floor(tt / L.FC_BUCKET));
   const k0 = tt > L.FC_LIFE ? s.idx[Math.min(L.FC_NB - 1, Math.floor((tt - L.FC_LIFE) / L.FC_BUCKET))] : 0;
   return [k0, s.idx[Math.min(L.FC_NB - 1, b + 1)] ?? s.nf];
 }
-// Fruit k on tick tt of the schedule's clock, as $fc_push has it: into out (x, y, z, vx, the
-// distance rolled, the phase: 0 dropping, 1 rolling), or false if it isn't
-// out (not dropped yet, or burst at the foot: then out.burst is the seconds since).
+// Fruit k on tick tt of the schedule's clock, as $fc_push has it: into out
+// (x, y, z, vx, the distance rolled, the phase: 0 dropping, 1 rolling), or
+// false if it isn't out (not dropped yet, or burst on the grate: then
+// out.burst is the seconds since).
 const F = { x: 0, y: 0, z: 0, vx: 0, rolled: 0, phase: 0, burst: -1 };
 export function fruitAt(s, k, tt, out = F) {
   const age = tt - s.t0[k];
@@ -95,7 +97,7 @@ export function fruitAt(s, k, tt, out = F) {
   if (out.x <= s.xg) { out.burst = (s.xg - out.x) / v; return false; }
   out.vx = -v; out.rolled = e * v * TICK; out.phase = 1;
   out.y = surf(s, out.x) + r;
-  if (s.kind[k] === L.FC_ORANGE) { const p = (Math.floor(e) % L.FC_HOPT + (e % 1)) / L.FC_HOPT; out.y += 4 * L.FC_HOPH * p * (1 - p); }
+  if (s.kind[k] === L.FC_ORANGE) { const p = (e % L.FC_HOPT) / L.FC_HOPT; out.y += 4 * L.FC_HOPH * p * (1 - p); }
   return true;
 }
 // The schedule's clock to draw at (fractional), on the prediction's where
@@ -124,9 +126,9 @@ const slotColor = (s) => { const h = (s * 0.618034) % 1; return [0, 0.33, 0.67].
 
 // ---- the AI ball
 
-// Fruit out on tick t of the schedule's clock, worked once a tick for every ball that asks: x now, z,
-// reach (its radius and a ball's), speed down, the ticks till it lands (0
-// rolling), its kind.
+// Fruit out on tick t of the schedule's clock, worked once a tick for every
+// ball that asks: x now, z, reach (its radius and a ball's), speed down, the
+// ticks till it lands (0 rolling), its kind.
 function fruitNow(s, t) {
   if (s.now?.t === t) return s.now.list;
   const list = [];
@@ -331,25 +333,29 @@ function walls(sc, s) {
   sc.box(s.xe + t, TOP + WALL_H / 2 - 0.6, s.cx, t, WALL_H / 2 + 0.6, s.hw + 2 * t, 0, 1, 0.8, 0.2, LOOK.PLASTIC);
 }
 
-// The dispenser over the belt's top: a gantry, a hatch a lane lit while a fruit is due there.
+// The dispenser over the belt's top: a gantry, and over each lane a hatch
+// that lights, and a lamp on its face in the colour of the fruit, for the
+// second before a fruit drops there.
 function dispenser(sc, out, s, tt, now) {
   const y = s.yd + GANTRY;
-  sc.box(s.xd, y, s.cx, 2.6, 1.6, s.hw + 1.2, 0, 0.88, 0.16, 0.14, LOOK.PLASTIC);
+  sc.box(s.xd, y, s.cx, 2.6, 1.6, s.hw + 1.2, 0, 1, 0.3, 0.24, LOOK.PLASTIC);
   sc.box(s.xd, y + 1.75, s.cx, 2.2, 0.15, s.hw + 1, 0, 1, 1, 1, LOOK.CHECKER, 1);
+  sc.box(s.xd - 2.62, y + 0.9, s.cx, 0.04, 0.22, s.hw + 1.1, 0, 1, 0.85, 0.3, LOOK.GLOW, 0.7 + 0.2 * Math.sin(now / 250), 0.4);
   for (const side of [-1, 1]) sc.box(s.xd, (y + s.yd) / 2 - 0.5, s.cx + side * (s.hw + 0.9), 0.9, (y - s.yd) / 2 + 0.5, 0.5, 0, 0.92, 0.92, 0.95, LOOK.METAL);
-  // what's due in each lane in the next second
-  const due = new Float32Array(s.nl).fill(1e9);
-  const [k0, k1] = window(s, tt);
+  // what's due in each lane in the next second, and which kind
+  const due = new Float32Array(s.nl).fill(1e9), kind = new Int8Array(s.nl).fill(-1);
+  const [k0] = window(s, tt);
   for (let k = Math.max(0, k0); k < s.nf && s.t0[k] <= tt + 125; k++) {
     const l = Math.round((s.z[k] - s.lz0) / (s.lsp || 1));
-    if (l >= 0 && l < s.nl && s.t0[k] + L.FC_DROPT * 0.5 > tt) due[l] = Math.min(due[l], s.t0[k] - tt);
+    if (l >= 0 && l < s.nl && s.t0[k] + L.FC_DROPT * 0.5 > tt && s.t0[k] - tt < due[l]) { due[l] = s.t0[k] - tt; kind[l] = s.kind[k]; }
   }
-  void k1;
   for (let l = 0; l < s.nl; l++) {
     const z = laneZ(s, l);
     const d = due[l];
     const lit = d < 125 ? (d < 0 ? 1 : 0.35 + 0.65 * (1 - d / 125) * (0.6 + 0.4 * Math.sin(now / 60))) : 0.08;
     sc.box(s.xd, y - 1.62, z, 1.7, 0.06, Math.min(1.7, s.lsp * 0.42), 0, 1, 0.85, 0.3, LOOK.GLOW, lit, 0.3);
+    const rgb = kind[l] >= 0 ? KINDS[kind[l]].rgb : [0.4, 0.4, 0.45];
+    sc.sphere(s.xd - 2.6, y - 0.4, z, 0.55, ...rgb, LOOK.GLOW, kind[l] >= 0 ? 0.4 + lit : 0.05);
     if (lit > 0.3) out.glow.push({ pos: [s.xd, y - 1.9, z], size: 2.4, color: [1, 0.8, 0.3, 0.5 * lit], kind: SPRITE.FLASH, minpx: 2 });
   }
 }
@@ -362,7 +368,7 @@ function finish(sc, out, s, now) {
   sc.box(s.xt + 0.6, TOP + h + 0.6, s.cx, 0.6, 0.6, s.hw + 1.4, 0, 1, 1, 1, LOOK.CHECKER, 0.6);
   sc.box(s.xt + 0.6, TOP + h - 0.2, s.cx, 0.2, 0.18, s.hw + 1.2, 0, 1, 0.85, 0.2, LOOK.GLOW, 0.8 + 0.3 * Math.sin(now / 300), 0.4);
   const len = s.xe - s.xt;
-  sc.box(s.xt + len / 2, TOP - 1, s.cx, len / 2, 1, s.hw, 0, 1, 0.82, 0.28, LOOK.PLASTIC);
+  sc.box(s.xt + len / 2, TOP - 1, s.cx, len / 2, 1, s.hw, 0, 1, 0.82, 0.28, LOOK.CHECKER, L.FC_SP, 0.6);
   out.glow.push({ pos: [s.xt + 0.6, TOP + h + 0.6, s.cx], size: 6, color: [1, 0.9, 0.5, 0.25], kind: SPRITE.FLASH, minpx: 2 });
 }
 
@@ -504,7 +510,7 @@ export default {
     ctx.put(1, 1, fin ? `${fin} OVER THE LINE` : 'NOBODY OVER YET', fin ? C.WHITE : C.GREY);
     // once one in FC_RUSHN is over, the line closes FC_RUSH later (the clock says when)
     const quota = Math.max(1, Math.ceil(g.n0 / L.FC_RUSHN));
-    if (fin >= quota) ctx.right(4, `THE LINE CLOSES IN ${Math.max(0, Math.ceil((g.until - g.tick) / 125))}`, C.RED);
+    if (fin >= quota) ctx.right(4, `THE LINE CLOSES IN ${Math.max(0, Math.floor((g.until - g.tick) / 125))}`, C.RED);
     else if (fin) ctx.right(4, `${quota - fin} MORE OVER AND THE LINE CLOSES IN ${L.FC_RUSH / 125}`, C.GREY);
     // your height up the chute, a bar
     if (me?.live && !finOf(view, me.slot)) {
@@ -530,7 +536,7 @@ export default {
         if (F.land > 0) continue;
         const dx = x - F.x, dz = z - F.z, r = F.reach + 0.3;
         if (dx * dx + dz * dz < r * r) return 1;
-        if (dx > 0 && dx < 6 && Math.abs(dz) < r) d = Math.max(d, 0.5);
+        if (dx < 0 && dx > -6 && Math.abs(dz) < r) d = Math.max(d, 0.5); // just under one coming down
       }
       return Math.max(d, Math.abs(z - s.cx) > s.hw - 1.4 ? 0.1 : 0);
     },
