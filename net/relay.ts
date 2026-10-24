@@ -29,6 +29,15 @@
 //
 //   .tools/deno run --unstable-net -A net/relay.ts [--port 4433] [--native-port 4434] [--duration 70] [--cc low-latency|default] [--seed N] [--host 127.0.0.1]
 //                  [--upstream host:native-port[,host:native-port...]] [--standby] [--watchers 4096] [--replays dir]
+//                  [--max-players 256] [--status file] [--game name] [--tap-mask 0x10000000] [--hold-mask 0x0f000000] [--referee-lag 10]
+// With --status, the room's state goes to a JSON file every STATUS_MS, for a
+// page host to serve as the room's status_url: players, max_players,
+// spectators, the sim tick and its rate. The file is written whole (a temp
+// file renamed over it), so a reader never sees half of one.
+// A wasm from someone else is run here too, by the referee: it is refused at
+// start unless its only import is the shared memory and it exports what the
+// referee calls, and the relay ends (exit 3) if the referee falls more than
+// --referee-lag seconds behind, which a sim that never returns would do.
 // With --replays, each room's record goes to a replay file (net/replay.mjs)
 // when it ends, with the referee's interval hashes.
 // Clients are Chrome (net/run-m0.mjs hosts the bots there): Deno's WebTransport
@@ -69,13 +78,42 @@ const MAX_WATCHERS = Number(opt('watchers', '4096'));
 const replaysDir = opt('replays', '');
 // the referee's threads: a tick with many balls awake is split across them (net/team.mjs)
 const refereeThreads = Number(opt('referee-threads', '2'));
+// the most players a room holds (spectators aside); a joiner past it is refused FULL
+const maxPlayers = Math.max(1, Math.min(W.NP, Number(opt('max-players', String(W.NP)))));
+const statusPath = opt('status', '');
+// A missing player's word: the tap bits clear on every tick it's missing (so
+// a jump or a press fires once), the held bits after HOLD_TICKS of them (so a
+// player who drops stops walking). Golf's layout, which arena and bumper keep;
+// a game whose input word differs passes its own.
+const TAP_MASK = Number(opt('tap-mask', String(W.JUMP_BIT))) >>> 0;
+const HOLD_MASK = Number(opt('hold-mask', String(W.MOVE_BITS))) >>> 0;
+const HOLD_TICKS = 30;
+const REFEREE_LAG_S = Number(opt('referee-lag', '10'));
 
 const cert = await Deno.readTextFile('certs/cert.pem');
 const key = await Deno.readTextFile('certs/key.pem');
 // the sim the room runs: game.wasm, or the Xbox's (build/xbox/game.wasm) for a
 // room of Xboxes; a hello names its sim's hash, so the two never meet in a room
-const wasm = await Deno.readFile(opt('wasm', 'build/game.wasm'));
+const wasmPath = opt('wasm', 'build/game.wasm');
+const wasm = await Deno.readFile(wasmPath);
 const prefix = await W.wasmPrefix(wasm);
+// the name the status gives: build/<game>/game.wasm's directory, and golf's own is build/game.wasm
+const game = opt('game', ((d) => (d && d !== 'build' ? d : 'golf'))(wasmPath.split('/').slice(-2, -1)[0]));
+// The sim may be someone else's: the referee gives it the shared memory and
+// nothing else, so it can't reach a file or a socket, and a module that asks
+// for more is refused here, by name, rather than failing in the Worker.
+{
+  const refuse = (why: string) => { console.error(`relay: ${wasmPath}: ${why}`); Deno.exit(2); };
+  let mod: WebAssembly.Module | null = null;
+  try { mod = await WebAssembly.compile(wasm); } catch (e) { refuse(`not a wasm module (${e})`); }
+  const imports = WebAssembly.Module.imports(mod!);
+  const odd = imports.filter((i) => !(i.module === 'env' && i.name === 'mem' && i.kind === 'memory'));
+  if (odd.length || imports.length !== 1) refuse(`imports ${imports.map((i) => `${i.module}.${i.name} (${i.kind})`).join(', ') || 'nothing'}; a sim imports only env.mem, its shared memory`);
+  const have = new Set(WebAssembly.Module.exports(mod!).map((e) => e.name));
+  const need = ['init', 'step', 'snapshot', 'regrid', ...(refereeThreads > 1 ? ['step_mt', 'worker_run'] : [])];
+  const missing = need.filter((n) => !have.has(n));
+  if (missing.length) refuse(`does not export ${missing.join(', ')}`);
+}
 
 type Slot = {
   slot: number; joinTick: number; leaveTick: number; writer: WritableStreamDefaultWriter<Uint8Array>; ctl: WritableStreamDefaultWriter<Uint8Array>;
@@ -146,10 +184,13 @@ let refRoom = 0; // the referee's generation: a room's start, or an edge's resta
 const refIntervals = new Map<number, { hash: bigint; digests: Uint8Array }>(); // sim tick -> the referee's
 let keyId = 0;
 const keyWaiters = new Map<number, (k: { tick: number; raw: number; packed: Uint8Array }) => void>();
+// where the referee had got to (sim tick), and when it said so: the watchdog's reading
+let refAt = 0;
 referee.onmessage = (e: MessageEvent) => {
   const m = e.data;
   if (m.error) { stats.refErrors.push(m.error); console.error('referee: ' + m.error); return; }
   if (m.room !== refRoom) return;
+  if (m.at !== undefined) refAt = m.at;
   if (m.key) { keyWaiters.get(m.key.id)?.(m.key); keyWaiters.delete(m.key.id); }
   if (m.intervals) {
     for (const iv of m.intervals) {
@@ -178,6 +219,7 @@ function startRecord(start: number, region: Uint8Array | null = null) {
   }
   toReferee = [];
   refIntervals.clear();
+  refAt = region ? start - roomStart : 0;
   referee.postMessage({ reset: { room: ++refRoom, seed: roomSeed, region } });
 }
 // The record so far as a replay file, the room's seed and the time in its name.
@@ -279,7 +321,10 @@ function repair(s: Slot, ackTick: number, ackBits: bigint, now: number) {
   }
 }
 
-function freeSlot() { return slots.findIndex((s) => s === null); }
+function freeSlot() {
+  if (slots.reduce((n, s) => n + (s ? 1 : 0), 0) >= maxPlayers) return -1;
+  return slots.findIndex((s) => s === null);
+}
 
 // At most 8 join/leave events per tick, so a room that fills at once fills
 // over 32 ticks, and the keyframes its joiners ask for come in turn.
@@ -377,7 +422,7 @@ function closeTick(T: number, now: number) {
       // the ticks after a player's last packet are a departure, not lateness
       if (T < s.joinTick + WARMUP) stats.warmup++;
       else s.pendingLate++;
-      row[p] = s.missing > 30 ? (s.last & ~(W.MOVE_BITS | W.JUMP_BIT)) >>> 0 : (s.last & ~W.JUMP_BIT) >>> 0;
+      row[p] = s.missing > HOLD_TICKS ? (s.last & ~(HOLD_MASK | TAP_MASK)) >>> 0 : (s.last & ~TAP_MASK) >>> 0;
       // read after its deadline but before this (delayed) close: late too
       if (s.wordTick[i] === T) { s.periodSlack = Math.min(s.periodSlack, dl - s.arrival[i]); stats.lateArrivals++; }
     }
@@ -449,7 +494,9 @@ function pump() {
   if (behind > 4 * W.TICK_MS) stallEnd = now;
   while (deadline(closed + 1) <= now) closeTick(closed + 1, now);
   const wait = deadline(closed + 1) - performance.now();
-  if (!precise) setTimeout(pump, Math.max(0, wait));
+  // an empty room has nobody to be on time for: a plain timer, not the yield loop
+  // (a waiting room costs about a third as much, which a pool's free rooms add up to)
+  if (!precise || (roomStart < 0 && !watchers.size)) setTimeout(pump, Math.max(0, wait));
   else if (wait > EARLY_MS) setTimeout(pump, wait - EARLY_MS);
   else channel.port2.postMessage(0);
 }
@@ -802,6 +849,33 @@ function takeOver() {
   pump();
 }
 
+// The room's status, for a page host to serve as its status_url, and the
+// referee watchdog: a referee that has not kept up for REFEREE_LAG_S ends the
+// relay, since every joiner after that would wait on a keyframe that never comes.
+const STATUS_MS = 2000;
+function writeStatus() {
+  const live = slots.filter((s) => s && !s.ghost).length;
+  const st = {
+    game, players: live, max_players: maxPlayers, spectators: watchers.size,
+    tick: roomStart >= 0 ? Math.max(0, closed - roomStart) : 0, tick_hz: Math.round(1000 / W.TICK_MS),
+    proto: W.PROTO, room: roomStart >= 0, edge, referee_errors: stats.refErrors.length,
+    // players' interval hashes checked against the referee's since the relay began, and how many differed
+    hashes_checked: stats.compared, hashes_differed: stats.compared - stats.agreed,
+    up_s: Math.round((performance.now() - E) / 1000),
+  };
+  const tmp = `${statusPath}.tmp`;
+  return Deno.writeTextFile(tmp, JSON.stringify(st) + '\n').then(() => Deno.rename(tmp, statusPath)).catch((e) => console.error('relay: status: ' + e));
+}
+if (statusPath) { writeStatus(); setInterval(writeStatus, STATUS_MS); }
+setInterval(() => {
+  if (edge || roomStart < 0) return;
+  const behind = (closed - roomStart - refAt) * W.TICK_MS / 1000;
+  if (behind > REFEREE_LAG_S) {
+    console.error(`relay: the referee is ${behind.toFixed(1)} s behind the room; ending it`);
+    finish(3);
+  }
+}, 1000);
+
 const endpoint = new Deno.QuicEndpoint({ hostname, port });
 const listener = endpoint.listen({ cert, key, alpnProtocols: ['h3'], congestionControl: cc });
 (async () => { for await (const incoming of listener) session(incoming).catch(() => {}); })();
@@ -815,15 +889,17 @@ if (edge) followUpstream();
 else pump();
 if (!quiet) console.error(`relay listening on https://${hostname}:${port}/ (${cc})${nativePort ? `, native clients on ${hostname}:${nativePort} (TCP and UDP)` : ''}, tick ${W.TICK_MS} ms`);
 
-async function finish() {
+async function finish(code = 0) {
   await saveReplay();
   const text = JSON.stringify(summary());
   if (summaryPath) await Deno.writeTextFile(summaryPath, text + '\n');
   else console.log(text);
-  Deno.exit(0);
+  if (statusPath) await Deno.remove(statusPath).catch(() => {});
+  Deno.exit(code);
 }
-// a runner that stops the relay early still gets the summary
-if (summaryPath) Deno.addSignalListener('SIGTERM', finish);
+// a runner that stops the relay early still gets the summary (and a pool's
+// room its status file removed, so a stopped room never reads as up)
+if (summaryPath || statusPath) Deno.addSignalListener('SIGTERM', () => finish());
 if (durationS > 0) {
   await new Promise((ok) => setTimeout(ok, durationS * 1000));
   await finish();
