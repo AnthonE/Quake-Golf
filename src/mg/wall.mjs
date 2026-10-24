@@ -25,8 +25,8 @@ export const WL_VMAX = 12;
 export const WL_G0 = 3.6; // a gap's width, m, WL_GK less every second, at least WL_GMIN (from 80 s): a ball is 2
 export const WL_GK = 0.0125;
 export const WL_GMIN = 2.6;
-export const WL_SPAN = 12; // a gap for every WL_SPAN m of the wall's width and one more, at most WL_KMAX
-export const WL_KMAX = 9;
+export const WL_SPAN = 10; // a gap for every WL_SPAN m of the wall's width and one more, at most WL_KMAX
+export const WL_KMAX = 11;
 export const WL_KEND = 100; // the gaps fall in even steps from that to one at WL_KEND s
 export const WL_MARGIN = 1; // m of block at least between a gap and the next, or the edge (each gap jitters in its own slot)
 export const WL_NEXT = 0.6; // the next wall moves when this one is WL_NEXT across (of at most WL_CAD m), and never before this one moves
@@ -51,7 +51,7 @@ export const WL_G = 20; // f32 its gaps' width, m
 export const WL_K = 24; // u32 its gaps
 export const WL_A = 28; // f32 how far its gaps sway either way, 0 for a wall that doesn't
 export const WL_PH = 32; // u32 the sway's phase as it moves, 1/16384 turn: the gaps are WL_A sin(phase) off their centres, the phase WL_SWAYK more a tick
-export const WL_GAPS = 36; // f32 x WL_KMAX: its gaps' centres across its way (v = z for side 0, then turning with it), ascending
+export const WL_GAPS = 36; // f32 x WL_KMAX (to the record's end): its gaps' centres across its way (v = z for side 0, then turning with it), ascending
 export const WL_PASSED = 7040; // WL_NMAX * WL_WSIZE: u8 per slot, the walls it saw go by this round
 // A ball's PG_M: bit w mod 32 set once wall w's moving face has met it (so WL_FX_PIN comes once a wall).
 // FX kinds, FX_MG + 4 * MG_WALL + k; shot = the wall's index (| its side << 8 for SHOW), at the wall's middle.

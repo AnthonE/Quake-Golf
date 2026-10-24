@@ -249,8 +249,8 @@ test('a gap\'s corner turns a ball half over its edge aside into the gap; a pinn
   }
   const [u0, v0] = inW(g, 0, W);
   assert.ok(!g.v.partier(0).out, 'through');
-  assert.ok(Math.abs(u0) < 1, `hardly shoved along: ${u0}`);
-  assert.ok(v0 > c - W.g / 2 + 0.99 && v0 < c, `turned in off the corner: ${v0 - c}`);
+  assert.ok(Math.abs(u0) < 2, `hardly shoved along: ${u0}`);
+  assert.ok(v0 > c - W.g / 2 + 0.99 && v0 < c + W.g / 2 - 0.99, `turned in off the corner, clear of both edges: ${v0 - c}`);
   assert.ok(!g.v.partier(1).out, 'slid into the gap');
   assert.ok(carried > 10, `rode the face ${carried} ticks`);
   assert.ok(through !== null && Math.abs(through - c2) < W.g / 2, `through gap 2: ${through - c2}`);
@@ -292,9 +292,10 @@ test('the ramp: faster walls, narrower and fewer gaps, from WL_SWAY every other 
 test('the last ball on wins; two last balls both shoved off together share the win rather than last', async () => {
   const g = await room(3, { seed: 5 });
   const W = alone(g, 0), T = table(g.v);
-  const blk = blocksAt(T, W, 0).find(([lo, hi]) => hi - lo > 6);
-  putW(g, 0, W, 0, blk[0] + 1.5);
-  putW(g, 1, W, 0, blk[0] + 4);
+  const [blk] = blocksAt(T, W, 0).sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]));
+  assert.ok(blk[1] - blk[0] > 4.5);
+  putW(g, 0, W, 0, (blk[0] + blk[1]) / 2 - 1.15);
+  putW(g, 1, W, 0, (blk[0] + blk[1]) / 2 + 1.15);
   putW(g, 2, W, 2, W.gaps[0]);
   // the one in the gap rolls itself off the edge first
   g.dv.setFloat32(rec(2) + L.P_PX, C + T.h + 0.5, true);

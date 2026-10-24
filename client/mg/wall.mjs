@@ -19,6 +19,7 @@ const WAYS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // a wall's way by its side (it
 const FROM = ['WEST', 'NORTH', 'EAST', 'SOUTH']; // the side, on the north-up minimap
 const COLOURS = [[0.95, 0.3, 0.52], [1, 0.52, 0.12], [0.56, 0.36, 0.95], [0.12, 0.72, 0.74], [0.98, 0.78, 0.16], [0.36, 0.74, 0.28]];
 const PT = 2; // the platform's thickness, m
+const POST = [0.45, 1, 0.85]; // the lit posts at a gap's edges
 const RISE = 40; // ticks a wall takes to rise into view as it shows
 const SINK = 60; // and to sink away as it goes
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -176,8 +177,7 @@ function frameOf(crowd, T, W, t) {
 // first that it can get to in time and whose lane isn't crowded where it is,
 // on the second's lane too where they cross; a spot on that lane clear of
 // the balls already on it, inside the stage; and braking onto it. With no
-// wall near, toward a spot of its own round the middle, where a wall from
-// any side takes longest.
+// wall near, where it is, in off the edges.
 function plan(view, me, bot, tick) {
   const dv = view.dv, o = view.bank || 0;
   const slot = typeof me === 'number' ? me : me?.slot;
@@ -196,7 +196,7 @@ function plan(view, me, bot, tick) {
   const mind = mindOf(bot, slot);
   const skill = bot?.skill ?? 0.6;
   const round = dv.getUint32(L.HDR_HOLE + o, true);
-  if (mind.round !== round) { mind.round = round; mind.w = -1; mind.gap = -1; mind.yaw = undefined; mind.home = null; }
+  if (mind.round !== round) { mind.round = round; mind.w = -1; mind.gap = -1; mind.yaw = undefined; }
   const vel = [dv.getFloat32(rb + L.P_VX, true), dv.getFloat32(rb + L.P_VZ, true)];
   if (rolled) { vel[0] = bot.vel[0]; vel[1] = bot.vel[1]; }
   const pos = rolled ? [bot.pos[0] + vel[0] * more, bot.pos[1] + vel[1] * more] : [dv.getFloat32(rb + L.P_PX, true) + vel[0] * lag, dv.getFloat32(rb + L.P_PZ, true) + vel[1] * lag];
@@ -213,10 +213,10 @@ function plan(view, me, bot, tick) {
     if (!first || e.eta < first.eta) { second = first; first = e; } else if (!second || e.eta < second.eta) second = e;
   }
   const h = T.h, edge = h - 1.6;
-  if (!first || first.eta > 5) {
-    // nothing coming soon: toward a spot of its own round the middle
-    if (!mind.home) mind.home = [T.cx + (luck(T, slot, 0, 1) - 0.5) * h * 0.7, T.cx + (luck(T, slot, 0, 2) - 0.5) * h * 0.7];
-    return { goal: mind.home, vmax: 6, pos, vel, slot, slack: 1.5, lag, room: 1, crowd };
+  if (!first || first.eta > 7) {
+    // nothing coming soon: where it is, unless that's out near the edge (a wall from that side would be on it at once)
+    const k = h * 0.6;
+    return { goal: [clamp(pos[0], T.cx - k, T.cx + k), clamp(pos[1], T.cx - k, T.cx + k)], vmax: 5, pos, vel, slot, slack: 1, lag, room: 1, crowd };
   }
   const W = first.W;
   // a gap of the first wall: near, reachable in time, its lane not crowded at this end
@@ -299,7 +299,7 @@ function steer(p, last) {
   }
   const ax = vx - p.vel[0], az = vz - p.vel[1];
   if (Math.hypot(ax, az) < 0.7 || (d < p.slack && !near)) return { yaw: last ?? 0, move: 0, hop: 0, use: 0 };
-  return { yaw: Math.round((Math.atan2(az, ax) / (2 * Math.PI)) * TURN) & (TURN - 1), move: 1, hop: 0, use: 0 };
+  return { yaw: Math.atan2(az, ax), move: 1, hop: 0, use: 0 };
 }
 
 export default {
@@ -344,9 +344,9 @@ export default {
         wbox(sc, T, W, s - L.WL_T / 2, PLAT_Y + L.WL_HIGH + 0.08 + dy, (lo + hi) / 2, L.WL_T / 2 + 0.06, 0.08, (hi - lo) / 2 + 0.02, col.map((c) => c * 0.55), LOOK.PLASTIC, 0, 0, 1, (seed + i * 17 + 5) % 4096);
       });
       // the gaps: posts lit at their edges
-      const glow = 0.9 + 0.5 * (W.w === next ? 0.5 + 0.5 * Math.sin(now * 8) : 0);
+      const glow = 1.5 + 0.8 * (W.w === next ? 0.5 + 0.5 * Math.sin(now * 8) : 0);
       for (const c of W.gaps) for (const e of [c + off - W.g / 2, c + off + W.g / 2]) {
-        wbox(sc, T, W, s - L.WL_T / 2, YC + 0.06 + dy, e, L.WL_T / 2 + 0.05, HH + 0.06, 0.09, [0.75, 1, 0.55], LOOK.GLOW, glow, 0.2);
+        wbox(sc, T, W, s - L.WL_T / 2, YC + 0.06 + dy, e, L.WL_T / 2 + 0.05, HH + 0.06, 0.1, POST, LOOK.GLOW, glow, 0.2);
       }
       // the lanes the gaps will sweep, from the face to the far edge (a swaying wall's in short pieces, snaking)
       const u0 = Math.max(s + 0.1, -h + 0.05);
@@ -483,7 +483,7 @@ export default {
       return p ? p.goal : null;
     },
     hop() { return false; },
-    // all of it, as a word's fields (yaw in 1/16384 turn, as partyWord takes it)
+    // all of it, as a word's fields (yaw in radians, as client/party-bot.mjs takes it)
     think(view, me, bot, tick = view.tick) {
       const p = plan(view, me, bot, tick);
       if (!p) return null;
