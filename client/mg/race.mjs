@@ -357,7 +357,22 @@ function plan(view, me, bot) {
     mem.lane = lane;
   }
   let out = null;
-  if (a && skill > 0.25) {
+  // holding nothing, a row of power-up boxes ahead: for the nearest box across
+  if (a && !b.item && skill > 0.35) {
+    for (const Q of [a.P, c.pieces[a.P.k + 1]]) {
+      if (!Q || !Q.hzn || c.hazards[Q.hz0]?.kind !== L.RCH_BOX && !c.hazards.slice(Q.hz0, Q.hz0 + Q.hzn).some((H) => H.kind === L.RCH_BOX)) continue;
+      const mine = Q === a.P ? a.f * Q.len : -(Q.s0 - s);
+      const boxes = c.hazards.slice(Q.hz0, Q.hz0 + Q.hzn).filter((H) => H.kind === L.RCH_BOX);
+      const al = (boxes[0].x - Q.x) * Q.dx + (boxes[0].z - Q.z) * Q.dz;
+      if (al < mine + 1 || al - mine > 22) continue;
+      const u0 = Q === a.P ? a.u : 0;
+      let H = boxes[0];
+      for (const B of boxes) if (Math.abs(((B.x - Q.x) * -Q.dz + (B.z - Q.z) * Q.dx) - u0) < Math.abs(((H.x - Q.x) * -Q.dz + (H.z - Q.z) * Q.dx) - u0)) H = B;
+      out = { goal: [H.x + Q.dx * 2, H.z + Q.dz * 2], wait: false };
+      break;
+    }
+  }
+  if (!out && a && skill > 0.25) {
     for (const Q of [a.P, c.pieces[a.P.k + 1]]) {
       if (!Q || !Q.hzn || (Q.sec !== L.RCS_SPINNERS && Q.sec !== L.RCS_SWEEPERS)) continue;
       const mine = Q === a.P ? a.f * Q.len : -(Q.s0 - s);
@@ -366,7 +381,8 @@ function plan(view, me, bot) {
       if (!row || row.along - mine > 26) continue;
       const T = when + (row.along - mine) / v / TICK - view.party().start;
       const { u, clear } = clearest(c, Q, row, T, a.P === Q ? a.u : 0, skill);
-      const wait = clear < 0.3 && row.along - mine > 4.5;
+      // (only for sweepers: a spinner's bar only knocks a ball about between its rails)
+      const wait = clear < 0.3 && row.along - mine > 4.5 && Q.sec === L.RCS_SWEEPERS;
       const q = along(Q, Math.max(0, Math.min(1, (wait ? row.along - 8 : row.along + 2.5) / Q.len)), u);
       out = { goal: [q[0], q[2]], wait, dir: [Q.dx, Q.dz] };
       break;
@@ -491,6 +507,13 @@ export default {
         sc.box(x, H.y + L.RC_SWEEP_HI / 2, z, H.l, L.RC_SWEEP_HI / 2, L.RC_BAR_R, yaw, 0.95, 0.25, 0.2, LOOK.HAZARD, 0.4, 0, 1, H.j * 7 + 2);
         // its track across the lane
         sc.box(H.x, H.y + 0.015, H.z, 0.1, 0.02, H.a + 0.6, yaw, 0.95, 0.3, 0.25, LOOK.GLOW, 0.35, 0, 0.75);
+      } else if (H.kind === L.RCH_BOX) {
+        // a power-up box: a glowing cube turning and bobbing, its colour running round the rainbow, a white core
+        const spin = now * 1.7 + H.j, y = H.y + L.RC_BOX_Y + 0.12 * Math.sin(now * 2.6 + H.j);
+        const hue = (now * 0.3 + H.j * 0.17) % 1;
+        const r = 0.55 + 0.45 * Math.cos(6.2832 * hue), gg = 0.55 + 0.45 * Math.cos(6.2832 * (hue + 0.33)), bb = 0.55 + 0.45 * Math.cos(6.2832 * (hue + 0.67));
+        sc.box(H.x, y, H.z, L.RC_BOX_R, L.RC_BOX_R, L.RC_BOX_R, spin, r, gg, bb, LOOK.GLOW, 0.9, 0.7, 0.6, H.j * 7 + 3);
+        sc.box(H.x, y, H.z, 0.3, 0.3, 0.3, -1.4 * spin, 1, 1, 1, LOOK.PLASTIC, 0, 0, 1, H.j * 7 + 4);
       } else if (H.kind === L.RCH_PAD) {
         // chevrons pointing down the course, lit in a running wave
         const yaw = Math.atan2(H.dz, H.dx);

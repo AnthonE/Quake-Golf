@@ -2,11 +2,13 @@
 ;; below, laid out from the round's seed: the start grid, a drop, then six
 ;; bends each into a section (a jump over a gap, a funnel, a bumper field,
 ;; spinning bars, sliding sweepers, a last drop), the finish line and a pen
-;; walled all round. The track pulls a ball downhill; off its edge and
-;; RC_DEEP under where it had got to, a ball is down (PK_SCORE), back at its
-;; last checkpoint RC_BACK ticks later. The first ball home cuts the clock to
-;; RC_LATE; home or not, everyone is placed by PG_SCORE: RC_WIN plus the
-;; ticks it had left for a ball home, else the metres it got down the course.
+;; walled all round. Power-up boxes halfway down the first drop and early in
+;; the last hand out bumper's power-ups ($b_use; rockets fly in tick_begin). The
+;; track pulls a ball downhill; off its edge and RC_DEEP under where it had
+;; got to, a ball is down (PK_SCORE), back at its last checkpoint RC_BACK
+;; ticks later. The first ball home cuts the clock to RC_LATE; home or not,
+;; everyone is placed by PG_SCORE: RC_WIN plus the ticks it had left for a
+;; ball home, else the metres it got down the course.
 ;;
 ;; The course is pieces (straights and arcs, the centre line's height and the
 ;; half-width running linearly over each) and hazards on the straights, in
@@ -284,6 +286,30 @@
     (f32.const @(-RC_GAPDROP)) (local.get $w) (local.get $w) (i32.const @RCF_GAP) (i32.const @RCS_JUMP)))
   (drop (call $rc_straight (f32.const 16) (f32.const -2) (local.get $w) (local.get $w) (i32.const @RCF_FACE) (i32.const @RCS_JUMP))))
 
+;; A row of power-up boxes across straight k, along metres in, one every RC_BOX_SP or so.
+(func $rc_boxes (param $k i32) (param $along f32)
+  (local $a i32) (local $m i32) (local $j i32) (local $w f32) (local $sp f32)
+  (local.set $a (call $rc_pa (local.get $k)))
+  (local.set $w (call $rc_w (local.get $a) (f32.div (local.get $along) (f32.load offset=@RC_P_LEN (local.get $a)))))
+  (local.set $m (i32.trunc_f32_u (f32.max (f32.const 2) (f32.div (f32.mul (local.get $w) (f32.const 2)) (f32.const @RC_BOX_SP)))))
+  (local.set $sp (f32.div (f32.mul (local.get $w) (f32.const 2)) (f32.convert_i32_u (local.get $m))))
+  (!for $j (i32.const 0) (local.get $m)
+    (call $rc_haz (local.get $k) (i32.const @RCH_BOX) (local.get $along)
+      (!madd (f32.add (f32.convert_i32_u (local.get $j)) (f32.const 0.5)) (local.get $sp) (f32.neg (local.get $w)))
+      (f32.const @RC_BOX_R) (i32.const 0) (i32.const 0) (f32.const 0))))
+
+;; The power-up box j hands slot p this round: a dash most often, then a
+;; rocket, a pow, a spring, a mega. A hash, not the PRNG: push takes it on
+;; either bank.
+(func $rc_item (param $p i32) (param $j i32) (result i32)
+  (local $h i32)
+  (local.set $h (i32.rem_u (call $hash32 (local.get $p) (local.get $j) (call $p_seed (i32.const @RC_KITEM))) (i32.const 100)))
+  (if (i32.lt_u (local.get $h) (i32.const 30)) (then (return (i32.const @PU_DASH))))
+  (if (i32.lt_u (local.get $h) (i32.const 55)) (then (return (i32.const @PU_ROCKET))))
+  (if (i32.lt_u (local.get $h) (i32.const 70)) (then (return (i32.const @PU_POW))))
+  (if (i32.lt_u (local.get $h) (i32.const 85)) (then (return (i32.const @PU_SPRING))))
+  (i32.const @PU_MEGA))
+
 ;; A funnel: the track narrowing to a neck and opening again, no rails.
 (func $rc_funnel (param $q i32) (param $w f32)
   (local $neck f32)
@@ -374,6 +400,8 @@
   (drop (call $rc_straight (local.get $glen) (f32.const 0) (local.get $w) (local.get $w) (i32.const @(RCF_START | RCF_CHECK | RCF_RAIL_L | RCF_RAIL_R)) (i32.const @RCS_START)))
   (f32.store (i32.const @(PG_H + RC_GRID)) (local.get $glen))
   (call $rc_drop (i32.const 10) (local.get $w) (i32.const @(RCF_RAIL_L | RCF_RAIL_R)))
+  (call $rc_boxes (i32.sub (i32.load (i32.const @(PG_H + RC_NPIECE))) (i32.const 1))
+    (f32.mul (f32.load offset=@RC_P_LEN (call $rc_pa (i32.sub (i32.load (i32.const @(PG_H + RC_NPIECE))) (i32.const 1)))) (f32.const 0.5)))
   ;; the sections' order: the jump second, the four others shuffled round it (bytes at RC_CUR + 20), a drop last
   (i32.store (i32.const @(PG_S + RC_CUR + 20)) (i32.const 0x04030201))
   (!for $j (i32.const 0) (i32.const 3)
@@ -394,7 +422,10 @@
     (if (i32.eq (local.get $t) (i32.const 2)) (then (call $rc_bumpers (local.get $q) (local.get $w))))
     (if (i32.eq (local.get $t) (i32.const 3)) (then (call $rc_spinners (local.get $q) (local.get $w))))
     (if (i32.eq (local.get $t) (i32.const 4)) (then (call $rc_sweepers (local.get $q) (local.get $w))))
-    (if (i32.eq (local.get $t) (i32.const 5)) (then (call $rc_drop (local.get $q) (local.get $w) (i32.const 0)))))
+    (if (i32.eq (local.get $t) (i32.const 5))
+      (then
+        (call $rc_drop (local.get $q) (local.get $w) (i32.const 0))
+        (call $rc_boxes (i32.sub (i32.load (i32.const @(PG_H + RC_NPIECE))) (i32.const 1)) (f32.const 6)))))
   ;; the run in to the line, and the pen past it
   (drop (call $rc_straight (f32.const 14) (f32.const -0.6) (local.get $w) (local.get $w) (i32.const @(RCF_CHECK | RCF_RAIL_L | RCF_RAIL_R)) (i32.const @RCS_FINISH)))
   (f32.store (i32.const @(PG_H + RC_FIN)) (call $rc_cur_s))
@@ -707,6 +738,20 @@
           (then
             (local.set $vy (f32.max (local.get $vy) (f32.const @RC_BAR_POP)))
             (local.set $fl (i32.and (local.get $fl) (i32.const @(255 ^ PF_GROUND))))))))
+    (if (i32.and (i32.eq (local.get $kind) (i32.const @RCH_BOX)) (i32.eqz (!at u8 @(PLAYERS + B_ITEM) (local.get $pb))))
+      (then
+        ;; a box: what it hands this slot, if it holds nothing
+        (local.set $q (f32.sub (local.get $px) (local.get $hx)))
+        (local.set $amp (f32.sub (local.get $pz) (local.get $hz)))
+        (local.set $l (f32.add (local.get $l) (local.get $r)))
+        (if (i32.and (f32.lt (!madd (local.get $q) (local.get $q) (f32.mul (local.get $amp) (local.get $amp))) (f32.mul (local.get $l) (local.get $l)))
+                     (f32.lt (local.get $py) (f32.add (f32.load offset=@RC_H_Y (local.get $ha)) (f32.const @RC_BOX_TOP))))
+          (then
+            (local.set $hit (call $rc_item (local.get $p) (local.get $j)))
+            (!put u8 @(PLAYERS + B_ITEM) (local.get $pb) (local.get $hit))
+            (call $fx (local.get $d) (i32.const @FX_PICKUP) (local.get $p) (local.get $j)
+                      (local.get $hx) (f32.add (f32.load offset=@RC_H_Y (local.get $ha)) (f32.const @RC_BOX_Y)) (local.get $hz)
+                      (f32.convert_i32_u (local.get $hit)))))))
     (if (i32.and (i32.eq (local.get $kind) (i32.const @RCH_PAD)) (i32.ne (i32.and (local.get $fl) (i32.const @PF_GROUND)) (i32.const 0)))
       (then
         ;; a pad: pushed down the track while over it, up to RC_PAD_V

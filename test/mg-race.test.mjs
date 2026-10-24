@@ -274,6 +274,46 @@ test('hazards on the clock: a bumper post throws a ball off it; a spinner\'s bar
   assert.ok(pad.at(-1) > 5 + 30 * L.RC_PAD_A * TICK * 0.5, `${pad.at(-1).toFixed(1)} m/s off the pad`);
 });
 
+test('power-up boxes: two rows, halfway down the first drop and early in the last; a ball holding nothing takes what the box hands its slot, the same every pass, and uses it as bumper\'s balls do', async () => {
+  const g = await room(3);
+  const c = g.c;
+  const boxes = c.hazards.filter((h) => h.kind === L.RCH_BOX);
+  const rows = [...new Set(boxes.map((h) => h.piece.k))];
+  assert.equal(rows.length, 2, 'two rows');
+  assert.equal(rows[0], 1, 'the first on the first drop');
+  assert.ok(boxes.every((h) => h.piece.sec === L.RCS_DROP));
+  assert.ok(boxes.filter((h) => h.piece.k === rows[0]).length >= 2);
+  const B = boxes[1];
+  const items = new Set();
+  for (const p of [0, 1, 2]) {
+    put(g, p, [B.x - B.piece.dx * 2.5 + B.piece.dz * 0.2 * p, B.y + (B.piece.h1 - B.piece.h0) / B.piece.len * -2.5, B.z - B.piece.dz * 2.5], { v: [B.piece.dx * 8, 0, B.piece.dz * 8], best: B.piece.s0 + B.piece.len / 2 - 3 });
+    const fx0 = g.v.fxCount();
+    let k = 0;
+    while (!g.v.partier(p).item && k++ < 60) g.step();
+    const it = g.v.partier(p).item;
+    assert.ok(it >= L.PU_MEGA && it <= L.PU_SPRING, `P${p + 1} took ${L.PU_NAMES[it]}`);
+    const f = fxs(g.v, L.FX_PICKUP, fx0).find((x) => x.owner === p);
+    assert.ok(f && f.shot === B.j && f.size === it, 'its pickup FX: the box as shot, the power-up as size');
+    items.add(it);
+    // holding one, it takes no other; back through the same box with nothing, the same one again
+    put(g, p, [B.x - B.piece.dx * 2.5, B.y + (B.piece.h1 - B.piece.h0) / B.piece.len * -2.5, B.z - B.piece.dz * 2.5], { v: [B.piece.dx * 8, 0, B.piece.dz * 8], best: B.piece.s0 + B.piece.len / 2 - 3 });
+    for (let n = 0; n < 40; n++) g.step();
+    assert.equal(g.v.partier(p).item, it, 'kept');
+    g.dv.setUint8(rec(p) + L.B_ITEM, 0);
+    put(g, p, [B.x - B.piece.dx * 2.5, B.y + (B.piece.h1 - B.piece.h0) / B.piece.len * -2.5, B.z - B.piece.dz * 2.5], { v: [B.piece.dx * 8, 0, B.piece.dz * 8], best: B.piece.s0 + B.piece.len / 2 - 3 });
+    k = 0;
+    while (!g.v.partier(p).item && k++ < 60) g.step();
+    assert.equal(g.v.partier(p).item, it, 'the same again');
+    put(g, p, spot(c.pieces[0], 0.5, (p - 1) * 3).pos, { best: 0 });
+  }
+  // a dash, used: off at DASH_V where it faces
+  g.dv.setUint8(rec(0) + L.B_ITEM, L.PU_DASH);
+  const yaw = Math.atan2(c.pieces[0].dz, c.pieces[0].dx);
+  g.step([[L.EV_INPUT, 0, word(yaw, { move: 0, use: 1 })]]);
+  assert.equal(g.v.partier(0).item, 0, 'used');
+  assert.ok(speed(g.v.partier(0)) > 15, `dashing at ${speed(g.v.partier(0)).toFixed(1)} m/s`);
+});
+
 test('a cut: a ball that comes down more than RC_SKIP past its best is down for it, its best unchanged', async () => {
   const g = await room(2);
   const P = g.c.pieces.find((Q) => Q.sec === L.RCS_SPINNERS);

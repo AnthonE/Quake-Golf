@@ -113,6 +113,7 @@ export const RCH_BUMPER = 1;
 export const RCH_SPINNER = 2;
 export const RCH_SWEEPER = 3;
 export const RCH_PAD = 4;
+export const RCH_BOX = 5; // a power-up box: a ball holding nothing that touches it takes what it hands that slot ($rc_item)
 // Its header, byte offsets in PG_H.
 export const RC_NPIECE = 0; // u32 pieces laid
 export const RC_NHAZ = 4; // u32 hazards
@@ -156,3 +157,8 @@ export const RC_SWEEP_KEEP = 2.4; // m short of its lane's edge a sweeper's midd
 export const RC_SWEEPV0 = 20; // a sweeper's swing: 20 to 30 (1/16384 turn a tick: 1 to 1.4 rad/s)
 export const RC_SWEEPVK = 10;
 export const RC_BAR_POP = 2.5; // m/s up a bar's hit throws a ball
+export const RC_BOX_SP = 4.5; // m across between power-up boxes, a row halfway down the first drop (railed) and one 6 m into the last
+export const RC_BOX_R = 0.7; // a box's half size: a ball within its radius plus this takes it
+export const RC_BOX_Y = 1.4; // its middle over the track
+export const RC_BOX_TOP = 2.1; // a ball whose bottom is under this over the track reaches it
+export const RC_KITEM = 0x30002; // $p_seed key: what each box hands each slot
