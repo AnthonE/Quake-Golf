@@ -68,20 +68,28 @@ function playTime(view, g, ctx, pred) {
 
 // ---- the paint layer the renderer lays over the floor
 
-const layer = { cells: new Uint8Array(N * N), n: N, origin: [0, 0], size: 1, palette: new Float32Array(1024), version: 0, me: -2 };
+// The grid as palette indices (src), and drawn at twice its size by Scale2x
+// (layer.cells): a cell's four quarters take a neighbour's colour where two
+// neighbours agree across that corner, so a stripe's stepped edge comes out
+// as a run of half steps and its diagonals smooth. Only what changed since
+// the last frame is worked again.
+const SN = 2 * N;
+const src = new Uint8Array(N * N), was = new Uint8Array(N * N);
+const layer = { cells: new Uint8Array(SN * SN), n: SN, origin: [0, 0], size: 1, palette: new Float32Array(1024), version: 0, me: -2 };
 // palette index of slot s: 1..255 (slots 254 and 255 share the last, which shows yours if you're one of them)
 const idx = (s) => (s < 255 ? s + 1 : 255);
+// (everyone's paint a little toward grey but your own, so yours stands out in a crowd of near colours)
 function palette(me) {
   if (layer.me === me) return;
   layer.me = me;
   const P = layer.palette;
   P.fill(0);
   for (let s = 0; s < 255; s++) {
-    const c = slotColor(s === 254 && me === 255 ? 255 : s);
-    P.set([c[0], c[1], c[2], 1], 4 * idx(s));
+    const who = s === 254 && me === 255 ? 255 : s, c = slotColor(who), k = who === me ? 1 : 0.86;
+    P.set([c[0] * k + 0.5 * (1 - k), c[1] * k + 0.5 * (1 - k), c[2] * k + 0.5 * (1 - k), 1], 4 * idx(s));
   }
 }
-// slot p's brush over (x, z) into the layer: drawing only, as $pp_brush paints
+// slot p's brush over (x, z) into src: drawing only, as $pp_brush paints
 function stamp(st, g, p, x, z, r) {
   const i0 = Math.max(0, Math.floor((x - r - st.x0) / st.cs)), i1 = Math.min(N - 1, Math.floor((x + r - st.x0) / st.cs));
   const j0 = Math.max(0, Math.floor((z - r - st.x0) / st.cs)), j1 = Math.min(N - 1, Math.floor((z + r - st.x0) / st.cs));
@@ -90,14 +98,24 @@ function stamp(st, g, p, x, z, r) {
     const dz = (j + 0.5) * st.cs + st.x0 - z;
     for (let i = i0; i <= i1; i++) {
       const dx = (i + 0.5) * st.cs + st.x0 - x;
-      if (dx * dx + dz * dz <= r2 && g[j * N + i] !== L.PP_OFF) layer.cells[j * N + i] = v;
+      if (dx * dx + dz * dz <= r2 && g[j * N + i] !== L.PP_OFF) src[j * N + i] = v;
     }
   }
 }
-function paintLayer(view, st, ctx, play) {
+// Cell (i, j)'s four quarters, Scale2x: A above, B right, C left, D below.
+function quarters(i, j) {
+  const c = j * N + i, P = src[c], out = layer.cells;
+  const A = j > 0 ? src[c - N] : P, D = j < N - 1 ? src[c + N] : P, C = i > 0 ? src[c - 1] : P, B = i < N - 1 ? src[c + 1] : P;
+  const o = 2 * j * SN + 2 * i;
+  out[o] = C === A && C !== D && A !== B ? A : P;
+  out[o + 1] = A === B && A !== C && B !== D ? B : P;
+  out[o + SN] = D === C && D !== B && C !== A ? C : P;
+  out[o + SN + 1] = B === D && B !== A && D !== C ? D : P;
+}
+export function paintLayer(view, st, ctx, play) {
   palette(ctx?.slot ?? -1);
-  const g = grid(view), out = layer.cells;
-  for (let c = 0; c < N * N; c++) { const v = g[c]; out[c] = v === 0 || v === L.PP_OFF ? 0 : idx(v - 1); }
+  const g = grid(view);
+  for (let c = 0; c < N * N; c++) { const v = g[c]; src[c] = v === 0 || v === L.PP_OFF ? 0 : idx(v - 1); }
   // your ball's paint on the ticks it has rolled that the confirmed world hasn't yet (the prediction's track)
   if (play && ctx?.pme && !ctx.pme.out && ctx.pview && ctx.slot >= 0) {
     const t0 = view.tick, t1 = ctx.pview.tick, start = view.dv.getUint32(L.HDR_START, true);
@@ -110,10 +128,30 @@ function paintLayer(view, st, ctx, play) {
       stamp(st, g, ctx.slot, view.dv.getFloat32(o, true), view.dv.getFloat32(o + 8, true), rushing(st, (tk - start) | 0) ? L.PP_RUSH_BRUSH : L.PP_BRUSH);
     }
   }
+  let changed = 0;
+  for (let c = 0; c < N * N; c++) {
+    if (src[c] === was[c]) continue;
+    was[c] = src[c];
+    changed++;
+    const i = c % N, j = (c - i) / N;
+    quarters(i, j);
+    if (i > 0) quarters(i - 1, j);
+    if (i < N - 1) quarters(i + 1, j);
+    if (j > 0) quarters(i, j - 1);
+    if (j < N - 1) quarters(i, j + 1);
+  }
   layer.origin[0] = layer.origin[1] = st.x0;
   layer.size = st.cs * N;
-  layer.version++;
+  if (changed) layer.version++;
   return layer;
+}
+
+// Is your predicted ball within a bomb's reach ($pp_orbs's test)?
+function reach(ctx, b) {
+  const m = ctx?.pme;
+  if (!m || m.out || !m.live) return false;
+  const dx = m.pos[0] - b.x, dy = m.pos[1] + m.radius - (PLAT_Y + L.PP_ORB_Y), dz = m.pos[2] - b.z, lim = m.radius + L.PP_ORB_R;
+  return dx * dx + dy * dy + dz * dz < lim * lim;
 }
 
 // Paint tins standing in the sea round the stage, open, full and running over.
@@ -127,9 +165,12 @@ function cans(sc, cx, R) {
     sc.cyl(x, h * 0.55, z, rc + 0.06, h * 0.18, r, g, b, LOOK.PLASTIC);
     sc.cyl(x, h + 0.15, z, rc + 0.25, 0.3, 0.8, 0.81, 0.85, LOOK.METAL);
     sc.cyl(x, h + 0.25, z, rc - 0.15, 0.3, r, g, b, LOOK.PLASTIC);
+    // runs down the metal above the label, each a rounded end at its foot
     for (let d = 0; d < 7; d++) {
-      const u = a + Math.PI + (d - 3) * 0.32, len = 1.5 + 3.5 * (((k * 7 + d * 13) % 11) / 11);
-      sc.box(x + Math.cos(u) * (rc + 0.12), h - len / 2 + 0.3, z + Math.sin(u) * (rc + 0.12), 0.08, len / 2, 0.45, u, r, g, b, LOOK.PLASTIC);
+      const u = a + Math.PI + (d - 3) * 0.32, len = h * (0.06 + 0.16 * (((k * 7 + d * 13) % 11) / 11));
+      const dx = x + Math.cos(u) * (rc + 0.05), dz = z + Math.sin(u) * (rc + 0.05);
+      sc.cyl(dx, h - len / 2 + 0.3, dz, 0.28, len / 2, r, g, b, LOOK.PLASTIC);
+      sc.sphere(dx, h - len + 0.3, dz, 0.36, r, g, b, LOOK.PLASTIC);
     }
   }
 }
@@ -199,8 +240,9 @@ export default {
       if (!v || v === L.PP_OFF) continue;
       const col = slotColor(v - 1);
       const len = 0.8 + 2.2 * (((k * 2654435761) >>> 0) % 97) / 97;
-      const rr = R * 0.985 + 0.06;
-      sc.box(cx + Math.cos(a) * rr, PLAT_Y - 2 * LID - len / 2, cx + Math.sin(a) * rr, 0.06, len / 2, 0.35, a, col[0], col[1], col[2], LOOK.PLASTIC);
+      const rr = R * 0.985 + 0.05, x = cx + Math.cos(a) * rr, z = cx + Math.sin(a) * rr;
+      sc.cyl(x, PLAT_Y - 2 * LID - len / 2 + 0.2, z, 0.2, len / 2, col[0], col[1], col[2], LOOK.PLASTIC);
+      sc.sphere(x, PLAT_Y - 2 * LID - len + 0.2, z, 0.26, col[0], col[1], col[2], LOOK.PLASTIC);
     }
     // the bombs: down, on their burst's ring; coming, the spot marked and the last FALL s dropping in
     const tp = playTime(view, g, ctx, true);
@@ -224,6 +266,8 @@ export default {
       }
       const bob = 0.15 * Math.sin(now * 3 + j);
       const y = PLAT_Y + L.PP_ORB_Y + bob;
+      // your own ball in reach of it: gone at once (the confirmed world bursts it a round trip on)
+      if (reach(ctx, b)) continue;
       sc.sphere(b.x, y, b.z, 0.75, ...rgb, LOOK.PLASTIC);
       out.casters?.push([b.x, y, b.z, -0.75]);
       out.glow?.push({ pos: [b.x, y + 0.95, b.z], size: 0.3 + 0.08 * Math.sin(now * 17 + j), color: [1, 0.9, 0.5, 1], kind: SPRITE.SPARK });

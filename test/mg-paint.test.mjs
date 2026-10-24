@@ -454,13 +454,20 @@ test('the client module: the floor drawn with the grid as its paint layer, the b
   paint.draw(g.v, { tick: g.v.tick, t: g.v.party().t * TICK, dt: 0, now: 0, slot: 0 }, out);
   assert.ok(out.scene.count >= 3, `${out.scene.count} solids`);
   for (let k = 0; k < out.scene.count * 16; k++) assert.ok(Number.isFinite(out.scene.data[k]), 'finite');
-  const pl = out.paint;
-  assert.ok(pl && pl.n === N && pl.cells.length === N * N);
+  // the grid's slots + 1 as palette indices, at twice the grid (Scale2x): at least two of a cell's quarters its own, the rest a neighbour's
+  const pl = out.paint, M = 2 * N;
+  assert.ok(pl && pl.n === M && pl.cells.length === M * M);
   assert.deepEqual([pl.origin[0], pl.origin[1], pl.size], [d.x0, d.x0, d.cs * N]);
-  for (let c = 0; c < N * N; c++) {
-    const v = g.grid[c];
-    assert.equal(pl.cells[c], v === 0 || v === L.PP_OFF ? 0 : v, `cell ${c}`);
+  const id = (i, j) => { const v = g.grid[Math.min(N - 1, Math.max(0, j)) * N + Math.min(N - 1, Math.max(0, i))]; return v === 0 || v === L.PP_OFF ? 0 : v; };
+  let wrong = 0, painted = 0;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const q = [pl.cells[2 * j * M + 2 * i], pl.cells[2 * j * M + 2 * i + 1], pl.cells[(2 * j + 1) * M + 2 * i], pl.cells[(2 * j + 1) * M + 2 * i + 1]];
+    const near = [id(i, j), id(i - 1, j), id(i + 1, j), id(i, j - 1), id(i, j + 1)];
+    if (q.filter((x) => x === near[0]).length < 2 || q.some((x) => !near.includes(x))) wrong++;
+    painted += near[0] > 0;
   }
+  assert.equal(wrong, 0);
+  assert.ok(painted > 500, `${painted} cells painted`);
   for (const p of [0, 1, 2]) assert.equal(pl.palette[4 * (p + 1) + 3], 1, 'a colour for each slot');
   assert.equal(pl.palette[3], 0, 'unpainted: the floor\'s own');
   assert.equal(out.decals.length, 2 + stage(g.v).orbs, 'the rim, a ring for every bomb, the leader\'s');
