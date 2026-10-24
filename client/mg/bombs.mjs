@@ -1,14 +1,15 @@
 // BOMB RAIN, as drawn and as the AI ball sees it. The disc is hex tiles in
-// rings of colour round a gold core (the part the rim never takes); tiles the
-// rim is about to take darken and shake, then drop and tumble away. Each bomb
-// shows as a red zone on the floor with a ring closing on its spot while the
-// bomb falls into it from high up, its shadow growing; it goes off as the ring
-// closes. A big one's zone is orange, the tiles it will take glow, and they
-// fly when it lands, the hole there until the tiles rise back. Everything is
-// read from the sim's own records (src/mg/bombs.mjs's layout) and timed on
-// the prediction's clock, so a blast is drawn on the tick your ball feels it.
+// rings of pale and blue round a teal core (the part the rim never takes);
+// tiles the rim is about to take darken and shake, then drop and tumble
+// away. Each bomb shows as a red zone on the floor with a ring closing on its
+// spot while the bomb falls into it from high up, its shadow growing; it goes
+// off as the ring closes. A big one's zone is orange, the tiles it will take
+// glow, and they fly when it lands, the hole there until the tiles rise back.
+// Everything is read from the sim's own records (src/mg/bombs.mjs's layout)
+// and timed on the prediction's clock, so a blast is drawn on the tick your
+// ball feels it.
 import * as L from '../../src/layout.mjs';
-import { PLAT_Y, hexAt, hexCentre } from '../../src/party-view.mjs';
+import { PLAT_Y, hexCentre } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
@@ -231,14 +232,10 @@ export default {
     // the column the disc stands on, down into the sea
     sc.cyl(st.cx, PLAT_Y - 2 * HH - 22, st.cx, L.BO_RMIN * 0.62, 22, 0.42, 0.36, 0.36, LOOK.MATTE);
     sc.cyl(st.cx, PLAT_Y - 2 * HH - 1.2, st.cx, L.BO_RMIN * 0.9, 1.2, 0.5, 0.42, 0.4, LOOK.MATTE);
-    // the big bombs on their way: the tiles they'll take glow, pulsing faster as they fall
-    const hot = new Map();
     const bombs = tp >= 0 ? bombsOf(view) : [];
-    for (const b of bombs) {
-      if (!b.big || now >= b.land) continue;
-      const u = 1 - (b.land - now) / b.fall;
-      hot.set(b.k, u);
-    }
+    // the big ones by the tick they land (a crater's cells hold it), so a crater's tiles fly away from theirs
+    const bigs = new Map();
+    for (const b of bombs) if (b.big) bigs.set(b.land, b);
     for (const T of st.tiles) {
       if (tp < 0) { tile(sc, T.x, y0, T.z, 0, T.rgb); continue; }
       // taken by the rim: falling, tumbling, fading
@@ -253,7 +250,7 @@ export default {
       if (since >= 0 && since < L.BO_HOLE) {
         // blown out from the blast, then gone, then rising back in the last RISE ticks
         if (since * TICK < FALL) {
-          const a = since * TICK, b = bombs.find((o) => o.big && o.land === c);
+          const a = since * TICK, b = bigs.get(c);
           const ox = b ? T.x - b.x : 0, oz = b ? T.z - b.z : 0, n = Math.hypot(ox, oz) || 1;
           const vh = 5 + 3 * T.wob, vu = 9 + 4 * T.wob;
           tile(sc, T.x + (ox / n) * vh * a, y0 + vu * a - 0.5 * 30 * a * a, T.z + (oz / n) * vh * a, a * (T.wob - 0.5) * 9, shade(T.rgb, DOOM, 0.6), LOOK.MATTE, 0, 0, 1 - a / FALL);
@@ -318,7 +315,7 @@ export default {
         if (y < PLAT_Y - 3) continue;
         const pos = [b.x + Math.cos(ang) * sp * s, y, b.z + Math.sin(ang) * sp * s];
         if (i & 1) out.glow.push({ pos, size: 0.4, color: [1, 0.65, 0.25, 1 - a], kind: SPRITE.SPARK, minpx: 1 });
-        else out.solid.push({ pos, size: 0.22 * big, color: [0.25, 0.22, 0.24, 1], kind: SPRITE.CRUMB, minpx: 1, seed: b.k * 8 + i });
+        else out.solid.push({ pos, size: 0.16 * big, color: [0.86, 0.88, 0.94, 1], kind: SPRITE.CRUMB, minpx: 1, seed: b.k * 8 + i });
       }
     }
   },
@@ -342,10 +339,10 @@ export default {
       else if (d < 18) ctx.banner?.('BIG BOMB', C.ORANGE, 1000);
     } else if (fx.kind === L.BO_FX_WAVE) {
       if (d < 120) ctx.sound?.tick?.();
+      // the first wave past the calm, and past the big ones' start, say so
       const g = ctx.view?.party?.();
-      const tp = g ? (fx.tick - g.start) | 0 : 0;
-      const gap = ramp(tp, L.BO_GAP0, L.BO_GAP1);
-      if (tp >= L.BO_CALM && tp - ramp(tp, L.BO_GAP0, L.BO_GAP1) < L.BO_CALM) ctx.banner?.('THE EDGE IS CRUMBLING', C.ORANGE, 1800);
+      const tp = g ? (fx.tick - g.start) | 0 : 0, gap = ramp(tp, L.BO_GAP0, L.BO_GAP1);
+      if (tp >= L.BO_CALM && tp - gap < L.BO_CALM) ctx.banner?.('THE EDGE IS CRUMBLING', C.ORANGE, 1800);
       else if (tp >= L.BO_BIGFROM && tp - gap < L.BO_BIGFROM) ctx.banner?.('BIG BOMBS BLOW HOLES', C.ORANGE, 1800);
     }
   },
@@ -358,7 +355,8 @@ export default {
     if (!(st.r0 > 0)) return;
     const w = view.dv.getUint32(L.PG_H + L.BO_WAVE, true), n = view.dv.getUint32(L.PG_H + L.BO_LAST, true);
     const gap = view.dv.getUint32(L.PG_H + L.BO_GAP, true) || L.BO_GAP0;
-    ctx.right(3, `WAVE ${w}  ${n} ${n === 1 ? 'BOMB' : 'BOMBS'}  EVERY ${(gap * TICK).toFixed(1)}S`, C.GREY);
+    if (w) ctx.right(3, `WAVE ${w}  ${n} ${n === 1 ? 'BOMB' : 'BOMBS'}  EVERY ${(gap * TICK).toFixed(1)}S`, C.GREY);
+    else ctx.right(3, 'WATCH THE SKY  BOMBS LAND IN THE RINGS', C.ORANGE);
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     if (!me || !me.live || me.out || me.falling) return;
     const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
