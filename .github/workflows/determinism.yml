@@ -70,6 +70,8 @@ jobs:
         run: node net/run-n3.mjs --chrome 0 --seconds 40 --golfers 64 --watchers 100
       - name: Failover and replays (the root killed mid-match, a standby takes the room over, everyone keeps their slot, the replay checks out)
         run: node net/run-n4.mjs --chrome 0 --seconds 40 --kill 15 --golfers 32 --watchers 32
+      - name: Hosting (someone else's wasm refused or stopped, the room pool opening, capping, listing and closing rooms)
+        run: node net/run-rooms.mjs
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

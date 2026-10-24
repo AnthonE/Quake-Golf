@@ -1,0 +1,16 @@
+{
+  "game": "fireplace",
+  "wasm": "build/fireplace/game.wasm",
+  "host": "game.elopros.com",
+  "bind": "0.0.0.0",
+  "ports": [61290, 61297],
+  "native_offset": 0,
+  "max_players": 8,
+  "min_free": 1,
+  "max_rooms": 8,
+  "idle_s": 300,
+  "status_dir": "traces/rooms",
+  "status_base": "https://game.elopros.com/fireplace/rooms/",
+  "list": "traces/rooms/servers.json",
+  "relay_args": []
+}
