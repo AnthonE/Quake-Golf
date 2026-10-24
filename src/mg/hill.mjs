@@ -43,7 +43,7 @@ export const KH_F = 12; // f32 a hill's foot's radius
 export const KH_H = 16; // f32 a hill's height, risen
 export const KH_IA2 = 20; // f32 1 / A^2, A the ellipsoid's half width: 0.75 / F^2
 export const KH_NH = 24; // u32 hills a zone, 1 to KH_HMAX
-export const KH_LEAD = 28; // u32 the slot with the most points (255 none): the crown over its rider
+export const KH_LEAD = 28; // u32 the slot with the most points (0xffff none: 255 is a slot): the crown over its rider
 export const KH_LEADT = 32; // u32 ticks into play of the last KH_FX_LEAD
 // i16 x, z of zone k's hill i from the stage's centre, in 1/64 m, at
 // KH_SPOT + 4 (k KH_HMAX + i): KH_ZONES * KH_HMAX of them (to 108)
@@ -57,5 +57,5 @@ export const KH_ORBS = 2064;
 // FX kinds, FX_MG + 4 * MG_HILL + k, owner 255 unless said.
 export const KH_FX_NEXT = 60; // the next zone's hills start to swell: its first's spot, shot and size the zone (1..)
 export const KH_FX_MOVE = 61; // a zone opens: its first hill's top, shot and size the zone (0..)
-export const KH_FX_LEAD = 62; // a new leader: owner the slot, shot the last (255 none), size its points
+export const KH_FX_LEAD = 62; // a new leader: owner the slot, shot the last (0xffff none), size its points
 export const KH_FX_ORB = 63; // a power-up drops: where it will land (the top), shot the hill, size its PU_*

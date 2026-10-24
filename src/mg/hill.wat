@@ -142,7 +142,7 @@
   (f32.store (i32.const @(PG_H + KH_H)) (f32.mul (local.get $f) (f32.const @KH_HIGH)))
   (f32.store (i32.const @(PG_H + KH_IA2)) (f32.div (f32.const 0.75) (f32.mul (local.get $f) (local.get $f))))
   (i32.store (i32.const @(PG_H + KH_NH)) (local.get $nh))
-  (i32.store (i32.const @(PG_H + KH_LEAD)) (i32.const 255))
+  (i32.store (i32.const @(PG_H + KH_LEAD)) (i32.const 0xffff))
   (local.set $cx (f32.load (i32.const @PG_CX)))
   (local.set $rs (f32.max (f32.const 0) (f32.sub (f32.sub (local.get $rad) (f32.mul (local.get $f) (f32.const 1.2))) (f32.const 1))))
   ;; how far round the middle a zone's hills stand: no nearer than KH_SPREAD feet apart (one hill: anywhere)
@@ -435,8 +435,8 @@
 
 ;; The power-ups, the zones' moments as FX (the next hills swelling, a zone
 ;; opening), and the leader: the most points of anyone in the room, a tie
-;; keeping the one who had it (KH_LEAD, for the crown; KH_FX_LEAD at most
-;; every KH_LEADGAP).
+;; keeping the one who had it (KH_LEAD, for the crown, 0xffff nobody: 255
+;; is a slot; KH_FX_LEAD at most every KH_LEADGAP).
 (func $kh_tick
   (local $t i32) (local $j i32) (local $p i32) (local $pb i32) (local $lead i32) (local $who i32) (local $best i32) (local $s i32)
   (local.set $t (call $p_t (i32.const 0)))
@@ -450,7 +450,7 @@
                (i32.and (i32.ge_u (local.get $j) (i32.const 1)) (i32.lt_u (local.get $j) (i32.const @KH_ZONES))))
     (then (call $kh_mark (i32.const @KH_FX_MOVE) (local.get $j) (f32.const 1))))
   (local.set $lead (i32.load (i32.const @(PG_H + KH_LEAD))))
-  (local.set $who (i32.const 255))
+  (local.set $who (i32.const 0xffff))
   (if (i32.lt_u (local.get $lead) (i32.const @NPLAYER))
     (then
       (if (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $lead) (i32.const 6))) (i32.const @PF_LIVE))
@@ -464,11 +464,11 @@
         (local.set $s (!at u16 @(PLAYERS + PG_SCORE) (local.get $pb)))
         (if (i32.gt_u (local.get $s) (local.get $best))
           (then (local.set $best (local.get $s)) (local.set $who (local.get $p)))))))
-  (if (i32.eqz (local.get $best)) (then (local.set $who (i32.const 255))))
+  (if (i32.eqz (local.get $best)) (then (local.set $who (i32.const 0xffff))))
   (if (i32.ne (local.get $who) (local.get $lead))
     (then
       (i32.store (i32.const @(PG_H + KH_LEAD)) (local.get $who))
-      (if (i32.and (i32.ne (local.get $who) (i32.const 255))
+      (if (i32.and (i32.lt_u (local.get $who) (i32.const @NPLAYER))
                    (i32.or (i32.eqz (i32.load (i32.const @(PG_H + KH_LEADT))))
                            (i32.ge_u (i32.sub (local.get $t) (i32.load (i32.const @(PG_H + KH_LEADT)))) (i32.const @KH_LEADGAP))))
         (then
