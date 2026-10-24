@@ -457,13 +457,13 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       centre(y0, `ROUND ${g.round + 1}   ${g.n0} ${g.n0 === 1 ? 'PLAYER' : 'PLAYERS'}`, C.GREY);
       bigLine(y0 + 2, mod.name || g.name, C.YELLOW, 4);
       centre(y0 + 7, mod.hint || '', C.WHITE);
-      centre(y0 + 9, score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS', C.CYAN);
+      centre(y0 + 9, mod.rules || (score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS'), C.CYAN);
     }
     if (g.state === L.H_PLAY) {
       centre(0, clock(left), left < 10 * 125 ? C.RED : C.WHITE);
       centre(1, mod.name || g.name, C.GREY);
     }
-    if (g.state !== L.H_IDLE && st === 2) {
+    if (g.state !== L.H_IDLE && st === 2 && !mod.ownScore) {
       if (score) {
         // your score and the leader's
         let lead = -1, best = -1;
@@ -481,7 +481,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       right(0, `POINTS ${me.pts}  WINS ${me.wins}`, C.YELLOW);
       if (me.out && g.state === L.H_PLAY && !score) centre(rows - 4, f ? `OUT  WATCHING P${f.slot + 1}  CLICK FOR ANOTHER` : 'OUT', C.GREY);
       if (me.out && me.place === 0 && g.state === L.H_PLAY && !score) centre(rows - 5, 'YOU PLAY THE NEXT ROUND', C.CYAN);
-      if (me.out && g.state === L.H_PLAY && score) centre(rows - 4, `DOWN  BACK IN ${Math.max(0, Math.ceil((g.respawn - ((g.tick - me.outAt) | 0)) / 125))}`, C.GREY);
+      if (me.out && g.state === L.H_PLAY && score && !mod.ownScore) centre(rows - 4, `DOWN  BACK IN ${Math.max(0, Math.ceil((g.respawn - ((g.tick - me.outAt) | 0)) / 125))}`, C.GREY);
       if (item && !me.out) put(tx, COLS, 47, rows - 3, `${L.PU_NAMES[item]}  CLICK`, C.WHITE);
     } else if (WATCH && f) put(tx, COLS, 1, 1, `WATCHING P${f.slot + 1}  < >`, C.CYAN);
     // the minigame's own lines
