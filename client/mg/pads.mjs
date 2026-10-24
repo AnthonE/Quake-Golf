@@ -102,7 +102,7 @@ function playTime(view, g, ctx) {
 
 // ---- drawing
 
-const look = { spin: 0, w: 0, at: -1, tp: -1, me: null, stopSeen: -1 };
+const look = { spin: 0, w: 0, at: -1, tp: -1, me: null }; // the record's turn, the last frame's clock and ball (for the HUD)
 
 // The record: the floor to the rim (hazard stripes on the ring it is about to
 // lose), grooves, the label turning, the ring it lost crumbling away.
