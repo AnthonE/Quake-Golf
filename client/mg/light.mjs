@@ -187,7 +187,7 @@ function plan(view, me, bot, tick) {
   if (pushedDist(v, look - 2) > z - st.zf + 1.5) return { yaw, move: 1 };
   // once it has let go this green it stays off (what it reckons of its speed
   // after letting go runs low: the words in flight aren't all its last)
-  if (mem.off === w.c) return { yaw, move: 0 };
+  if (mem.off === w.c && t < w.r0) return { yaw, move: 0 };
   // a slower ball ahead in the lane it would reach within the second: don't run into it
   let follow = 0;
   for (const r of ahead(R, x, z, slot, 8, 2.3, dt)) {

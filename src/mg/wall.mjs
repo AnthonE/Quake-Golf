@@ -53,7 +53,9 @@ export const WL_A = 28; // f32 how far its gaps sway either way, 0 for a wall th
 export const WL_PH = 32; // u32 the sway's phase as it moves, 1/16384 turn: the gaps are WL_A sin(phase) off their centres, the phase WL_SWAYK more a tick
 export const WL_GAPS = 36; // f32 x WL_KMAX (to the record's end): its gaps' centres across its way (v = z for side 0, then turning with it), ascending
 export const WL_PASSED = 7040; // WL_NMAX * WL_WSIZE: u8 per slot, the walls it saw go by this round
-// A ball's PG_M: bit w mod 32 set once wall w's moving face has met it (so WL_FX_PIN comes once a wall).
+export const WL_FELL = 7296; // WL_PASSED + 256: u16 per slot, the tick into play it started going out, plus 1 (0 not yet: over's)
+// A ball's PG_M: bit w mod 32 set once wall w's moving face has met it (so WL_FX_PIN comes once a wall),
+// cleared on the tick the wall is gone (push's, on either bank: wall w + 32 has the same bit).
 // FX kinds, FX_MG + 4 * MG_WALL + k; shot = the wall's index (| its side << 8 for SHOW), at the wall's middle.
 export const WL_FX_SHOW = 52; // a wall shows at its edge: size its speed
 export const WL_FX_GO = 53; // it moves: size its speed

@@ -53,10 +53,12 @@
   (f32.sub (local.get $r0) (f32.mul (f32.sub (local.get $r0) (f32.const @SW_RMIN))
                                     (f32.div (f32.convert_i32_u (call $sw_drops (local.get $t))) (f32.const @SW_RINGS)))))
 
-;; Is bar k solid on tick t into play? The first always; bar k from SW_TS[k - 1].
+;; Is bar k solid on tick t into play? The first always; bar k from the tick
+;; after SW_TS[k - 1], the first of the pause: it comes in still, so it holds
+;; a ball off rather than flinging it, and sets off away from it.
 (func $sw_solid (param $k i32) (param $t i32) (result i32)
   (if (result i32) (local.get $k)
-    (then (i32.ge_s (local.get $t) (!tab SW_TS (i32.sub (local.get $k) (i32.const 1)))))
+    (then (i32.gt_s (local.get $t) (!tab SW_TS (i32.sub (local.get $k) (i32.const 1)))))
     (else (i32.const 1))))
 
 ;; The platform for the crowd; a strong hop and good brakes.
@@ -266,13 +268,25 @@
   (f32.mul (f32.convert_i32_s (i32.sub (call $sw_angle (i32.const 0) (i32.add (local.get $t) (i32.const 1))) (call $sw_angle (i32.const 0) (local.get $t))))
            (f32.const @SW_RAD_TICK)))
 
-;; Two or more still on and every one of them falling: over now, and they
-;; share the win rather than all sharing last.
+;; Two or more still on, every one of them falling, and all since the same
+;; tick (flung off together): over now, and they share the win rather than
+;; all sharing last. One that went off before the rest goes out first, in its
+;; place. Each ball's first tick falling is noted here (SW_FELL).
 (func $sw_over (result i32)
-  (local $p i32)
+  (local $p i32) (local $fl i32) (local $t i32) (local $at i32)
+  (local.set $t (i32.add (call $p_t (i32.const 0)) (i32.const 1)))
+  (!for $p (i32.const 0) (i32.const @NPLAYER)
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.and (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL))) (i32.eqz (!ld u16 @(PG_S + SW_FELL) (local.get $p))))
+      (then (!st u16 @(PG_S + SW_FELL) (local.get $p) (local.get $t)))))
   (if (i32.lt_u (i32.load (i32.const @BH_LEFT)) (i32.const 2)) (then (return (i32.const 0))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (if (call $p_in (i32.shl (local.get $p) (i32.const 6))) (then (return (i32.const 0)))))
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.eq (local.get $fl) (i32.const @PF_LIVE)) (then (return (i32.const 0))))
+    (if (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL)))
+      (then
+        (if (i32.eqz (local.get $at)) (then (local.set $at (!ld u16 @(PG_S + SW_FELL) (local.get $p)))))
+        (if (i32.ne (!ld u16 @(PG_S + SW_FELL) (local.get $p)) (local.get $at)) (then (return (i32.const 0)))))))
   (i32.const 1))
 
 (func $sw_out (param $p i32))

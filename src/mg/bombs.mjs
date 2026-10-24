@@ -54,6 +54,7 @@ export const BO_KEEP = 100; // ticks a bomb's record lasts past its blast (drawn
 export const BO_BOMBS = 0; // byte offset in PG_S
 export const BO_NB = 160;
 export const BO_BSIZE = 16;
+export const BO_FELL = 2560; // in PG_S past the bombs: u16 per slot, the tick into play it started going out, plus 1 (0 not yet: over's)
 // Its header, byte offsets in PG_H.
 export const BO_RAD = 0; // f32 the disc's radius at the start
 export const BO_NEXT = 4; // u32 the tick into play of the next wave
@@ -64,4 +65,4 @@ export const BO_GAP = 20; // u32 ticks from the last wave to the next
 // FX kinds, FX_MG + 4 * MG_BOMBS + k.
 export const BO_FX_BOOM = 48; // a bomb goes off: where it landed, size its blast's radius, shot its kind, owner who it was aimed at (255 none)
 export const BO_FX_WAVE = 49; // a wave's rings show: the stage's centre, size how many, shot the wave's number, owner 255
-export const BO_FX_BIG = 50; // a big bomb's ring shows: where it lands, size its fall in ticks, shot its record, owner who it's aimed at (255 none)
+export const BO_FX_BIG = 50; // a big bomb's ring shows: where it lands, size its fall in ticks, shot its record | 256 if aimed, owner who it's aimed at (255 none)

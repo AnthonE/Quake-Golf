@@ -87,7 +87,7 @@ export function stage(view) {
       tiles.push({ q, r, a, x, z, rho, rim, ang: Math.atan2(z - cx, x - cx), wob: ((q * 7 + r * 13) & 15) / 16, rgb: rho <= L.BO_RMIN ? CORE[band] : RINGS[band] });
     }
   }
-  memo = { r0, cx, s, h, tiles };
+  memo = { r0, cx, s, h, tiles, thrown: new Map() };
   return memo;
 }
 // The tick (HDR_TICK's count, fractional) to draw at, and ticks into play then; frozen where the round ended.
@@ -233,9 +233,11 @@ export default {
     sc.cyl(st.cx, PLAT_Y - 2 * HH - 22, st.cx, L.BO_RMIN * 0.62, 22, 0.42, 0.36, 0.36, LOOK.MATTE);
     sc.cyl(st.cx, PLAT_Y - 2 * HH - 1.2, st.cx, L.BO_RMIN * 0.9, 1.2, 0.5, 0.42, 0.4, LOOK.MATTE);
     const bombs = tp >= 0 ? bombsOf(view) : [];
-    // the big ones by the tick they land (a crater's cells hold it), so a crater's tiles fly away from theirs
+    // the big ones by the tick they land (a crater's cells hold it; a wave's land together), so a
+    // crater's tiles fly away from the nearest of theirs, kept for the cell (st.thrown) while they
+    // fly on past its record, freed BO_KEEP after it lands
     const bigs = new Map();
-    for (const b of bombs) if (b.big) bigs.set(b.land, b);
+    for (const b of bombs) if (b.big) { const l = bigs.get(b.land); if (l) l.push(b); else bigs.set(b.land, [b]); }
     for (const T of st.tiles) {
       if (tp < 0) { tile(sc, T.x, y0, T.z, 0, T.rgb); continue; }
       // taken by the rim: falling, tumbling, fading
@@ -247,11 +249,18 @@ export default {
       }
       const c = craterOf(view, T.a);
       const since = c ? now - c : -1e9;
+      const key = c * 8192 + (T.a >> 3);
       if (since >= 0 && since < L.BO_HOLE) {
         // blown out from the blast, then gone, then rising back in the last RISE ticks
         if (since * TICK < FALL) {
-          const a = since * TICK, b = bigs.get(c);
-          const ox = b ? T.x - b.x : 0, oz = b ? T.z - b.z : 0, n = Math.hypot(ox, oz) || 1;
+          let o = st.thrown.get(key);
+          if (!o) {
+            let near = (L.BO_CRATER + S) ** 2;
+            for (const b of bigs.get(c) || []) { const e = (T.x - b.x) ** 2 + (T.z - b.z) ** 2; if (e <= near) { near = e; o = [b.x, b.z]; } }
+            if (o) st.thrown.set(key, o);
+          }
+          const a = since * TICK;
+          const ox = o ? T.x - o[0] : 0, oz = o ? T.z - o[1] : 0, n = Math.hypot(ox, oz) || 1;
           const vh = 5 + 3 * T.wob, vu = 9 + 4 * T.wob;
           tile(sc, T.x + (ox / n) * vh * a, y0 + vu * a - 0.5 * 30 * a * a, T.z + (oz / n) * vh * a, a * (T.wob - 0.5) * 9, shade(T.rgb, DOOM, 0.6), LOOK.MATTE, 0, 0, 1 - a / FALL);
         }
@@ -259,6 +268,7 @@ export default {
         if (up < 1) tile(sc, T.x, y0 - 4 * up * up, T.z, 0, T.rgb, LOOK.PLASTIC, 0, 0, 1 - 0.8 * up);
         continue;
       }
+      if (since >= L.BO_HOLE) st.thrown.delete(key);
       let rgb = T.rgb, look = LOOK.PLASTIC, ga = 0, dx = 0, dz = 0, dy = 0;
       if (left < WARN) {
         // about to go with the rim: darker, sinking a little, shaking in the last half second
@@ -325,17 +335,18 @@ export default {
     const st = stage(view);
     const g = view.party();
     const r0 = st.r0 > 0 ? st.r0 : g.size;
-    const tp = g.state === L.H_PLAY ? g.t : 0;
+    // the result's on the disc as the round left it (clock()'s frozen end)
+    const tp = g.state === L.H_PLAY ? g.t : g.state === L.H_OVER ? Math.max(0, ((g.until - L.P_OVER) - g.start) | 0) : 0;
     return { centre: [st.cx || g.cx, PLAT_Y, st.cx || g.cx], radius: rimAt(r0, tp) + S, shape: 'disc' };
   },
 
   fx(fx, ctx) {
-    const mine = fx.owner === ctx.slot && ctx.slot >= 0;
     const d = typeof ctx.dist === 'function' ? ctx.dist(fx.pos) : ctx.dist ?? 0;
     if (fx.kind === L.BO_FX_BOOM) {
       ctx.sound?.blast?.(d, fx.size);
     } else if (fx.kind === L.BO_FX_BIG) {
-      if (mine) ctx.banner?.('BIG BOMB ON YOU  RUN', C.RED, 1400);
+      // aimed (shot's 256) at you: owner 255 alone is nobody's, or slot 255's
+      if (ctx.slot >= 0 && (fx.shot & 0x100) && fx.owner === ctx.slot) ctx.banner?.('BIG BOMB ON YOU  RUN', C.RED, 1400);
       else if (d < 18) ctx.banner?.('BIG BOMB', C.ORANGE, 1000);
     } else if (fx.kind === L.BO_FX_WAVE) {
       if (d < 120) ctx.sound?.tick?.();

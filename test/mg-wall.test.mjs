@@ -257,6 +257,67 @@ test('a gap\'s corner turns a ball half over its edge aside into the gap; a pinn
   assert.equal(fxs(g.v, L.WL_FX_PIN).filter((x) => x.shot === 0 && x.owner === 1).length, 1, 'pinned once, its FX once');
 });
 
+test('a wall\'s bit in PG_M goes with the wall, on the prediction\'s bank too: wall w + 32, the same bit, pins the ball again with its FX', async () => {
+  const g = await room(2, { seed: 5 });
+  const T = table(g.v);
+  assert.ok(T.walls.length > 34);
+  const pins = (from, w) => { const out = []; for (let k = from; k < g.v.fxCount(); k++) { const x = g.v.fx(k); if (x.kind === L.WL_FX_PIN && x.owner === 0 && x.shot === w) out.push(x); } return out; };
+  // P1 in a block's way of wall 2, P2 in a gap's lane: P1 pinned, its bit set
+  const W = alone(g, 2);
+  at(g, W.go - 5);
+  const blk = blocksAt(T, W, W.go).find(([lo, hi]) => hi - lo > 3);
+  putW(g, 0, W, -T.h * 0.5, (blk[0] + blk[1]) / 2);
+  putW(g, 1, W, 0, W.gaps[0]);
+  let k0 = g.v.fxCount();
+  for (let k = 0; k < 400 && !pins(k0, 2).length; k++) g.step();
+  assert.equal(pins(k0, 2).length, 1, 'pinned by wall 2');
+  assert.equal(g.v.partier(0).m, 1 << 2);
+  // off its face to the stage behind it, then still through the wall's end, predicted all the way
+  const [u] = inW(g, 0, W);
+  putW(g, 0, W, u - L.WL_T - 3, (blk[0] + blk[1]) / 2);
+  const left = W.end - playT(g) + 20;
+  assert.ok(left > 30 && left < 1200, `${left} ticks to its end`);
+  assert.ok(predicted(g, Array.from({ length: left }, () => partyWord({ yaw: 0 }))) >= left);
+  assert.ok(!g.v.partier(0).out && playT(g) > W.end);
+  assert.equal(g.v.partier(0).m, 0, 'the bit went with the wall');
+  // wall 34 has bit 2 too: it pins P1 again, and says so
+  const W2 = alone(g, 34);
+  at(g, W2.go - 5);
+  const blk2 = blocksAt(T, W2, W2.go).find(([lo, hi]) => hi - lo > 3);
+  putW(g, 0, W2, -T.h * 0.5, (blk2[0] + blk2[1]) / 2);
+  putW(g, 1, W2, 0, W2.gaps[0] + sway(W2, W2.go));
+  k0 = g.v.fxCount();
+  for (let k = 0; k < 400 && !pins(k0, 34).length && !g.v.partier(0).falling; k++) g.step();
+  assert.equal(pins(k0, 34).length, 1, 'pinned by wall 34, its FX');
+  assert.equal(g.v.partier(0).m, 1 << 2);
+});
+
+test('balls that went off ticks apart don\'t share the win: the first is out in its place, the last on wins alone (or the two that went together share it)', async () => {
+  for (const n of [2, 3]) {
+    const g = await room(n, { seed: 12 });
+    const T = table(g.v);
+    at(g, 20);
+    // P1 off the stage, falling; 40 ticks on the rest go off, on one tick
+    put(g, 0, C + T.h + 1.5, C, { y: PLAT_Y - 0.5, ground: false });
+    for (let k = 0; k < 40; k++) g.step();
+    assert.ok(g.v.partier(0).falling && !g.v.partier(0).out, 'going out');
+    for (let p = 1; p < n; p++) put(g, p, C - T.h - 1.5, C - 6 + 3 * p, { y: PLAT_Y - 0.5, ground: false });
+    let k = 0;
+    while (g.v.party().state === L.H_PLAY && k++ < 400) g.step();
+    const r = g.v.party();
+    assert.equal(r.state, L.H_OVER);
+    const ps = Array.from({ length: n }, (_, q) => q);
+    assert.ok(g.v.partier(0).out, 'P1 out first');
+    if (n === 2) {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [2, 1]);
+      assert.equal(r.winner, 1, 'the last on wins alone');
+    } else {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [3, 1, 1]);
+      assert.equal(r.winner, 255, 'the two that went together share it');
+    }
+  }
+});
+
 test('the ramp: faster walls, narrower and fewer gaps, from WL_SWAY every other one swaying; a ball on a swaying wall\'s snake gets through', async () => {
   const g = await room(64, { seed: 21, play: false });
   const T = table(g.v);

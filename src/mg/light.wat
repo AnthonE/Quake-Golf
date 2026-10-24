@@ -47,11 +47,10 @@
   (select (i32.const 0) (select (i32.const @RL_SCORE_MAX) (local.get $v) (i32.gt_s (local.get $v) (i32.const @RL_SCORE_MAX)))
           (i32.lt_s (local.get $v) (i32.const 0))))
 
-;; Spot k in rows of cols, RL_SP apart, centred on the field, the first row at
-;; z0 and the rest on toward dz (+1 back from the start line, -1 on past the finish).
-(func $rl_spot (param $k i32) (param $n i32) (param $z0 f32) (param $dz f32) (result f32 f32)
-  (local $cols i32) (local $row i32) (local $col i32) (local $in i32)
-  (local.set $cols (i32.load (i32.const @(PG_H + RL_COLS))))
+;; Spot k of n in rows of cols, RL_SP apart, centred on the field, the first
+;; row at z0 and the rest on toward dz (+1 back from the start line, -1 on past the finish).
+(func $rl_spot (param $k i32) (param $n i32) (param $cols i32) (param $z0 f32) (param $dz f32) (result f32 f32)
+  (local $row i32) (local $col i32) (local $in i32)
   (local.set $row (i32.div_u (local.get $k) (local.get $cols)))
   (local.set $col (i32.rem_u (local.get $k) (local.get $cols)))
   ;; a row not full is centred
@@ -115,7 +114,7 @@
                (local.get $hw) (f32.sub (f32.load (i32.const @PG_CX)) (local.get $hw)))
         (f32.const @PLAT_Y)
         (f32.sub (f32.load (i32.const @(PG_H + RL_ZB))) (f32.const @RL_GRID0)))))
-  (call $rl_spot (!ld u16 @(PG_S + RL_RANK) (local.get $i)) (local.get $n)
+  (call $rl_spot (!ld u16 @(PG_S + RL_RANK) (local.get $i)) (local.get $n) (i32.load (i32.const @(PG_H + RL_COLS)))
                  (f32.add (f32.load (i32.const @(PG_H + RL_ZS))) (f32.const @RL_GRID0)) (f32.const 1))
   (local.set $z) (local.set $x)
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
@@ -179,10 +178,12 @@
 ;; the pen (its order the balls over before this tick, so a tick's finishers
 ;; share it; the first over cuts the clock to RL_RUSH); else, on red once
 ;; RL_GRACE is up, caught if it rolls faster than RL_VMAX across the ground
-;; (credit to whoever bumped it lately). Bumps are off while she looks.
+;; (credit to whoever bumped it lately). On red a bump has no kick; while
+;; she looks there are none.
 (func $rl_tick
   (local $t i32) (local $tick i32) (local $c i32) (local $r0 i32) (local $e i32) (local $judge i32)
   (local $p i32) (local $pb i32) (local $fin0 i32) (local $fin i32) (local $x f32) (local $z f32) (local $vx f32) (local $vz f32)
+  (local $cols i32) (local $k i32) (local $z0 f32) (local $f i32)
   (local.set $t (call $p_t (i32.const 0)))
   (local.set $tick (i32.load (i32.const @HDR_TICK)))
   (call $rl_when (local.get $t))
@@ -210,8 +211,16 @@
             (!put i32 @(PLAYERS + PG_M) (local.get $pb) (i32.or (i32.const @RL_M_FIN) (i32.add (local.get $fin0) (i32.const 1))))
             (call $fx (i32.const 0) (i32.const @RL_FX_FINISH) (local.get $p) (i32.add (local.get $fin0) (i32.const 1))
                       (local.get $x) (f32.const @PLAT_Y) (local.get $z) (f32.mul (f32.convert_i32_u (local.get $t)) (f32.const @DT)))
-            ;; into the pen, the next spot in it, still
-            (call $rl_spot (local.get $fin) (i32.const 0x7fffffff) (f32.sub (f32.load (i32.const @(PG_H + RL_ZF))) (f32.const @RL_PEN0)) (f32.const -1))
+            ;; into the pen, the next spot in it, still: RL_PROWS rows of the grid's
+            ;; width, then as many rows of one fewer in their gaps (late joiners
+            ;; finish too), then round again: all of it on the yard's floor
+            (local.set $cols (i32.load (i32.const @(PG_H + RL_COLS))))
+            (local.set $k (i32.rem_u (local.get $fin) (i32.sub (i32.mul (local.get $cols) (i32.const @(2 * RL_PROWS))) (i32.const @RL_PROWS))))
+            (local.set $z0 (f32.sub (f32.load (i32.const @(PG_H + RL_ZF))) (f32.const @RL_PEN0)))
+            (if (result f32 f32) (i32.lt_u (local.get $k) (i32.mul (local.get $cols) (i32.const @RL_PROWS)))
+              (then (call $rl_spot (local.get $k) (i32.const 0x7fffffff) (local.get $cols) (local.get $z0) (f32.const -1)))
+              (else (call $rl_spot (i32.sub (local.get $k) (i32.mul (local.get $cols) (i32.const @RL_PROWS))) (i32.const 0x7fffffff)
+                                   (i32.sub (local.get $cols) (i32.const 1)) (f32.sub (local.get $z0) (f32.const @(RL_SP / 2))) (f32.const -1))))
             (local.set $z) (local.set $x)
             (!chk (local.get $x) 56 (local.get $p))
             (!chk (local.get $z) 57 (local.get $p))
@@ -234,14 +243,17 @@
                           (local.get $x) (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (local.get $z)
                           (f32.sub (local.get $z) (f32.load (i32.const @(PG_H + RL_ZF))))))))))))
   (i32.store (i32.const @(PG_H + RL_FIN)) (local.get $fin))
-  ;; while she looks the balls don't bump (two all but still that touch
-  ;; would kick each other into being caught): off for the next tick if it's
-  ;; in the look, on again with the green
+  ;; on red a bump has no kick (PGF_NOKICK), only what the balls bring: a ram
+  ;; still shoves its momentum on, but two all but still that touch don't kick
+  ;; each other into being caught; and while she looks the balls don't bump.
+  ;; For the next tick, both back with the green
   (local.set $t (i32.add (local.get $t) (i32.const 1)))
-  (i32.store (i32.const @PG_FLAGS)
-    (select (i32.and (i32.load (i32.const @PG_FLAGS)) (i32.const @(~PGF_BUMPS)))
-            (i32.or (i32.load (i32.const @PG_FLAGS)) (i32.const @PGF_BUMPS))
-            (i32.and (i32.ge_u (local.get $t) (i32.add (local.get $r0) (i32.const @RL_GRACE))) (i32.lt_u (local.get $t) (local.get $e))))))
+  (local.set $f (i32.and (i32.load (i32.const @PG_FLAGS)) (i32.const @(~(PGF_BUMPS | PGF_NOKICK)))))
+  (if (i32.eqz (i32.and (i32.ge_u (local.get $t) (i32.add (local.get $r0) (i32.const @RL_GRACE))) (i32.lt_u (local.get $t) (local.get $e))))
+    (then (local.set $f (i32.or (local.get $f) (i32.const @PGF_BUMPS)))))
+  (if (i32.and (i32.ge_u (local.get $t) (local.get $r0)) (i32.lt_u (local.get $t) (local.get $e)))
+    (then (local.set $f (i32.or (local.get $f) (i32.const @PGF_NOKICK)))))
+  (i32.store (i32.const @PG_FLAGS) (local.get $f)))
 
 ;; Over when nobody is racing. On the round's last tick (this, or the
 ;; clock's), the balls still racing are scored by how far they got: kept out

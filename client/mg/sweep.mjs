@@ -56,11 +56,12 @@ export function angleAt(a0, dir, t) {
 export const dropsAt = (t) => (t < L.SW_TR0 ? 0 : Math.min(L.SW_RINGS, Math.floor((t - L.SW_TR0) / L.SW_TRI) + 1));
 // The rim after k drops, in f32 as the sim has it.
 export const rimOf = (r0, k) => f(r0 - f(f(r0 - L.SW_RMIN) * f(k / L.SW_RINGS)));
-// Is bar k solid on tick t? A ghost (coming) from SW_WARN before.
-export const solidAt = (k, t) => k === 0 || t >= L.SW_TS[k - 1];
-const ghostAt = (k, t) => k > 0 && t < L.SW_TS[k - 1] && t >= L.SW_TS[k - 1] - L.SW_WARN;
+// Is bar k solid on tick t ($sw_solid: from the tick after SW_TS[k - 1])? A
+// ghost (coming) from SW_WARN before.
+export const solidAt = (k, t) => k === 0 || t > L.SW_TS[k - 1];
+const ghostAt = (k, t) => k > 0 && t <= L.SW_TS[k - 1] && t >= L.SW_TS[k - 1] - L.SW_WARN;
 // Bars turning (solid) on tick t.
-export const barsAt = (t) => 1 + L.SW_TS.filter((tk) => t >= tk).length;
+export const barsAt = (t) => 1 + L.SW_TS.filter((tk) => t > tk).length;
 
 // This round's platform and bars, on the view's bank.
 export function stage(view) {
