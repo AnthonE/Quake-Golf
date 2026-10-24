@@ -128,8 +128,11 @@ function step() {
     world.stepMs += ms;
     world.worstStepMs = Math.max(world.worstStepMs, ms);
     world.stepped++;
-    // Fireplace: each game the room moved into, and when
-    if (fireplace) { const g = world.view.dv.getUint32(L.FP_GAME, true); if (world.games.at(-1)?.game !== g) world.games.push({ game: g, name: L.GAMES[g], simTick: sim.tick }); }
+    // Fireplace: each game the room moved into (the arena by the mode its seed forces), and when
+    if (fireplace) {
+      const dv = world.view.dv, g = dv.getUint32(L.FP_GAME, true), seed = dv.getUint32(L.HDR_SEED, true), n = dv.getUint16(L.FP_COUNT + 2, true);
+      if (world.games.at(-1)?.n !== n) world.games.push({ game: g, n, name: g === L.G_ARENA && seed >>> 24 === L.FORCE_MODE ? `ARENA ${L.MODES[(seed >>> 16) & 0xff]?.name}` : L.GAMES[g], simTick: sim.tick });
+    }
     // Party: each round's minigame, as play starts, and when it ended (once a
     // round, though a keyframe from the seed has the world play it again)
     if (party) {

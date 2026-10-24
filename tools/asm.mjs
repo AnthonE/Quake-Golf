@@ -12,8 +12,9 @@
 // bumper balls (build/bumper/) is src/ with BUMPER set: every player a ball;
 // party (build/party/) is src/ with BUMPER and PARTY set: bumper's ball, a
 // different minigame every round.
-// Fireplace (build/fireplace/) is all three in one module, each as its own
-// build would be under a prefix, with src/fireplace.wat dispatching to the one on now.
+// Fireplace (build/fireplace/) is golf, the arena, bumper balls and party in one
+// module, each as its own build would be under a prefix, with src/fireplace.wat
+// dispatching to the one on now.
 //   (!macro args...)        JS macros from src/macros.mjs; args are raw s-expressions
 //
 // It refuses anything the determinism rules ban: memory.grow, relaxed SIMD,
@@ -304,7 +305,7 @@ export function prefixed(wat, prefix) {
   return out.replace(/\(func (\$[\w.]+) \(export "\w+"\)/g, '(func $1');
 }
 
-export const GAMESETS = [['g', {}], ['a', { ARENA: true }], ['b', { BUMPER: true }]];
+export const GAMESETS = [['g', {}], ['a', { ARENA: true }], ['b', { BUMPER: true }], ['p', { BUMPER: true, PARTY: true }]];
 
 export function fireplaceWat({ DEBUG = false, layout: lay = layout, macros = makeMacros, map = compileMap(), src = join(ROOT, 'src') } = {}) {
   const games = GAMESETS.map(([prefix, flags]) => prefixed(expand(join(src, 'game.wat'), { DEBUG, ...flags, layout: lay, macros, map: flags.ARENA ? map : null }), prefix));

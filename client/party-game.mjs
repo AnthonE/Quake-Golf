@@ -8,7 +8,7 @@
 // adds its lines. The countdown is a title card over a fly-round of the
 // stage; then the camera is behind your ball. The board (Tab, and through
 // the result) ranks the room by party points. party.html mounts it alone;
-// Fireplace will mount it while the room plays party.
+// Fireplace mounts it while the room plays party.
 //   opts: { canvas, lockTarget (what the pointer locks to, the canvas by default), bot, skill, sens, hud, present, showGraph,
 //           external (the slots are driven from outside, as Fireplace's guest does: the camera follows them) }
 //
@@ -529,12 +529,13 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       }
       y0 = 10;
     }
-    const nextIn = Math.max(0, Math.ceil((g.until - g.tick) / 125));
+    // Fireplace holds its last result with the clock stopped (HDR_UNTIL -1): no next round to count to
+    const nextIn = g.until === 0xffffffff ? 0 : Math.max(0, Math.ceil((g.until - g.tick) / 125));
     const fit = Math.max(1, rows - y0 - 6);
     const mineAt = list.findIndex((o) => o.slot === slot);
     const shown = mineAt >= fit ? [...list.slice(0, fit - 1), list[mineAt]] : list.slice(0, fit);
     band(y0 - 1, y0 + 4 + shown.length, 0.45);
-    centre(y0, `ROUND ${g.round + 1}  ${mod.name || g.name}  ${list.length} PLAYERS${over ? `  NEXT IN ${nextIn}` : ''}`, C.YELLOW);
+    centre(y0, `ROUND ${g.round + 1}  ${mod.name || g.name}  ${list.length} PLAYERS${over && nextIn ? `  NEXT IN ${nextIn}` : ''}`, C.YELLOW);
     centre(y0 + 2, 'RANK  PLAYER    POINTS  WINS  KOS  ROUND  ', C.GREY);
     let rank = 0;
     shown.forEach((o, k) => {

@@ -750,30 +750,36 @@ export * from './mg/tag.mjs';
 // ---- Fireplace: every game in one module (build/fireplace/game.wasm), a
 // playlist of matches the room plays through, Mario Party style; people come
 // and go as they please. Each game is its own build, unchanged, under a prefix
-// ($g. golf, $a. the arena, $b. bumper balls); src/fireplace.wat dispatches
-// every export to the game on now and, at the end of a tick, runs the
-// playlist: when a game's last match ends it hands out marshmallows (3, 2 and 1
-// for the top three), holds the result, then wipes the world, builds the next
-// game's on a fresh seed and joins everyone in the room into it.
+// ($g. golf, $a. the arena, $b. bumper balls, $p. party); src/fireplace.wat
+// dispatches every export to the game on now and, at the end of a tick, runs
+// the playlist: when a game's last match ends it hands out marshmallows (3, 2
+// and 1 for the top three), holds the result, then wipes the world, builds the
+// next game's on a fresh seed and joins everyone in the room into it.
 export const G_GOLF = 0;
 export const G_ARENA = 1;
 export const G_BUMPER = 2;
-export const GAMES = ['GOLF', 'ARENA', 'BUMPER BALLS'];
-export const PLAYLIST = [G_BUMPER, G_ARENA, G_GOLF];
-export const FP_MATCHES = [1, 1, 2]; // by game: matches it plays before the next game (bumper: rounds)
+export const G_PARTY = 3;
+export const GAMES = ['GOLF', 'ARENA', 'BUMPER BALLS', 'PARTY'];
+// By position, so a game may come round more than once: the room plays entry
+// (games played) % length next.
+export const PLAYLIST = [G_BUMPER, G_PARTY, G_ARENA, G_PARTY, G_GOLF];
+export const FP_MATCHES = [1, 1, 2, 3]; // by game: matches it plays before the next game (bumper's rounds, party's minigames)
 export const FP_HOLD = 750; // 6 s of the result, the standings, then the next game
-export const FP_ARENA_TICKS = 22500; // a Fiesta of 3 min, not 10
+export const FP_ARENA_TICKS = 22500; // an arena match of 3 min, whatever its mode (Infection's is 3 already; the rest 5 or 10)
 export const FP_GOLF_TICKS = 18750; // a hole of at most 2.5 min, not 4
+export const FP_PARTY_FORCE = 0xa7; // a party seed with this top byte plays one minigame only (party.wat's $bumper_gen): Fireplace's never has it
 // In the header's last 16 bytes, which no game uses (inside the prediction's copy):
 export const FP_GAME = REGION + 0xf0; // u32 G_*: the game on now
 export const FP_STAGE = REGION + 0xf4; // u32 0 playing, 1 its last result held
 export const FP_AT = REGION + 0xf8; // u32 tick the held result gives way to the next game
-export const FP_COUNT = REGION + 0xfc; // u8 matches of this game over | u8 its last state seen | u16 games the room has played
+export const FP_COUNT = REGION + 0xfc; // u8 matches of this game over | u8 its last state seen | u16 games the room has played (the playlist's position)
 // 8 KiB of the region that no game touches: what lasts from game to game.
 export const FP = REGION + 0xe000;
 export const FP_MALLOWS = FP; // u16[256] marshmallows, ever
 export const FP_LAST = FP + 0x200; // u8[256] where each came in the last game (0: not in it)
 export const FP_GOT = FP + 0x300; // u8[256] marshmallows each got for it
+export const FP_NEXT = FP + 0x400; // u32 the next game's seed, drawn as this one's result is held (the arena's forces a mode)
+export const FP_MODE = FP + 0x404; // u8 1 + the index in ARENA_MODES of the arena's last mode (0: none yet); the next is another
 // Outside the region: which game's static world (terrain, map) is built, so a
 // keyframe from another game rebuilds it; and a stash for the region while it is.
 export const FP_WORLD = 0x320; // u32 game + 1 (0 none), u32 its seed

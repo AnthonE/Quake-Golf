@@ -5,7 +5,9 @@
 // its words landing `delay` ticks after it decides them, seeing the world
 // that old. One leaves and comes back mid-game, and two more drop in late, so
 // the log has the room coming and going across the games' switches.
-//   node tools/genfireplace.mjs [--seed 7] [--bots 12] [--ticks 90000] [--delay 6] [--out logs/fireplace.qgl] [--debug]
+// --games n ends it 1500 ticks into the playlist's nth game (6: bumper balls
+// come round again), or at --ticks if that comes first.
+//   node tools/genfireplace.mjs [--seed 7] [--bots 12] [--ticks 90000] [--games n] [--delay 6] [--out logs/fireplace.qgl] [--debug]
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +21,8 @@ import { isMain } from './main.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const GENOME = readFileSync(join(ROOT, 'xbox/golfer.h'), 'utf8').match(/GOLFER_DEFAULT "(qg2:[A-Za-z0-9_-]+)"/)[1];
 
-export async function playFireplace({ bytes, seed = 7, bots = 12, ticks = 90000, delay = 6, leaveAt = 0, late = 0, onTick } = {}) {
+// until(games, t): true ends the log after tick t (games: [{ game, at }] so far)
+export async function playFireplace({ bytes, seed = 7, bots = 12, ticks = 90000, delay = 6, leaveAt = 0, late = 0, onTick, until } = {}) {
   const memory = newMemory();
   const sim = new Sim(await instantiate(await WebAssembly.compile(bytes), memory), memory);
   sim.init(seed);
@@ -44,11 +47,12 @@ export async function playFireplace({ bytes, seed = 7, bots = 12, ticks = 90000,
     sim.feedPlayers(now);
     sim.x.step();
     const g = view.dv.getUint32(L.FP_GAME, true);
-    if (games.at(-1)?.game !== g) games.push({ game: g, at: t + 1 });
+    if (games.at(-1)?.game !== g || view.dv.getUint16(L.FP_COUNT + 2, true) !== games.at(-1).n) games.push({ game: g, at: t + 1, n: view.dv.getUint16(L.FP_COUNT + 2, true) });
     onTick?.(t, view);
+    if (until?.(games, t)) { ticks = t + 1; break; }
   }
   const mallows = guests.map((p) => view.dv.getUint16(L.FP_MALLOWS + 2 * p.g.slot, true));
-  return { log: encodeLog({ courseSeed: seed, ticks, recs }), games, mallows };
+  return { log: encodeLog({ courseSeed: seed, ticks, recs }), games, mallows, ticks };
 }
 
 if (isMain(import.meta.url)) {
@@ -58,8 +62,10 @@ if (isMain(import.meta.url)) {
   const bytes = readFileSync(join(ROOT, `build/fireplace/${argv.includes('--debug') ? 'game.debug' : 'game'}.wasm`));
   const out = opt('out', 'logs/fireplace.qgl');
   const t0 = performance.now();
-  const { log, games, mallows } = await playFireplace({ bytes, seed: Number(opt('seed', 7)), bots: Number(opt('bots', 12)), ticks: Number(opt('ticks', 90000)), delay: Number(opt('delay', 6)), leaveAt: 3000, late: 30000 });
+  const n = Number(opt('games', 0));
+  const { log, games, mallows, ticks } = await playFireplace({ bytes, seed: Number(opt('seed', 7)), bots: Number(opt('bots', 12)), ticks: Number(opt('ticks', 90000)), delay: Number(opt('delay', 6)), leaveAt: 3000, late: 30000,
+    until: n ? (gs, t) => gs.length >= n && t >= gs[n - 1].at + 1500 : null });
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, log);
-  console.log(`${out}: ${log.length} B in ${((performance.now() - t0) / 1000).toFixed(0)} s; games ${games.map((g) => `${L.GAMES[g.game]} at ${(g.at / 125).toFixed(0)} s`).join(', ')}; marshmallows ${mallows.join(' ')}`);
+  console.log(`${out}: ${ticks} ticks, ${log.length} B in ${((performance.now() - t0) / 1000).toFixed(0)} s; games ${games.map((g) => `${L.GAMES[g.game]} at ${(g.at / 125).toFixed(0)} s`).join(', ')}; marshmallows ${mallows.join(' ')}`);
 }

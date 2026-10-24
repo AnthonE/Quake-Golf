@@ -3,13 +3,15 @@
 // you are in the game, whatever the room is playing. Between games it pulls
 // back to the room, and the TV shows the marshmallows and what's on next;
 // then it closes in again. One host (client/host.mjs) on Fireplace's sim,
-// every game's frontend mounted in turn on its own canvas; while the room is
-// in view, the game draws into a texture the TV shows.
+// every game's frontend mounted in turn on its own canvas (golf, the arena,
+// bumper balls, party); while the room is in view, the game draws into a
+// texture the TV shows.
 //   ?bot=1 sits a guest (client/fireplace-bot.mjs) at the controls, and sits down at once
 //   ?watch=1 spectates; ?url=, ?hash=, ?impair=, ?sens=, ?res=, ?music=0 as the games'
 import * as L from '../src/layout.mjs';
 import { unpackArena } from '../src/arena-view.mjs';
 import '../src/bumper-view.mjs';
+import '../src/party-view.mjs';
 import { createHost, epoch, fitSize } from './host.mjs';
 import { createRoom, SCREEN, FONT } from './room-render.mjs';
 import { Guest } from './fireplace-bot.mjs';
@@ -19,14 +21,15 @@ const q = new URLSearchParams(location.search);
 const stage = document.getElementById('stage');
 const note = document.getElementById('note');
 const roomCanvas = document.getElementById('room');
-const canvases = [0, 1, 2].map((k) => document.getElementById(`g${k}`));
+const canvases = L.GAMES.map((_, k) => document.getElementById(`g${k}`));
 const BOT = q.get('bot') === '1';
 const WATCH = q.get('watch') === '1';
 const SENS = Number(q.get('sens') || 3);
 const ZOOM_MS = 1700;
-// what each game's picture lights the room with, roughly
-const TV_LIGHT = [[0.45, 0.7, 0.45], [0.6, 0.65, 0.6], [1, 0.85, 0.5]];
-const FRONTENDS = { [L.G_GOLF]: './golf-game.mjs', [L.G_ARENA]: './arena-game.mjs', [L.G_BUMPER]: './bumper-game.mjs' };
+// what each game's picture lights the room with, roughly: golf's grass, the
+// arena's grey, the cheese, party's sky
+const TV_LIGHT = [[0.45, 0.7, 0.45], [0.6, 0.65, 0.6], [1, 0.85, 0.5], [0.55, 0.75, 1]];
+const FRONTENDS = { [L.G_GOLF]: './golf-game.mjs', [L.G_ARENA]: './arena-game.mjs', [L.G_BUMPER]: './bumper-game.mjs', [L.G_PARTY]: './party-game.mjs' };
 const ease = (x) => x * x * (3 - 2 * x);
 const lerp = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
 
@@ -34,10 +37,11 @@ async function main() {
   const [W, H] = fitSize(q, [1600, 1000]);
   roomCanvas.width = W;
   roomCanvas.height = H;
-  // golf and the arena are drawn at their 320 x 200, bumper balls at the window's size
+  // golf and the arena are drawn at their 320 x 200, bumper balls and party at the window's size
   [canvases[L.G_GOLF].width, canvases[L.G_GOLF].height] = [320, 200];
   [canvases[L.G_ARENA].width, canvases[L.G_ARENA].height] = [320, 200];
   [canvases[L.G_BUMPER].width, canvases[L.G_BUMPER].height] = [W, H];
+  [canvases[L.G_PARTY].width, canvases[L.G_PARTY].height] = [W, H];
   const host = await createHost({ wasm: '../build/fireplace/game.wasm', q, watch: WATCH, fireplace: true, connect: false });
   const { view, get, set, press, sound, i32, f64 } = host;
   const room = await createRoom(roomCanvas, host.device, { present: q.get('present') !== '0' });
@@ -92,7 +96,7 @@ async function main() {
   function drive() {
     const slot = get(L.CL_SLOT);
     if (!guest || slot < 0 || get(L.CL_STATE) !== 2) return;
-    guest.slot = guest.golfer.slot = guest.fighter.slot = guest.roller.slot = slot;
+    guest.slot = guest.golfer.slot = guest.fighter.slot = guest.roller.slot = guest.partier.slot = slot;
     const nowE = epoch();
     const lag = Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE));
     const w = guest.think(view, view.tick, lag);
@@ -164,7 +168,7 @@ async function main() {
     }
     list.sort((a, b) => b.m - a.m || (a.place || 999) - (b.place || 999) || a.p - b.p);
     const g = view.dv.getUint32(L.FP_GAME, true);
-    text(`${L.GAMES[g]} IS OVER`, 320, 28, 4, '#ffcf6a', 'center');
+    text(`${gameName(g, view.dv.getUint32(L.HDR_SEED, true))} IS OVER`, 320, 28, 4, '#ffcf6a', 'center');
     text('MARSHMALLOWS', 320, 60, 5, '#ffffff', 'center');
     const mine = list.findIndex((x) => x.p === slot);
     const rows = mine >= 7 ? [...list.slice(0, 6), list[mine]] : list.slice(0, 7);
@@ -179,9 +183,13 @@ async function main() {
       if (x.got) text(`+${x.got}`, 560, y, 4, '#7fdf7f', 'right');
     });
     const left = Math.max(0, Math.ceil((view.dv.getUint32(L.FP_AT, true) - view.tick) / 125));
-    text(`NEXT: ${L.GAMES[nextGame(g)]}${left ? `  IN ${left}` : ''}`, 320, 340, 5, '#ffffff', 'center');
+    const next = `NEXT: ${gameName(nextGame(), view.dv.getUint32(L.FP_NEXT, true))}${left ? `  IN ${left}` : ''}`;
+    text(next, 320, 340, next.length * 20 <= 620 ? 5 : 4, '#ffffff', 'center');
   }
-  const nextGame = (g) => L.PLAYLIST[(L.PLAYLIST.indexOf(g) + 1) % L.PLAYLIST.length];
+  // the playlist goes by position: entry (games played) % length is next
+  const nextGame = () => L.PLAYLIST[view.dv.getUint16(L.FP_COUNT + 2, true) % L.PLAYLIST.length];
+  // a game as the TV names it: the arena by the mode its seed forces
+  const gameName = (g, seed) => g === L.G_ARENA && seed >>> 24 === L.FORCE_MODE ? `ARENA ${L.MODES[(seed >>> 16) & 0xff]?.name ?? ''}` : L.GAMES[g];
   const GAMES_LINE = L.PLAYLIST.map((g) => L.GAMES[g]).join(' . ');
 
   // ---- the frame
@@ -238,7 +246,7 @@ async function main() {
     state: () => {
       const g = view.dv.getUint32(L.FP_GAME, true);
       const slot = get(L.CL_SLOT);
-      return { slot, clState: get(L.CL_STATE), error: host.error, game: g, gameName: L.GAMES[g], state: view.hole().state, scene, zoom, games: gamesSeen,
+      return { slot, clState: get(L.CL_STATE), error: host.error, game: g, gameName: gameName(g, view.dv.getUint32(L.HDR_SEED, true)), state: view.hole().state, scene, zoom, games: gamesSeen,
         mallows: slot >= 0 ? view.dv.getUint16(L.FP_MALLOWS + 2 * slot, true) : 0, card, me: frontend?.state?.().me ?? null };
     },
     // a PNG of what's on the screen: the room, or the game
