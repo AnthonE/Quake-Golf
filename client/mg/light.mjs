@@ -1,11 +1,12 @@
 // RED LIGHT, as drawn and as the AI ball sees it. A mown lawn floating over
 // the sea between wooden rails, the grid on sand behind the start line, a
-// chequered arch over the finish, and past it the pen, a tree and the doll:
-// orange dress, black pigtails, her back to the field while she sings, her
-// head coming round (the last RL_TURN ticks of every green) to stare with
-// red eyes. Traffic lights by her and lamps along the rails show the light;
-// on red her eyes sweep the field, and a ball caught moving is zapped and
-// left grey where it stopped. Finishers bounce in the pen in their order.
+// chequered line between two chequered pylons at the finish, and past it
+// the pen, a tree and the doll, giant: orange dress, black pigtails, her
+// back to the field while she sings (the music plays), her head coming round
+// (the last RL_TURN ticks of every green) to stare with red eyes. Traffic
+// lights by her and lamps along the rails show the light; on red her eyes
+// sweep the field, and a ball caught moving is zapped and left grey where it
+// stopped. Finishers bounce in the pen in their order.
 // The lights are the sim's own schedule ($rl_when: the round's seed and the
 // tick into play), worked out here on the prediction's clock, so the doll
 // turns as your own predicted ball rolls: what you see is what the judge sees.
@@ -160,7 +161,7 @@ function plan(view, me, bot, tick) {
   const rand = (k) => (bot?.rand ? bot.rand() : luck(st, slot, w.c, k));
   if (mem.c !== w.c) {
     mem.c = w.c;
-    mem.margin = 3 + Math.round((1 - skill) * 26 * rand(1));
+    mem.margin = 5 + Math.round((1 - skill) * 14 * rand(1));
     mem.late = rand(2) < 0.16 * (1 - skill) ** 1.5 ? Math.round(14 + 34 * rand(3)) : 0;
   }
   // the lane: the way ahead along the field, clear of the balls in it

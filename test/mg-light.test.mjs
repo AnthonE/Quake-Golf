@@ -211,6 +211,27 @@ test('bumped into moving on red: caught, and a KO for the ball that did it', asy
   assert.ok(!g.v.partier(2).out);
 });
 
+test('while she looks the balls don\'t bump: one creeping into another, both slower than RL_VMAX, kicks neither into being caught; bumps are back with the green', async () => {
+  const g = await room(3);
+  const st = stage(g.v);
+  const w = when(st, startOf(st, 1));
+  at(g, w.j + 2);
+  put(g, 0, C, C);
+  put(g, 1, C, C + 2.2, { vz: -1.1 });
+  put(g, 2, C + 10, C);
+  for (let k = 0; k < 60; k++) {
+    g.step();
+    assert.equal(g.v.party().flags & L.PGF_BUMPS, 0, 'no bumps through the look');
+    // P2 creeps on and stops; held back by IDLE, under the limit all the way
+    assert.ok(!g.v.partier(0).out && !g.v.partier(1).out, `nobody caught ${k} ticks in`);
+  }
+  assert.ok(g.v.partier(1).pos[2] - g.v.partier(0).pos[2] < 2, 'it crept into P1, no kick');
+  while (playT(g) < w.e) g.step();
+  assert.equal(g.v.party().flags & L.PGF_BUMPS, L.PGF_BUMPS, 'on again for the green');
+  g.step();
+  assert.ok(g.v.partier(1).pos[2] - g.v.partier(0).pos[2] >= 2 - 1e-3, 'and the two pushed apart');
+});
+
 test('over the line: out of play into the pen, placed by the order they crossed in (balls over on one tick share it); the first leaves the rest RL_RUSH', async () => {
   const g = await room(4);
   const st = stage(g.v);

@@ -5,8 +5,8 @@
 // line and you're out of play too, placed by the order you crossed in; the
 // rest by how far they got.
 export const RL_W0 = 30; // the field's width, rail to rail: 30 m plus RL_WK a ball, at most RL_WMAX
-export const RL_WK = 0.25;
-export const RL_WMAX = 90;
+export const RL_WK = 0.3;
+export const RL_WMAX = 100;
 export const RL_FIELD = 170; // m from the start line to the finish line
 export const RL_YARD = 40; // m of floor past the finish line: the finishers' pen, the doll
 export const RL_SP = 2.4; // m between balls on the start grid, across and back (and in the pen)
