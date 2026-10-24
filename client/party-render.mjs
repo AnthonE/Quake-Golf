@@ -581,7 +581,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
   let dist = length(toEye);
   let v = toEye / dist;
   let vl = rotY(v, -yaw);                                // the view, in the solid's frame
-  var nl = normalize(select(m.ln, m.lp, shape == 3u));   // a sphere's normal is exact from where we are on it
+  var nl = normalize(select(m.ln, m.lp / (h * h), shape == 3u));   // a sphere's normal is exact from where we are on it (an ellipsoid's too)
   // everything that takes a derivative, while every pixel still runs the same code
   let px = max(length(fwidth(m.wp)) * 0.7071, 1e-5);   // metres a pixel, here
   let ndv0 = dot(nl, vl);
