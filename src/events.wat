@@ -34,8 +34,12 @@
 #if ARENA
   (call $a_spawn (local.get $p))
 #else
+#if BUMPER
+  (call $b_join (local.get $p))
+#else
   ;; a join during the scoreboard gets its ball at the restart
   (call $to_tee (local.get $p) (i32.ne (i32.load (i32.const @HDR_STATE)) (i32.const @H_OVER)))
+#endif
 #endif
   (if (i32.eq (i32.load (i32.const @HDR_STATE)) (i32.const @H_IDLE))
     (then

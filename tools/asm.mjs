@@ -2,13 +2,14 @@
 // The macro assembler. Hand-written WAT in, game.wasm out, no compiler.
 //
 //   #include "file.wat"     splice another source file
-//   #if DEBUG / #else / #endif   (and #if ARENA, #if !ARENA, #if FIESTA)
+//   #if DEBUG / #else / #endif   (and #if ARENA, #if !ARENA, #if FIESTA, #if BUMPER)
 //   @NAME, @(expr)          layout constants from the sim's layout.mjs, folded at build time
 //
 // Two sims, each from its own directory: src/ (the browsers, Node and the
 // relays, build/) and xbox/sim/ (the Xbox's, frozen, translated to Pentium III
 // code: build/xbox/). Each has its own layout.mjs and macros.mjs. The arena
-// (build/arena/) is src/ again with ARENA set: a deathmatch on the same engine.
+// (build/arena/) is src/ again with ARENA set: a deathmatch on the same engine;
+// bumper balls (build/bumper/) is src/ with BUMPER set: every player a ball.
 //   (!macro args...)        JS macros from src/macros.mjs; args are raw s-expressions
 //
 // It refuses anything the determinism rules ban: memory.grow, relaxed SIMD,
@@ -217,12 +218,12 @@ export function forbid(wat, where = 'source') {
   }
 }
 
-export function expand(file, { DEBUG = false, ARENA = false, layout: lay = layout, macros = makeMacros, map = null } = {}) {
+export function expand(file, { DEBUG = false, ARENA = false, BUMPER = false, layout: lay = layout, macros = makeMacros, map = null } = {}) {
   if (ARENA && !map) map = compileMap();
-  const scope = { ...lay, ...lay.PHYS, DEBUG: DEBUG ? 1 : 0, ...(map ? map.consts : {}) };
+  const scope = { ...lay, ...lay.PHYS, ...(lay.BPHYS || {}), DEBUG: DEBUG ? 1 : 0, ...(map ? map.consts : {}) };
   let src = include(file);
   // the arena's mode is a layout constant, so #if FIESTA picks its rules at build time
-  src = conditionals(src, { DEBUG, ARENA, FIESTA: ARENA && !!lay.FIESTA });
+  src = conditionals(src, { DEBUG, ARENA, BUMPER, FIESTA: ARENA && !!lay.FIESTA });
   src = stripComments(src);
   const m = macros({ DEBUG });
   if (map) m.mapdata = () => dataSegment(map.bytes);
@@ -279,6 +280,7 @@ export const SIMS = [
   { name: 'game', src: join(ROOT, 'src'), out: join(ROOT, 'build') },
   { name: 'xbox', src: join(ROOT, 'xbox', 'sim'), out: join(ROOT, 'build', 'xbox') },
   { name: 'arena', src: join(ROOT, 'src'), out: join(ROOT, 'build', 'arena'), flags: { ARENA: true } },
+  { name: 'bumper', src: join(ROOT, 'src'), out: join(ROOT, 'build', 'bumper'), flags: { BUMPER: true } },
 ];
 
 async function buildSim({ name, src, out, flags = {} }) {

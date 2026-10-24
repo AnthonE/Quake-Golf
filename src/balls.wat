@@ -179,10 +179,14 @@
   (call $apply_events)
   (local.set $n (i32.load (i32.const @HDR_NBALLS)))
   (call $players)
+#if BUMPER
+  (call $b_rockets)
+#else
 #if !ARENA
   (call $push_balls)
 #endif
   (call $projectiles (i32.const 0) (i32.const -1))
+#endif
   (local.set $nblk (i32.shr_u (i32.add (local.get $n) (i32.const 3)) (i32.const 2)))
   (!for $blk (i32.const 0) (local.get $nblk)
     (if (i32.and (i32.load offset=@FLAGS (i32.shl (local.get $blk) (i32.const 2))) (i32.const @(F_AWAKE * 0x01010101)))

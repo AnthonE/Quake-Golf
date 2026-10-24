@@ -14,6 +14,9 @@
 #if ARENA
   #include "arena.wat"
 #endif
+#if BUMPER
+  #include "bumper.wat"
+#endif
   #include "predict.wat"
   #include "tick.wat"
 )

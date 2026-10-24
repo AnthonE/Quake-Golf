@@ -1,0 +1,629 @@
+// Bumper balls' WebGPU renderer, in golf's look (320x200, dithered, a 3x5
+// HUD font) but with nothing ray-marched: the cheese is a disc with holes,
+// so every pixel solves for it exactly. The wheel's top face, its rind, the
+// wall of each hole a ray falls into (holes that overlap open into each
+// other), the sea far under it and the sky. Balls cast round shadows on the
+// cheese, and an orb on its way down marks where it will land. Balls are
+// sphere impostors with depth, their stripes turning as they roll, a rider
+// on top; orbs, rockets and every flash are sprites from the main thread.
+// A minimap of the wheel sits in the corner. Nothing here is hashed.
+import * as L from '../src/layout.mjs';
+import { FONT } from './font.mjs';
+import { GRAPH_N, GRAPH_PANELS } from './netgraph.mjs';
+import { PLAT_Y, PLAT_T } from '../src/bumper-view.mjs';
+
+export const COLS = 80;
+export const MAX_SPRITE = 1024;
+export const MAX_BEAM = 64;
+export const MAX_RECT = 64;
+export const MAX_CASTER = L.NPLAYER + L.NORB;
+const FAR = 900;
+
+// sprite kinds: solid 0 a ball, 1 a rider, 2 an orb, 6 the arrow over you, 7 a rocket; glowing 3 a flash, 4 a ring, 5 a spark
+export const SPRITE = { BALL: 0, RIDER: 1, ORB: 2, FLASH: 3, RING: 4, SPARK: 5, ARROW: 6, ROCKET: 7 };
+
+const WGSL = /* wgsl */ `
+struct U {
+  cam: vec4f,    // eye x, y, z, focal (px)
+  fwd: vec4f,    // the camera's axes; fwd.w the time (s)
+  right: vec4f,
+  up: vec4f,
+  screen: vec4f, // width, height, far, sprites
+  wheel: vec4f,  // centre (x = z), top, thickness, rim radius
+  counts: vec4f, // holes, casters, beams, rects
+  hud: vec4f,    // rows, net graph shown, hurt flash, 0
+  mini: vec4f,   // the minimap's centre x, y and radius (px), and the world radius it shows
+  misc: vec4f,   // my slot, 0, 0, 0
+};
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var<storage, read> holes: array<vec4f>;    // x, z, radius now, 0
+@group(0) @binding(2) var<storage, read> casters: array<vec4f>;  // x, y (the bottom), z, radius (negative for an orb)
+@group(0) @binding(3) var<storage, read> sprites: array<vec4f>;  // four a sprite: pos, size | colour | kind, aspect, min px, seed | velocity, roll
+@group(0) @binding(4) var<storage, read> beams: array<vec4f>;    // three a beam: a, width | b, 0 | colour
+@group(0) @binding(5) var<storage, read> rects: array<vec4f>;
+@group(0) @binding(6) var<storage, read> hud: array<u32>;
+@group(0) @binding(7) var<storage, read> font: array<u32>;
+@group(0) @binding(8) var<storage, read> graph: array<vec4f>;
+
+const SKY_LO = vec3f(0.78, 0.86, 0.95);
+const SKY_HI = vec3f(0.25, 0.5, 0.85);
+const SUN = vec3f(0.36, 0.84, 0.4);
+const CHEESE = vec3f(1.0, 0.8, 0.27);
+const RIND = vec3f(0.93, 0.62, 0.16);
+
+fn hash2(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
+
+fn dither(c: vec3f, p: vec2f) -> vec3f {
+  var m = array<f32, 4>(0.0, 0.5, 0.75, 0.25);
+  let k = m[(u32(p.x) & 1u) + 2u * (u32(p.y) & 1u)];
+  return floor(c * 31.0 + k) / 31.0;
+}
+
+fn holeAt(p: vec2f) -> i32 {
+  for (var k = 0u; k < u32(u.counts.x); k++) {
+    let h = holes[k];
+    if (distance(p, h.xy) < h.z) { return i32(k); }
+  }
+  return -1;
+}
+fn onCheese(p: vec2f) -> bool { return distance(p, vec2f(u.wheel.x)) < u.wheel.w && holeAt(p) < 0; }
+
+// Where a ray inside the circle (c, r) in xz leaves it.
+fn circleExit(o: vec2f, d: vec2f, c: vec2f, r: f32) -> f32 {
+  let q = o - c;
+  let a = max(dot(d, d), 1e-9);
+  let b = dot(q, d);
+  let disc = max(b * b - a * (dot(q, q) - r * r), 0.0);
+  return (-b + sqrt(disc)) / a;
+}
+
+// From t0, inside one or more holes: where the ray meets a shaft's wall, or
+// -1 if it leaves the cheese's thickness (out the bottom, or past the rim).
+fn shaft(o: vec3f, d: vec3f, t0: f32) -> f32 {
+  var t = t0;
+  for (var it = 0; it < 8; it++) {
+    let p = o + d * (t + 0.002);
+    var best = -1.0;
+    for (var k = 0u; k < u32(u.counts.x); k++) {
+      let h = holes[k];
+      if (distance(p.xz, h.xy) < h.z) { best = max(best, circleExit(o.xz, d.xz, h.xy, h.z)); }
+    }
+    if (best < 0.0) {
+      if (distance(p.xz, vec2f(u.wheel.x)) >= u.wheel.w) { return -1.0; }
+      return t;
+    }
+    t = best;
+    if (o.y + d.y * t < u.wheel.y - u.wheel.z) { return -1.0; }
+  }
+  return t;
+}
+
+// The cheese's top: little eyes, a darker lip round every hole and the rim,
+// and the shadows of the balls and of the orbs coming down.
+fn topColor(p: vec2f) -> vec3f {
+  var c = CHEESE * (0.94 + 0.08 * hash2(floor(p * 0.7)));
+  let cell = floor(p / 1.6);
+  let ctr = (cell + 0.25 + 0.5 * vec2f(hash2(cell), hash2(cell + 7.3))) * 1.6;
+  let er = 0.08 + 0.22 * hash2(cell + 3.1);
+  if (distance(p, ctr) < er) { c *= 0.78; }
+  var edge = u.wheel.w - distance(p, vec2f(u.wheel.x));
+  for (var k = 0u; k < u32(u.counts.x); k++) { edge = min(edge, distance(p, holes[k].xy) - holes[k].z); }
+  if (edge < 0.3) { c *= 0.8 + 0.6 * edge; }
+  var shade = 1.0;
+  for (var k = 0u; k < u32(u.counts.y); k++) {
+    let s = casters[k];
+    let r = abs(s.w);
+    let up = s.y - u.wheel.y;
+    if (up < -0.5) { continue; }
+    let dd = distance(p, s.xz);
+    if (s.w < 0.0) {
+      // an orb falling: a ring where it will land, tighter as it nears
+      let rr = 0.7 + up * 0.08;
+      if (up > 1.0 && abs(dd - rr) < 0.12) { c = mix(c, vec3f(1.0, 1.0, 1.0), 0.6); }
+      if (dd < 0.55) { shade = min(shade, 0.6); }
+    } else if (dd < r * (0.95 - min(up, 8.0) * 0.04)) {
+      shade = min(shade, 0.55 + min(up, 8.0) * 0.05);
+    }
+  }
+  return c * shade;
+}
+
+fn sky(d: vec3f) -> vec3f {
+  var c = mix(SKY_LO, SKY_HI, clamp(d.y * 1.8, 0.0, 1.0));
+  c += vec3f(1.0, 0.9, 0.7) * pow(max(dot(d, SUN), 0.0), 300.0);
+  // soft clouds on a plane far up
+  if (d.y > 0.02) {
+    let w = u.cam.xz + d.xz * (300.0 / d.y);
+    let n = hash2(floor(w / 60.0)) * 0.5 + hash2(floor(w / 23.0)) * 0.3;
+    c = mix(c, vec3f(1.0), smoothstep(0.55, 0.8, n) * 0.5 * clamp(d.y * 4.0, 0.0, 1.0));
+  }
+  return c;
+}
+
+fn sea(w: vec3f, d: vec3f, t: f32) -> vec3f {
+  let wave = sin(w.x * 0.15 + u.fwd.w * 1.3) + sin(w.z * 0.11 - u.fwd.w * 0.9) + 0.5 * sin((w.x + w.z) * 0.4 + u.fwd.w * 2.0);
+  var c = vec3f(0.08, 0.32, 0.5) * (0.9 + 0.06 * wave);
+  let n = normalize(vec3f(0.04 * cos(w.x * 0.15), 1.0, 0.04 * cos(w.z * 0.11)));
+  let rd = reflect(d, n);
+  c = mix(c, sky(rd), 0.25);
+  // the wheel's shadow on the water, straight under it
+  if (distance(w.xz - SUN.xz / SUN.y * u.wheel.y, vec2f(u.wheel.x)) < u.wheel.w) { c *= 0.6; }
+  return mix(c, SKY_LO, 1.0 - exp(-t / 700.0));
+}
+
+struct VOut { @builtin(position) pos: vec4f };
+@vertex fn vs_full(@builtin(vertex_index) i: u32) -> VOut {
+  var o: VOut;
+  let xy = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  o.pos = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);
+  return o;
+}
+
+struct TOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
+@fragment fn fs_world(@builtin(position) p: vec4f) -> TOut {
+  var o: TOut;
+  let d = normalize(u.fwd.xyz * u.cam.w + u.right.xyz * (p.x - u.screen.x * 0.5) + u.up.xyz * (u.screen.y * 0.5 - p.y));
+  let e = u.cam.xyz;
+  let top = u.wheel.y;
+  let bot = u.wheel.y - u.wheel.z;
+  let ctr = vec2f(u.wheel.x);
+  var t = 1e9;
+  var c = vec3f(0.0);
+  // the top face, or a hole in it and the wall of its shaft
+  if (e.y > top && d.y < 0.0) {
+    let tt = (top - e.y) / d.y;
+    let w = e.xz + d.xz * tt;
+    if (distance(w, ctr) < u.wheel.w) {
+      if (holeAt(w) < 0) {
+        t = tt;
+        c = topColor(w) * (0.55 + 0.5 * SUN.y);
+      } else {
+        let ts = shaft(e, d, tt);
+        if (ts > 0.0) {
+          t = ts;
+          let q = e + d * ts;
+          let down = (top - q.y) / u.wheel.z;
+          c = RIND * 0.8 * (1.0 - 0.75 * down) * (0.85 + 0.15 * hash2(floor(q.xz * 3.0 + q.y * 2.0)));
+        }
+      }
+    }
+  }
+  // the rind, from outside
+  let q = e.xz - ctr;
+  let a = max(dot(d.xz, d.xz), 1e-9);
+  let b = dot(q, d.xz);
+  let cc = dot(q, q) - u.wheel.w * u.wheel.w;
+  let disc = b * b - a * cc;
+  if (cc > 0.0 && disc > 0.0) {
+    let t1 = (-b - sqrt(disc)) / a;
+    let y = e.y + d.y * t1;
+    if (t1 > 0.0 && t1 < t && y < top && y > bot) {
+      let w = e + d * t1;
+      if (holeAt(w.xz) < 0) {
+        t = t1;
+        let n = normalize(vec3f(w.x - ctr.x, 0.0, w.z - ctr.y));
+        // round eyes cut in the rind
+        let ang = atan2(n.z, n.x) * u.wheel.w;
+        let cell = floor(vec2f(ang, y) / vec2f(2.2, 1.6));
+        let mid = (cell + 0.5) * vec2f(2.2, 1.6);
+        let eye = distance(vec2f(ang, y), mid) < 0.25 + 0.4 * hash2(cell);
+        c = RIND * (0.5 + 0.55 * max(dot(n, SUN), 0.0)) * select(1.0, 0.7, eye);
+      }
+    }
+  }
+  // the underside, from below
+  if (e.y < bot && d.y > 0.0) {
+    let tb = (bot - e.y) / d.y;
+    if (tb < t && onCheese(e.xz + d.xz * tb)) { t = tb; c = RIND * 0.35; }
+  }
+  if (t < 1e8) {
+    c = mix(c, SKY_LO, 1.0 - exp(-t / 700.0));
+    o.color = vec4f(dither(c, p.xy), 1.0);
+    o.depth = clamp(t * dot(d, u.fwd.xyz) / u.screen.z, 0.0, 1.0);
+    return o;
+  }
+  if (d.y < 0.0) {
+    let ts = -e.y / d.y;
+    o.color = vec4f(dither(sea(e + d * ts, d, ts), p.xy), 1.0);
+    o.depth = clamp(ts * dot(d, u.fwd.xyz) / u.screen.z, 0.0, 1.0);
+    return o;
+  }
+  o.color = vec4f(dither(sky(d), p.xy), 1.0);
+  o.depth = 1.0;
+  return o;
+}
+
+// ---- sprites
+struct SOut {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) color: vec4f,
+  @location(2) @interpolate(flat) kind: u32,
+  @location(3) @interpolate(flat) info: vec4f, // view z, world radius, seed, roll
+  @location(4) @interpolate(flat) vel: vec3f,
+};
+
+fn project(q: vec3f) -> vec4f {
+  let r = q - u.cam.xyz;
+  let z = dot(r, u.fwd.xyz);
+  let s = u.cam.w / max(z, 0.01);
+  return vec4f(u.screen.x * 0.5 + dot(r, u.right.xyz) * s, u.screen.y * 0.5 - dot(r, u.up.xyz) * s, z, s);
+}
+
+var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, -1), vec2f(-1, 1), vec2f(-1, 1), vec2f(1, -1), vec2f(1, 1));
+
+@vertex fn vs_sprite(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> SOut {
+  var o: SOut;
+  o.pos = vec4f(2.0, 2.0, 2.0, 1.0);
+  if (i >= u32(u.screen.w)) { return o; }
+  let a = sprites[4u * i];
+  let info = sprites[4u * i + 2u];
+  let pr = project(a.xyz);
+  if (pr.z < 0.3 || pr.z > u.screen.z) { return o; }
+  let half = vec2f(a.w, a.w * info.y);
+  let px = max(half * pr.w, vec2f(info.z, info.z * info.y));
+  let s = pr.xy + CORNERS[v] * px;
+  o.pos = vec4f(s.x / u.screen.x * 2.0 - 1.0, 1.0 - s.y / u.screen.y * 2.0, pr.z / u.screen.z, 1.0);
+  o.uv = CORNERS[v];
+  o.color = sprites[4u * i + 1u];
+  o.kind = u32(info.x);
+  let vr = sprites[4u * i + 3u];
+  o.info = vec4f(pr.z, a.w, info.w, vr.w);
+  o.vel = vr.xyz;
+  return o;
+}
+
+fn glyphBit(ch: u32, px: vec2i) -> bool {
+  if (px.x < 0 || px.x > 2 || px.y < 0 || px.y > 4) { return false; }
+  return ((font[ch - 32u] >> u32(14 - (px.y * 3 + px.x))) & 1u) == 1u;
+}
+
+fn slotColor(s: f32) -> vec3f {
+  let h = s * 0.618034;
+  return 0.55 + 0.4 * cos(6.2832 * (fract(h) + vec3f(0.0, 0.33, 0.67)));
+}
+
+// Rodrigues: v turned by angle a about the unit axis k.
+fn turn(v: vec3f, k: vec3f, a: f32) -> vec3f {
+  return v * cos(a) + cross(k, v) * sin(a) + k * dot(k, v) * (1.0 - cos(a));
+}
+
+struct FOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
+@fragment fn fs_solid(s: SOut) -> FOut {
+  var o: FOut;
+  let r2 = dot(s.uv, s.uv);
+  var c = s.color.rgb;
+  var z = s.info.x;
+  switch s.kind {
+    case 0u, 2u: { // a ball, beach-ball stripes turning as it rolls; an orb, a glowing ? in it
+      if (r2 > 1.0) { discard; }
+      let h = sqrt(1.0 - r2);
+      let n = normalize(u.right.xyz * s.uv.x - u.up.xyz * s.uv.y - u.fwd.xyz * h);
+      z -= h * s.info.y;
+      let lit = 0.45 + 0.65 * max(dot(n, SUN), 0.0) + 0.35 * pow(max(dot(reflect(u.fwd.xyz, n), SUN), 0.0), 20.0);
+      if (s.kind == 0u) {
+        let flat = vec3f(s.vel.x, 0.0, s.vel.z);
+        var m = n;
+        if (dot(flat, flat) > 1e-4) {
+          let dir = normalize(flat);
+          m = turn(n, vec3f(dir.z, 0.0, -dir.x), -s.info.w);
+        }
+        let seg = u32(floor((atan2(m.z, m.x) / 6.2832 + 0.5) * 6.0)) & 1u;
+        c = select(c, vec3f(0.97, 0.97, 0.95), seg == 1u);
+        if (abs(m.y) > 0.88) { c = vec3f(0.97, 0.97, 0.95); }
+        c *= lit;
+      } else {
+        c = mix(c, vec3f(1.0), 0.25) * (0.75 + 0.35 * lit);
+        let g = vec2i(floor((s.uv * vec2f(1.0, 1.0) + vec2f(0.75, 1.0)) * vec2f(2.0, 2.5)));
+        if (glyphBit(63u, g)) { c = vec3f(1.0); }
+      }
+    }
+    case 1u: { // a rider: a head and shoulders in its slot's colour, a cap
+      let y = s.uv.y;
+      let head = length(vec2f(s.uv.x, y + 0.35) * vec2f(1.3, 1.6)) < 0.62;
+      let cap = head && y < -0.55;
+      let body = abs(s.uv.x) < 0.7 - 0.3 * max(-y, 0.0) && y > 0.1;
+      if (!head && !body) { discard; }
+      if (cap) { c = s.color.rgb; }
+      else if (head) { c = vec3f(1.0, 0.82, 0.68); if (abs(abs(s.uv.x) - 0.22) < 0.07 && abs(y + 0.32) < 0.08) { c = vec3f(0.1); } }
+      else { c = s.color.rgb * 0.8; }
+    }
+    case 6u: { // the arrow over your own ball
+      if (s.uv.y > 0.6 - abs(s.uv.x) * 1.4 || s.uv.y < -0.9 || (abs(s.uv.x) > 0.3 && s.uv.y < -0.1)) { discard; }
+    }
+    default: { // a rocket
+      if (r2 > 1.0) { discard; }
+      c = mix(vec3f(1.0, 1.0, 0.9), c, sqrt(r2));
+    }
+  }
+  o.color = vec4f(dither(c, s.pos.xy), 1.0);
+  o.depth = clamp(z / u.screen.z, 0.0, 1.0);
+  return o;
+}
+
+// glowing, blended: 3 a flash, 4 a ring going out, 5 a four-pointed spark
+@fragment fn fs_glow(s: SOut) -> @location(0) vec4f {
+  let r2 = dot(s.uv, s.uv);
+  if (r2 > 1.0) { discard; }
+  var a = s.color.a * (1.0 - r2);
+  if (s.kind == 4u) { a = s.color.a * smoothstep(0.6, 0.9, r2) * smoothstep(1.0, 0.92, r2) * 3.0; }
+  if (s.kind == 5u) { a = s.color.a * max(0.0, 1.0 - min(abs(s.uv.x), abs(s.uv.y)) * 9.0) * (1.0 - sqrt(r2)); }
+  return vec4f(mix(s.color.rgb, vec3f(1.0, 1.0, 0.95), (1.0 - r2) * a) * a, a);
+}
+
+// ---- beams: a quad between two projected points
+struct BOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @location(1) across: f32 };
+@vertex fn vs_beam(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> BOut {
+  var o: BOut;
+  o.pos = vec4f(2.0, 2.0, 2.0, 1.0);
+  if (i >= u32(u.counts.z)) { return o; }
+  let a = beams[3u * i];
+  let b = beams[3u * i + 1u];
+  var pa = project(a.xyz);
+  var pb = project(b.xyz);
+  if (pa.z < 0.3 && pb.z < 0.3) { return o; }
+  if (pa.z < 0.3) { let t = (0.3 - pa.z) / (pb.z - pa.z); pa = project(mix(a.xyz, b.xyz, t)); }
+  if (pb.z < 0.3) { let t = (0.3 - pb.z) / (pa.z - pb.z); pb = project(mix(b.xyz, a.xyz, t)); }
+  let dd = pb.xy - pa.xy;
+  let n = normalize(vec2f(-dd.y, dd.x) + vec2f(1e-6, 0.0));
+  let c = CORNERS[v];
+  let end = select(pa, pb, c.x > 0.0);
+  let w = max(a.w * end.w, 0.6);
+  let s = end.xy + n * c.y * w;
+  o.pos = vec4f(s.x / u.screen.x * 2.0 - 1.0, 1.0 - s.y / u.screen.y * 2.0, clamp(end.z / u.screen.z, 0.0, 1.0), 1.0);
+  o.color = beams[3u * i + 2u];
+  o.across = c.y;
+  return o;
+}
+@fragment fn fs_beam(b: BOut) -> @location(0) vec4f {
+  let a = b.color.a * (1.0 - abs(b.across) * 0.6);
+  return vec4f(b.color.rgb * a, a);
+}
+
+// ---- HUD
+var<private> PALETTE: array<vec3f, 8> = array<vec3f, 8>(vec3f(1.0), vec3f(1.0, 0.85, 0.25), vec3f(1.0, 0.35, 0.3), vec3f(0.4, 1.0, 0.4),
+  vec3f(0.6), vec3f(0.5, 0.85, 1.0), vec3f(1.0, 0.6, 0.2), vec3f(0.8, 0.55, 1.0));
+
+fn cellBit(cell: vec2i, px: vec2i) -> bool {
+  if (cell.x < 0 || cell.y < 0 || cell.x >= ${COLS} || cell.y >= i32(u.hud.x)) { return false; }
+  let ch = hud[u32(cell.y) * ${COLS}u + u32(cell.x)] & 255u;
+  if (ch < 32u || ch > 95u) { return false; }
+  return glyphBit(ch, px);
+}
+fn lit(p: vec2i) -> bool {
+  let cell = vec2i(p.x / 4, p.y / 6);
+  return cellBit(cell, vec2i(p.x - cell.x * 4, p.y - cell.y * 6));
+}
+
+fn graphPx(p: vec2i) -> vec4f {
+  let col = p.x - (i32(u.screen.x) - ${GRAPH_N + 4});
+  if (u.hud.y < 0.5 || col < 0 || col >= ${GRAPH_N}) { return vec4f(0.0); }
+  let k = (p.y - 18) / 24;
+  let yy = p.y - 18 - 24 * k;
+  if (p.y < 18 || k >= ${GRAPH_PANELS} || yy >= 17) { return vec4f(0.0); }
+  let v = graph[u32(k * ${GRAPH_N} + col)];
+  let f = (16.5 - f32(yy)) / 17.0;
+  let near = 0.5 / 17.0;
+  if (yy == 16) { return vec4f(0.35, 0.35, 0.35, 0.8); }
+  if (k == 0) {
+    if (abs(f - v.w) < near) { return vec4f(PALETTE[5], 1.0); }
+    if (f < v.x) { return vec4f(PALETTE[3], 0.9); }
+    if (f < v.x + v.y) { return vec4f(PALETTE[6], 0.9); }
+    if (f < v.x + v.y + v.z) { return vec4f(PALETTE[7], 0.9); }
+  } else if (k == 1) {
+    if (f < v.x) { return vec4f(PALETTE[6], 0.9); }
+  } else if (k == 2) {
+    if (abs(f - v.x) < near) { return vec4f(PALETTE[1], 1.0); }
+    if (abs(f - v.y) < near) { return vec4f(PALETTE[5], 1.0); }
+  } else {
+    if (v.y > 3.5) { return vec4f(PALETTE[2], 1.0); }
+    if (v.y > 2.5) { return vec4f(PALETTE[7], 1.0); }
+    if (v.y > 1.5) { return vec4f(0.35, 0.55, 1.0, 1.0); }
+    if (v.x > 0.5 && f < 0.6) { return vec4f(PALETTE[3], 1.0); }
+  }
+  return vec4f(0.0, 0.0, 0.0, 0.5);
+}
+
+// The minimap: the wheel from above, north up the way you face, holes dark,
+// balls as dots in their colours, yours white.
+fn miniPx(q: vec2f) -> vec4f {
+  let d = q - u.mini.xy;
+  let rp = length(d);
+  if (u.mini.z <= 0.0 || rp > u.mini.z + 1.0) { return vec4f(0.0); }
+  if (rp > u.mini.z) { return vec4f(0.1, 0.1, 0.15, 0.8); }
+  let s = u.mini.w / u.mini.z;
+  // screen up is the camera's facing
+  let f = normalize(vec2f(u.fwd.x, u.fwd.z) + vec2f(1e-6, 0.0));
+  let rt = vec2f(-f.y, f.x);
+  let me = casters[u32(u.misc.x)];
+  let centre = select(vec2f(u.wheel.x), me.xz, u.misc.x >= 0.0 && me.w > 0.0 && u.misc.y > 0.5);
+  let w = centre + (f * -d.y + rt * d.x) * s;
+  for (var k = 0u; k < u32(u.counts.y); k++) {
+    let b = casters[k];
+    if (b.w <= 0.0 || b.y < u.wheel.y - 1.0) { continue; }
+    if (distance(w, b.xz) < max(b.w, s * 1.2)) {
+      if (i32(k) == i32(u.misc.x)) { return vec4f(1.0, 1.0, 1.0, 1.0); }
+      return vec4f(slotColor(f32(k)), 1.0);
+    }
+  }
+  if (onCheese(w)) { return vec4f(CHEESE * 0.85, 0.85); }
+  return vec4f(0.05, 0.2, 0.35, 0.55);
+}
+
+@fragment fn fs_hud(@builtin(position) q: vec4f) -> @location(0) vec4f {
+  let p = vec2i(q.xy);
+  if (lit(p)) {
+    let cell = vec2i(p.x / 4, p.y / 6);
+    let k = (hud[u32(cell.y) * ${COLS}u + u32(cell.x)] >> 8u) & 7u;
+    return vec4f(PALETTE[k], 1.0);
+  }
+  if (lit(p - vec2i(1, 1))) { return vec4f(0.0, 0.0, 0.0, 0.8); }
+  let g = graphPx(p);
+  if (g.a > 0.0) { return g; }
+  for (var k = i32(u.counts.w) - 1; k >= 0; k--) {
+    let r = rects[2u * u32(k)];
+    if (q.x >= r.x && q.x < r.z && q.y >= r.y && q.y < r.w) {
+      let col = rects[2u * u32(k) + 1u];
+      return vec4f(dither(col.rgb, q.xy), col.a);
+    }
+  }
+  let m = miniPx(q.xy);
+  if (m.a > 0.0) { return m; }
+  // a flash at the edges: bumped hard, or going down
+  let c = vec2f(u.screen.x, u.screen.y) * 0.5;
+  let d = q.xy - c;
+  let edge = max(abs(d.x) / c.x, abs(d.y) / c.y);
+  if (u.hud.z > 0.0 && edge > 0.8) { return vec4f(1.0, 0.9, 0.6, u.hud.z * (edge - 0.8) * 3.0); }
+  discard;
+  return vec4f(0.0);
+}
+`;
+
+export async function createRenderer(canvas, { present = true } = {}) {
+  const adapter = await navigator.gpu?.requestAdapter();
+  if (!adapter) throw new Error('WebGPU is not available in this browser');
+  const device = await adapter.requestDevice();
+  device.addEventListener('uncapturederror', (e) => console.error('WebGPU:', e.error.message));
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  const ctx = present ? canvas.getContext('webgpu') : null;
+  ctx?.configure({ device, format, alphaMode: 'opaque' });
+  const W = canvas.width, H = canvas.height;
+  const rows = Math.floor(H / 6);
+  const module = device.createShaderModule({ code: WGSL });
+  const info = await module.getCompilationInfo();
+  const errs = info.messages.filter((m) => m.type === 'error');
+  if (errs.length) throw new Error('WGSL: ' + errs.map((m) => `${m.lineNum}:${m.linePos} ${m.message}`).join('; '));
+
+  const ubuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const storage = (size) => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const holeBuf = storage(L.NHOLE * 16);
+  const casterBuf = storage(MAX_CASTER * 16);
+  const spriteBuf = storage(MAX_SPRITE * 64);
+  const beamBuf = storage(MAX_BEAM * 48);
+  const rectBuf = storage(MAX_RECT * 32);
+  const hudBuf = storage(COLS * rows * 4);
+  const fontBuf = storage(FONT.length * 4);
+  const graphBuf = storage(GRAPH_PANELS * GRAPH_N * 16);
+  device.queue.writeBuffer(fontBuf, 0, FONT);
+  const depth = device.createTexture({ size: [W, H], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT });
+
+  const FRAG = GPUShaderStage.FRAGMENT, VERT = GPUShaderStage.VERTEX;
+  const layout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: VERT | FRAG, buffer: { type: 'uniform' } },
+      ...[[1, FRAG], [2, FRAG], [3, VERT], [4, VERT], [5, FRAG], [6, FRAG], [7, FRAG], [8, FRAG]].map(([binding, visibility]) => ({ binding, visibility, buffer: { type: 'read-only-storage' } })),
+    ],
+  });
+  const bind = device.createBindGroup({
+    layout,
+    entries: [{ binding: 0, resource: { buffer: ubuf } },
+      ...[holeBuf, casterBuf, spriteBuf, beamBuf, rectBuf, hudBuf, fontBuf, graphBuf].map((buffer, k) => ({ binding: 1 + k, resource: { buffer } }))],
+  });
+  const pl = device.createPipelineLayout({ bindGroupLayouts: [layout] });
+  const pipe = (vs, fs, { depthWrite, depthCompare, blend }) => device.createRenderPipeline({
+    layout: pl,
+    vertex: { module, entryPoint: vs },
+    fragment: { module, entryPoint: fs, targets: [{ format, blend }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: depthWrite, depthCompare },
+  });
+  const over = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } };
+  const add = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } };
+  const world = pipe('vs_full', 'fs_world', { depthWrite: true, depthCompare: 'always' });
+  const solid = pipe('vs_sprite', 'fs_solid', { depthWrite: true, depthCompare: 'less' });
+  const glow = pipe('vs_sprite', 'fs_glow', { depthWrite: false, depthCompare: 'less', blend: add });
+  const beam = pipe('vs_beam', 'fs_beam', { depthWrite: false, depthCompare: 'less', blend: add });
+  const hudPipe = pipe('vs_full', 'fs_hud', { depthWrite: false, depthCompare: 'always', blend: over });
+
+  const uf = new Float32Array(40);
+  const hud = new Uint32Array(COLS * rows);
+  const holeData = new Float32Array(L.NHOLE * 4);
+  const casterData = new Float32Array(MAX_CASTER * 4);
+  const spriteData = new Float32Array(MAX_SPRITE * 16);
+  const beamData = new Float32Array(MAX_BEAM * 12);
+  const rectData = new Float32Array(MAX_RECT * 8);
+
+  return {
+    rows, width: W, height: H,
+    // s: { cam, yaw, pitch, time, slot, wheel (src/bumper-view.mjs), casters: [[x, y, z, r]] (index = slot for balls),
+    //      solid: [sprite], glow: [sprite] with sprite { pos, size, color: [r,g,b,a], kind, aspect, minpx, seed, vel, roll },
+    //      beams: [{ a, b, width, color }], rects, text, graph, flash, mini: [cx, cy, r px, world r] | null, miniFollow }
+    frame(u8, s, target) {
+      if (!ctx && !target) return;
+      const focal = W * 0.62;
+      const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw), cp = Math.cos(s.pitch), sp = Math.sin(s.pitch);
+      const sprites = [...s.solid, ...s.glow].slice(0, MAX_SPRITE);
+      const w = s.wheel;
+      uf.set([s.cam[0], s.cam[1], s.cam[2], focal,
+        cp * cy, sp, cp * sy, s.time,
+        -sy, 0, cy, 0,
+        -sp * cy, cp, -sp * sy, 0,
+        W, H, FAR, sprites.length,
+        L.B_CX, PLAT_Y, PLAT_T, w.rim,
+        w.holes.length, Math.min(s.casters.length, MAX_CASTER), Math.min(s.beams.length, MAX_BEAM), Math.min(s.rects.length, MAX_RECT),
+        rows, s.graph ? 1 : 0, s.flash || 0, 0,
+        ...(s.mini || [0, 0, 0, 1]),
+        s.slot, s.miniFollow ? 1 : 0, 0, 0]);
+      device.queue.writeBuffer(ubuf, 0, uf);
+      w.holes.forEach((h, k) => holeData.set([h.x, h.z, h.r, 0], 4 * k));
+      if (w.holes.length) device.queue.writeBuffer(holeBuf, 0, holeData, 0, 4 * w.holes.length);
+      s.casters.slice(0, MAX_CASTER).forEach((c, k) => casterData.set(c, 4 * k));
+      if (s.casters.length) device.queue.writeBuffer(casterBuf, 0, casterData, 0, 4 * Math.min(s.casters.length, MAX_CASTER));
+      sprites.forEach((p, k) => {
+        const c = p.color, v = p.vel || [0, 0, 0];
+        spriteData.set([p.pos[0], p.pos[1], p.pos[2], p.size, c[0], c[1], c[2], c[3] ?? 1, p.kind, p.aspect ?? 1, p.minpx ?? 1, p.seed ?? 0, v[0], v[1], v[2], p.roll ?? 0], k * 16);
+      });
+      if (sprites.length) device.queue.writeBuffer(spriteBuf, 0, spriteData, 0, sprites.length * 16);
+      s.beams.slice(0, MAX_BEAM).forEach((b, k) => beamData.set([b.a[0], b.a[1], b.a[2], b.width, b.b[0], b.b[1], b.b[2], 0, ...b.color], k * 12));
+      if (s.beams.length) device.queue.writeBuffer(beamBuf, 0, beamData, 0, Math.min(s.beams.length, MAX_BEAM) * 12);
+      s.rects.slice(0, MAX_RECT).forEach((r, k) => rectData.set(r, k * 8));
+      if (s.rects.length) device.queue.writeBuffer(rectBuf, 0, rectData, 0, Math.min(s.rects.length, MAX_RECT) * 8);
+      if (s.graph) device.queue.writeBuffer(graphBuf, 0, s.graph);
+      hud.set(s.text.subarray(0, hud.length));
+      device.queue.writeBuffer(hudBuf, 0, hud);
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: (target || ctx.getCurrentTexture()).createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }],
+        depthStencilAttachment: { view: depth.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 },
+      });
+      pass.setBindGroup(0, bind);
+      pass.setPipeline(world);
+      pass.draw(3);
+      pass.setPipeline(solid);
+      if (s.solid.length) pass.draw(6, Math.min(s.solid.length, MAX_SPRITE), 0, 0);
+      pass.setPipeline(beam);
+      if (s.beams.length) pass.draw(6, Math.min(s.beams.length, MAX_BEAM));
+      pass.setPipeline(glow);
+      const ng = sprites.length - Math.min(s.solid.length, MAX_SPRITE);
+      if (ng > 0) pass.draw(6, ng, 0, s.solid.length);
+      pass.setPipeline(hudPipe);
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([enc.finish()]);
+    },
+
+    async capture(u8, s) {
+      const tex = device.createTexture({ size: [W, H], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+      this.frame(u8, s, tex);
+      const row = Math.ceil(W * 4 / 256) * 256;
+      const buf = device.createBuffer({ size: row * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = device.createCommandEncoder();
+      enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: row }, [W, H]);
+      device.queue.submit([enc.finish()]);
+      await buf.mapAsync(GPUMapMode.READ);
+      const src = new Uint8Array(buf.getMappedRange());
+      const rgba = new Uint8ClampedArray(W * H * 4);
+      const bgra = format === 'bgra8unorm';
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * row + x * 4, o = (y * W + x) * 4;
+          rgba[o] = src[i + (bgra ? 2 : 0)]; rgba[o + 1] = src[i + 1]; rgba[o + 2] = src[i + (bgra ? 0 : 2)]; rgba[o + 3] = 255;
+        }
+      }
+      buf.unmap();
+      buf.destroy();
+      tex.destroy();
+      return { width: W, height: H, rgba };
+    },
+  };
+}
