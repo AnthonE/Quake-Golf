@@ -233,7 +233,9 @@
   (if (local.get $big)
     (then
       (call $bo_crater (local.get $x) (local.get $z) (i32.add (local.get $t) (local.get $fall)) (local.get $t))
-      (call $fx (i32.const 0) (i32.const @BO_FX_BIG) (select (i32.sub (local.get $who) (i32.const 1)) (i32.const 255) (local.get $who)) (local.get $k)
+      ;; the shot says it's aimed (256), as the owner byte can't tell slot 255 from nobody
+      (call $fx (i32.const 0) (i32.const @BO_FX_BIG) (select (i32.sub (local.get $who) (i32.const 1)) (i32.const 255) (local.get $who))
+                (i32.or (local.get $k) (i32.shl (i32.ne (local.get $who) (i32.const 0)) (i32.const 8)))
                 (local.get $x) (f32.const @PLAT_Y) (local.get $z) (f32.convert_i32_u (local.get $fall))))))
 
 ;; A wave: 1 + left / BO_PER bombs (and one more every BO_MORE into play),
@@ -278,13 +280,25 @@
   (if (i32.ge_u (local.get $tp) (i32.load (i32.const @(PG_H + BO_NEXT))))
     (then (call $bo_wave (local.get $t) (local.get $tp)))))
 
-;; Two or more still on and every one of them falling (a blast took them all
-;; at once): over now, and they share the win rather than all sharing last.
+;; Two or more still on, every one of them falling, and all since the same
+;; tick (a blast took them all at once): over now, and they share the win
+;; rather than all sharing last. One that went off before the rest goes out
+;; first, in its place. Each ball's first tick falling is noted here (BO_FELL).
 (func $bo_over (result i32)
-  (local $p i32)
+  (local $p i32) (local $fl i32) (local $t i32) (local $at i32)
+  (local.set $t (i32.add (call $p_t (i32.const 0)) (i32.const 1)))
+  (!for $p (i32.const 0) (i32.const @NPLAYER)
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.and (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL))) (i32.eqz (!ld u16 @(PG_S + BO_FELL) (local.get $p))))
+      (then (!st u16 @(PG_S + BO_FELL) (local.get $p) (local.get $t)))))
   (if (i32.lt_u (i32.load (i32.const @BH_LEFT)) (i32.const 2)) (then (return (i32.const 0))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (if (call $p_in (i32.shl (local.get $p) (i32.const 6))) (then (return (i32.const 0)))))
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.eq (local.get $fl) (i32.const @PF_LIVE)) (then (return (i32.const 0))))
+    (if (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL)))
+      (then
+        (if (i32.eqz (local.get $at)) (then (local.set $at (!ld u16 @(PG_S + BO_FELL) (local.get $p)))))
+        (if (i32.ne (!ld u16 @(PG_S + BO_FELL) (local.get $p)) (local.get $at)) (then (return (i32.const 0)))))))
   (i32.const 1))
 
 (func $bo_out (param $p i32))

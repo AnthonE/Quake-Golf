@@ -274,7 +274,7 @@ test('a big bomb\'s crater: the tiles round where it lands are marked when its r
     g.step();
     const fx = fxs(g.v, L.BO_FX_BIG, seen)[0];
     seen = g.v.fxCount();
-    if (fx) { big = bombsOf(g.v).find((b) => b.k === fx.shot); assert.equal(fx.owner, 0, 'aimed at P1'); }
+    if (fx) { big = bombsOf(g.v).find((b) => b.k === (fx.shot & 0xff)); assert.deepEqual([fx.owner, fx.shot & 0x100], [0, 0x100], 'aimed at P1'); }
     assert.ok(g.v.party().t < L.BO_BIGFROM + 8000, 'a big one came');
   }
   const t0 = g.v.tick - 1;
@@ -335,6 +335,31 @@ test('the last balls on all falling to one blast share the win, rather than all 
   assert.equal(p.state, L.H_OVER, 'over at once');
   assert.equal(p.winner, 255, 'shared');
   assert.deepEqual([1, 2].map((k) => g.v.partier(k).place), [1, 1]);
+});
+
+test('balls that went off ticks apart don\'t share the win: the first is out in its place, the last on wins alone (or the two that went together share it)', async () => {
+  for (const n of [2, 3]) {
+    const g = await room(n, { quiet: true, seed: 12 });
+    const r = g.v.party().size;
+    // P1 off the disc, falling; 40 ticks on the rest go off, on one tick
+    put(g, 0, C + r + 3, C, { y: PLAT_Y - 0.5, ground: false });
+    for (let k = 0; k < 40; k++) g.step();
+    assert.ok(g.v.partier(0).falling && !g.v.partier(0).out, 'going out');
+    for (let p = 1; p < n; p++) put(g, p, C - r - 3, C + 3 * p, { y: PLAT_Y - 0.5, ground: false });
+    let k = 0;
+    while (g.v.party().state === L.H_PLAY && k++ < 400) g.step();
+    const p = g.v.party();
+    assert.equal(p.state, L.H_OVER);
+    const ps = Array.from({ length: n }, (_, q) => q);
+    assert.ok(g.v.partier(0).out, 'P1 out first');
+    if (n === 2) {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [2, 1]);
+      assert.equal(p.winner, 1, 'the last on wins alone');
+    } else {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [3, 1, 1]);
+      assert.equal(p.winner, 255, 'the two that went together share it');
+    }
+  }
 });
 
 test('the prediction matches the confirmed ball bit for bit: through blasts near and far, a crater opening under it, the crumbling rim, and the real waves', async () => {
@@ -430,6 +455,69 @@ for (const [balls, ticks] of [[8, 16500], [64, 16500]]) {
     assert.deepEqual([...decodeTrace(a.trace).tickHashes], [...decodeTrace(d.trace).tickHashes], 'the debug build steps the same bits');
   });
 }
+
+test('the client: a crater\'s tiles fly away from their own big bomb of a wave\'s several, on past its record; a big bomb is yours only if aimed at you, slot 255 too; the result frames the disc as it was left', async () => {
+  const { Scene } = await import('../client/party-render.mjs');
+  const g = await room(2, { quiet: true, seed: 43 });
+  const land = g.v.tick + 40;
+  const [x, z] = hexCentre(3, -1, S);
+  // two big ones of a wave, landing together: the cell is the first's crater, the other far off
+  lay(g, 0, x - 1.5, z, land, { big: true });
+  lay(g, 1, x + 20, z, land, { big: true });
+  g.dv.setUint32(L.PG_BIG + L.BO_TILES + cellOf(3, -1), land, true);
+  const out = { scene: new Scene(24000), solid: [], glow: [], beams: [], decals: [], casters: [], paint: null };
+  const flying = (now) => {
+    out.scene.clear(); out.solid.length = 0; out.glow.length = 0; out.decals.length = 0; out.casters.length = 0;
+    bombs.draw(g.v, { tick: g.v.tick, dt: 0, ptick: now, now: 0, slot: 0 }, out);
+    const d = out.scene.data, hits = [];
+    for (let k = 0; k < out.scene.count; k++) if (d[k * 16 + 3] === 2 && d[k * 16 + 14] > 0 && d[k * 16 + 14] < 1) hits.push([d[k * 16] - x, d[k * 16 + 2] - z]);
+    return hits;
+  };
+  let h = flying(land + 50);
+  assert.equal(h.length, 1, 'one tile flying');
+  assert.ok(h[0][0] > 1.5 && Math.abs(h[0][1]) < 1e-3, `away from its own bomb: ${h[0].map((v) => v.toFixed(2))}`);
+  // both records freed BO_KEEP after they land, the tile still in the air: on out, not back over its cell
+  for (const k of [0, 1]) g.dv.setUint8(L.PG_S + L.BO_BOMBS + k * L.BO_BSIZE + 14, 0);
+  h = flying(land + 120);
+  assert.equal(h.length, 1);
+  assert.ok(h[0][0] > 4 && Math.abs(h[0][1]) < 1e-3, `${h[0][0].toFixed(2)} m on`);
+  // the owner byte can't tell slot 255 from nobody: the shot says it's aimed
+  const said = [];
+  const ctx = (slot) => ({ slot, dist: 5, banner: (t) => said.push([slot, t]) });
+  bombs.fx({ kind: L.BO_FX_BIG, owner: 255, shot: 7, pos: [x, PLAT_Y, z] }, ctx(255));
+  bombs.fx({ kind: L.BO_FX_BIG, owner: 255, shot: 7 | 256, pos: [x, PLAT_Y, z] }, ctx(255));
+  bombs.fx({ kind: L.BO_FX_BIG, owner: 3, shot: 7 | 256, pos: [x, PLAT_Y, z] }, ctx(0));
+  bombs.fx({ kind: L.BO_FX_BIG, owner: 0, shot: 7 | 256, pos: [x, PLAT_Y, z] }, ctx(0));
+  assert.deepEqual(said, [[255, 'BIG BOMB'], [255, 'BIG BOMB ON YOU  RUN'], [0, 'BIG BOMB'], [0, 'BIG BOMB ON YOU  RUN']]);
+  // and the sim's waves say so: every big bomb's ring, aimed or not, as its record has it
+  const g2 = await room(3, { seed: 44 });
+  at(g2, L.BO_MORE + 100); // two bombs a wave: the first aimed, the second not
+  let seen = g2.v.fxCount(), bigs = 0, aimed = 0;
+  for (let k = 0; k < 8000 && (aimed < 2 || bigs - aimed < 2); k++) {
+    for (let p = 0; p < 3; p++) put(g2, p, C - 3 + 3 * p, C);
+    g2.step();
+    for (const fx of fxs(g2.v, L.BO_FX_BIG, seen)) {
+      const b = bombsOf(g2.v).find((e) => e.k === (fx.shot & 0xff));
+      assert.ok(b && b.big);
+      assert.deepEqual([fx.shot & 0x100, fx.owner], b.who >= 0 ? [0x100, b.who] : [0, 255]);
+      bigs++;
+      aimed += b.who >= 0;
+    }
+    seen = g2.v.fxCount();
+  }
+  assert.ok(aimed >= 2 && bigs - aimed >= 2, `${bigs} big ones, ${aimed} aimed`);
+  // the result: the disc as the round left it, not as it began
+  const g3 = await room(2, { quiet: true, seed: 45 });
+  at(g3, 4000);
+  put(g3, 1, C + 100, C, { y: PLAT_Y - 0.5, ground: false });
+  for (let k = 0; k < 400 && g3.v.party().state === L.H_PLAY; k++) { put(g3, 0, C, C); g3.step(); }
+  const p3 = g3.v.party();
+  assert.equal(p3.state, L.H_OVER);
+  const end = (p3.until - L.P_OVER - p3.start) | 0;
+  assert.ok(end > 4000);
+  assert.ok(Math.abs(bombs.frame(g3.v).radius - (rimAt(p3.size, end) + S)) < 1e-3, 'the rim it ended at');
+  assert.ok(rimAt(p3.size, end) < p3.size - 2);
+});
 
 test('the client module: draws the countdown and the round, frames the disc, writes its HUD lines, and its brain sees what the sim does', async () => {
   const { Scene } = await import('../client/party-render.mjs');
