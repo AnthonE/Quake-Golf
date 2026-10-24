@@ -350,7 +350,7 @@ export default {
       }
       if (mine) ctx.banner?.('WHACK!', C.ORANGE, 700);
     } else if (fx.kind === L.SW_FX_BEAM) {
-      ctx.banner?.(`BAR ${fx.shot + 1} COMING  THEN THEY TURN BACK`, C.YELLOW, 2200);
+      ctx.banner?.(`BAR ${fx.shot + 1} COMING`, C.YELLOW, 2000);
       ctx.sound?.tick?.();
     } else if (fx.kind === L.SW_FX_GO) {
       if (fx.shot & 16) ctx.banner?.(`REVERSE!  ${fx.shot & 15} BARS`, C.ORANGE, 1400);
