@@ -96,13 +96,21 @@ function d2Of(st, q, r) {
 }
 const inside = (d2, rim) => d2 <= f(rim * rim);
 
-// $cc_pick: a tile for cycle c's call whose colour is neither a nor b.
+// $cc_pick: a tile for cycle c's call whose colour is neither a nor b (the
+// tries, then the board in order), else the middle tile.
 function pick(st, c, a, b) {
   const rim = rimOf(st.r0, c), sc = f(rim * 2 ** -15), base = hash32(st.s, st.h, L.CC_KCALL + c);
   for (let j = 0; j < L.CC_TRIES; j++) {
     const h = hash32(j, c, base);
     const x = f(f(((h & 0xffff) - 32768) * sc) + st.cx), z = f(f(((h >>> 16) - 32768) * sc) + st.cx);
     const [q, r] = hexAt(x, z, S, st.cx);
+    if (!inside(d2Of(st, q, r), rim)) continue;
+    const colour = colourOf(st, q, r, c);
+    if (colour !== a && colour !== b) return { q, r, colour };
+  }
+  const n = Math.trunc(f(rim / f(1.5 * L.CC_S))) + 1, w = 2 * n + 1;
+  for (let j = 0; j < w * w; j++) {
+    const q = (j % w) - n, r = Math.floor(j / w) - n;
     if (!inside(d2Of(st, q, r), rim)) continue;
     const colour = colourOf(st, q, r, c);
     if (colour !== a && colour !== b) return { q, r, colour };
@@ -491,7 +499,7 @@ export default {
     const playing = me && me.live && !me.out;
     if (tp < w.w0) {
       ctx.centre(row, c === 0 ? 'GET READY' : sd ? 'SUDDEN DEATH' : `CALL ${c + 1}`, sd ? C.YELLOW : C.WHITE);
-      if (rimOf(st.r0, c) < rimOf(st.r0, c - 1)) ctx.centre(row + 1, sd ? 'ONE TILE WILL HOLD' : 'GREY TILES FALL FOR GOOD', C.ORANGE);
+      if (sd ? c === L.CC_SD : rimOf(st.r0, c) < rimOf(st.r0, c - 1)) ctx.centre(row + 1, sd ? 'ONE TILE WILL HOLD' : 'GREY TILES FALL FOR GOOD', C.ORANGE);
     } else if (tp < w.d0) {
       ctx.centre(row, sd ? `ONE TILE  ${col.name}  ${((w.d0 - tp) * TICK).toFixed(1)}` : `${col.name}  ${((w.d0 - tp) * TICK).toFixed(1)}`, col.hud);
       bar(row + 1, (w.d0 - tp) / (w.d0 - w.w0), col.hud);

@@ -29,12 +29,14 @@ export const CC_T_SD = 9070; // cycle CC_SD's: CC_T_FULL + (CC_SD - CC_FULL) * (
 // $p_seed keys: the board's colours in cycle c from CC_KBOARD + c, the call's tries from CC_KCALL + c
 export const CC_KBOARD = 0x10000;
 export const CC_KCALL = 0x20000;
-export const CC_TRIES = 16; // points tried for the call's tile before the middle one
+export const CC_TRIES = 16; // points tried for the call's tile before the board in order
 // Its header, byte offsets in PG_H.
 export const CC_RAD = 0; // f32 the disc's radius at the start
 export const CC_K = 4; // u32 colours
-// In PG_S: u8 per slot, the calls it lived through this round.
+// In PG_S: u8 per slot, the calls it lived through this round; u16 per slot,
+// the tick into play it started going out, plus 1 (0 not yet: over's).
 export const CC_SURV = 0;
+export const CC_FELL = 256;
 // FX kinds, FX_MG + 4 * MG_COLOR + k: owner 255, shot = colour | cycle << 4.
 export const CC_FX_CALL = 36; // a call: the called tile's top centre, size the warning in ticks
 export const CC_FX_DROP = 37; // the drop: the called tile, size the rim it leaves

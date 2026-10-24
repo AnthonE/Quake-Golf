@@ -77,10 +77,13 @@
 
 ;; A tile for cycle c's call, (q, r) and its colour: the first of CC_TRIES
 ;; points over the square round the disc whose tile is still on the board
-;; after the drop and whose colour is neither a nor b; else the middle tile.
-;; A call is a tile, so its colour is always somewhere to stand.
+;; after the drop and whose colour is neither a nor b; else the first such
+;; tile of the board the drop leaves, r then q ascending; else (every tile
+;; left is a or b) the middle tile. A call is a tile, so its colour is always
+;; somewhere to stand.
 (func $cc_pick (param $d i32) (param $c i32) (param $a i32) (param $b i32) (result i32 i32 i32)
   (local $rim f32) (local $sc f32) (local $base i32) (local $h i32) (local $j i32) (local $q i32) (local $r i32) (local $col i32) (local $k i32)
+  (local $n i32) (local $w i32)
   (local.set $rim (call $cc_rim (local.get $d) (local.get $c)))
   (local.set $sc (f32.mul (local.get $rim) (f32.const 0.000030517578125))) ;; 2^-15: a u16 over [-rim, rim)
   (local.set $k (i32.load offset=@(PG_H + CC_K) (local.get $d)))
@@ -97,13 +100,26 @@
         (local.set $col (call $cc_colour (local.get $q) (local.get $r) (local.get $c) (local.get $k)))
         (if (i32.and (i32.ne (local.get $col) (local.get $a)) (i32.ne (local.get $col) (local.get $b)))
           (then (return (local.get $q) (local.get $r) (local.get $col)))))))
+  ;; a tile whose centre is within rim is at most rim / 1.5 CC_S out in q and in r
+  (local.set $n (i32.add (i32.trunc_sat_f32_u (f32.div (local.get $rim) (f32.const @(1.5 * CC_S)))) (i32.const 1)))
+  (local.set $w (i32.add (i32.shl (local.get $n) (i32.const 1)) (i32.const 1)))
+  (!for $j (i32.const 0) (i32.mul (local.get $w) (local.get $w))
+    (local.set $q (i32.sub (i32.rem_u (local.get $j) (local.get $w)) (local.get $n)))
+    (local.set $r (i32.sub (i32.div_u (local.get $j) (local.get $w)) (local.get $n)))
+    (if (call $cc_in (local.get $q) (local.get $r) (local.get $rim))
+      (then
+        (local.set $col (call $cc_colour (local.get $q) (local.get $r) (local.get $c) (local.get $k)))
+        (if (i32.and (i32.ne (local.get $col) (local.get $a)) (i32.ne (local.get $col) (local.get $b)))
+          (then (return (local.get $q) (local.get $r) (local.get $col)))))))
   (i32.const 0)
   (i32.const 0)
   (call $cc_colour (i32.const 0) (i32.const 0) (local.get $c) (local.get $k)))
 
 ;; Cycle c's call: its tile (q, r) and colour. An even cycle's is its first
 ;; pick; an odd one's avoids both neighbours' colours, so no colour is called
-;; twice running.
+;; twice running, unless every tile its drop leaves is one of those two (in
+;; about 1 odd cycle in 80 at 4 colours once the board is down to its middle
+;; seven).
 (func $cc_call (param $d i32) (param $c i32) (result i32 i32 i32)
   (local $q i32) (local $r i32) (local $a i32) (local $b i32)
   (if (i32.eqz (i32.and (local.get $c) (i32.const 1)))
@@ -195,14 +211,25 @@
                 (local.get $x) (f32.const @PLAT_Y) (local.get $z)
                 (select (f32.convert_i32_u (call $cc_warn (local.get $c))) (call $cc_rim (i32.const 0) (local.get $c)) (i32.eq (local.get $t) (local.get $w0)))))))
 
-;; Two or more still in and every one of them falling (a drop took them all
-;; at once): over now, and they share the win rather than all sharing last.
+;; Two or more still in, every one of them falling, and all since the same
+;; tick (a drop took them all at once): over now, and they share the win
+;; rather than all sharing last. One that went over before the rest goes out
+;; first, in its place. Each ball's first tick falling is noted here (CC_FELL).
 (func $cc_over (result i32)
-  (local $p i32) (local $pb i32)
+  (local $p i32) (local $fl i32) (local $t i32) (local $at i32)
+  (local.set $t (i32.add (call $p_t (i32.const 0)) (i32.const 1)))
+  (!for $p (i32.const 0) (i32.const @NPLAYER)
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.and (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL))) (i32.eqz (!ld u16 @(PG_S + CC_FELL) (local.get $p))))
+      (then (!st u16 @(PG_S + CC_FELL) (local.get $p) (local.get $t)))))
   (if (i32.lt_u (i32.load (i32.const @BH_LEFT)) (i32.const 2)) (then (return (i32.const 0))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
-    (if (call $p_in (local.get $pb)) (then (return (i32.const 0)))))
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (if (i32.eq (local.get $fl) (i32.const @PF_LIVE)) (then (return (i32.const 0))))
+    (if (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL)))
+      (then
+        (if (i32.eqz (local.get $at)) (then (local.set $at (!ld u16 @(PG_S + CC_FELL) (local.get $p)))))
+        (if (i32.ne (!ld u16 @(PG_S + CC_FELL) (local.get $p)) (local.get $at)) (then (return (i32.const 0)))))))
   (i32.const 1))
 
 (func $cc_out (param $p i32))

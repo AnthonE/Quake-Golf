@@ -125,7 +125,7 @@ test('the schedule: a rest, a warning from 2.6 s down to 1.2 s, a 1.52 s drop; s
   assert.equal(rimOf(r0, 60), L.CC_RMIN);
 });
 
-test('every call is a tile still on the board through its drop, and no colour is called twice running', async () => {
+test('every call is a tile still on the board through its drop, and no colour is called twice running unless every tile the drop leaves has one of the two', async () => {
   for (const [n, seed] of [[2, 3], [40, 4], [100, 5], [256, 6]]) {
     const g = await room(n, { play: false, seed });
     const st = stage(g.v);
@@ -140,6 +140,43 @@ test('every call is a tile still on the board through its drop, and no colour is
       if (c > 0 && call.colour === callOf(st, c - 1).colour) repeats++;
     }
     assert.equal(repeats, 0, `${n}: ${repeats} repeats`);
+  }
+  // 2500 boards at 4 colours and at 5 (the room's seed rewritten): an odd cycle repeats a
+  // neighbour's colour only when every tile its drop leaves is one of theirs, on the middle tile
+  for (const n of [2, 100]) {
+    const g = await room(n, { play: false, seed: 9 });
+    let forced = 0, odd = 0;
+    for (let s = 1; s <= 2500; s++) {
+      g.dv.setUint32(L.HDR_SEED, s, true);
+      const st = stage(g.v);
+      for (let c = 1; c < 30; c += 2, odd++) {
+        const call = callOf(st, c), a = callOf(st, c - 1).colour, b = callOf(st, c + 1).colour;
+        assert.equal(colourOf(st, call.q, call.r, c), call.colour);
+        if (call.colour !== a && call.colour !== b) continue;
+        forced++;
+        const left = tilesIn(st, rimOf(st.r0, c)).map(([q, r]) => colourOf(st, q, r, c));
+        assert.ok(left.every((k) => k === a || k === b), `${n}, seed ${s}: cycle ${c} repeats with a tile of another colour left`);
+        assert.deepEqual([call.q, call.r], [0, 0], 'the middle tile');
+      }
+    }
+    assert.ok(forced > 0 && forced / odd < (n > L.CC_KN5 ? 0.004 : 0.01), `${n}: ${forced} of ${odd} odd cycles repeat`);
+  }
+  // the sim's calls are the mirror's: every odd cycle's of 300 boards, ten or so of them past the tries
+  const g = await room(2, { seed: 9 });
+  for (let s = 1; s <= 300; s++) {
+    g.dv.setUint32(L.HDR_SEED, s, true);
+    const st = stage(g.v);
+    for (let c = 1; c < 30; c += 2) {
+      at(g, when(cycleAt(c)).w0);
+      park(g, [0, 1], C, C);
+      const k0 = g.v.fxCount();
+      g.step();
+      const fx = [];
+      for (let k = k0; k < g.v.fxCount(); k++) if (g.v.fx(k).kind === L.CC_FX_CALL) fx.push(g.v.fx(k));
+      const call = callOf(st, c), [x, z] = hexCentre(call.q, call.r, S, st.cx);
+      assert.equal(fx.length, 1, `seed ${s}: cycle ${c}'s call`);
+      assert.deepEqual([fx[0].shot, fx[0].pos[0], fx[0].pos[2]], [call.colour | (c << 4), x, z], `seed ${s}: cycle ${c}'s call, its tile`);
+    }
   }
 });
 
@@ -317,6 +354,36 @@ test('the last balls up all falling to one drop share the win, rather than all s
   assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).wins), [0, 1, 1]);
 });
 
+test('balls that went over ticks apart don\'t share the win: the first is out in its place, the last up wins alone (or the two that went together share it)', async () => {
+  for (const n of [2, 3]) {
+    const g = await room(n, { seed: 15 });
+    const r = g.v.party().size;
+    // P1 off the board, falling; 40 ticks on the rest go off, on one tick
+    put(g, 0, C + r + 3, C, { y: PLAT_Y - 0.5, ground: false });
+    for (let k = 0; k < 40; k++) g.step();
+    assert.ok(g.v.partier(0).falling && !g.v.partier(0).out, 'going out');
+    for (let p = 1; p < n; p++) put(g, p, C - r - 3, C + 3 * p, { y: PLAT_Y - 0.5, ground: false });
+    let k = 0;
+    while (g.v.party().state === L.H_PLAY && k++ < 400) {
+      g.step();
+      if (g.v.party().state === L.H_PLAY) assert.ok(!g.v.partier(1).out, 'not over while P1 falls');
+    }
+    const p = g.v.party();
+    assert.equal(p.state, L.H_OVER);
+    const ps = Array.from({ length: n }, (_, q) => q);
+    if (n === 2) {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [2, 1]);
+      assert.equal(p.winner, 1, 'the last up wins alone');
+      assert.deepEqual(ps.map((q) => g.v.partier(q).wins), [0, 1]);
+    } else {
+      assert.deepEqual(ps.map((q) => g.v.partier(q).place), [3, 1, 1]);
+      assert.equal(p.winner, 255, 'the two that went together share it');
+      assert.deepEqual(ps.map((q) => g.v.partier(q).pts), [1, 10, 10]);
+    }
+    assert.ok(g.v.partier(0).out && ps.slice(1).every((q) => !g.v.partier(q).out));
+  }
+});
+
 test('braking: with no keys a ball stops from 10 m/s in about 3 m; with keys held it rolls on', async () => {
   const g = await room(2);
   at(g, 2);
@@ -482,7 +549,7 @@ test('the client module: draws every phase, frames the board, writes its HUD lin
   const lines = [];
   const hctx = { put: (x, y, s, c) => lines.push([y, s, c]), centre: (y, s, c) => lines.push([y, s, c]), right: (y, s, c) => lines.push([y, s, c]), rows: 44, C: {}, slot: 0, now: 0 };
   const tiles = tilesIn(st, st.r0).length;
-  for (const [c, dt] of [[0, 10], [0, 200], [1, 400], [L.CC_SHRINK, 50], [L.CC_SHRINK, 300], [L.CC_SD, 140], [L.CC_SD, 360]]) {
+  for (const [c, dt] of [[0, 10], [0, 200], [1, 400], [L.CC_SHRINK, 50], [L.CC_SHRINK, 300], [L.CC_SD, 50], [L.CC_SD, 140], [L.CC_SD, 360]]) {
     const w = when(cycleAt(c));
     at(g, w.s + dt);
     g.step();
@@ -496,6 +563,9 @@ test('the client module: draws every phase, frames the board, writes its HUD lin
     color.hud(g.v, hctx);
     const text = lines.map((l) => l[1]).join(' | ');
     if (t >= w.w0 && t < w.d0) assert.ok(text.includes(c >= L.CC_SD ? 'ONE TILE' : ['RED', 'YELLOW', 'GREEN', 'BLUE', 'PURPLE'][callOf(st, c).colour]), text);
+    // the rest before the first grey ring and before sudden death says what's coming
+    if (t < w.w0 && c === L.CC_SHRINK) assert.ok(text.includes('GREY TILES FALL FOR GOOD'), text);
+    if (t < w.w0 && c === L.CC_SD) assert.ok(text.includes('SUDDEN DEATH') && text.includes('ONE TILE WILL HOLD'), text);
     for (const l of lines) assert.ok(l[1].length <= 80, l[1]);
     const fr = color.frame(g.v);
     assert.equal(fr.shape, 'disc');
