@@ -8,7 +8,7 @@ export const BO_RK = 3;
 export const BO_RMAX = 64;
 export const BO_RMIN = 10; // the disc at its smallest: the rim crumbles in to here
 export const BO_CALM = 500; // ticks into play before the rim starts to crumble (4 s)
-export const BO_SHRINK = 10000; // ticks from the whole disc to BO_RMIN (80 s)
+export const BO_SHRINK = 7500; // ticks from the whole disc to BO_RMIN (60 s)
 export const BO_LEN = 15000; // 120 s
 export const BO_IDLE = 0.98; // rolling drag a tick with no keys: from 10 m/s to a stop in about 4 m
 export const BO_SPAWN = 0.75; // balls start on a spiral over this much of the disc
@@ -26,14 +26,14 @@ export const BO_NEVER = 0xffff;
 // into play); a bomb lands BO_FALL0 ticks after its ring shows, BO_FALL1 once the rim is in.
 export const BO_FIRST = 125;
 export const BO_GAP0 = 200; // 1.6 s
-export const BO_GAP1 = 70; // 0.56 s
+export const BO_GAP1 = 100; // 0.8 s
 export const BO_FALL0 = 200; // 1.6 s
 export const BO_FALL1 = 150; // 1.2 s
-export const BO_PER = 12;
+export const BO_PER = 10;
 export const BO_MORE = 3750; // 30 s
 // Aimed bombs: the first of every wave and one in BO_AIM after it, where a
 // ball in would be BO_LEAD s on if it kept rolling, give or take BO_SCATTER m.
-export const BO_AIM = 3;
+export const BO_AIM = 2;
 export const BO_LEAD = 0.4;
 export const BO_SCATTER = 1.5;
 // Big bombs, from BO_BIGFROM ticks into play, one in BO_BIGONE.

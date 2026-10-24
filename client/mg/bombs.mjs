@@ -17,15 +17,15 @@ const S = f(L.BO_S); // the sim's f32 circumradius: hexAt and hexCentre take it,
 const TICK = 0.008;
 const HH = 0.45; // a tile's half height, m
 const DRAWN = 0.95; // a tile's drawn circumradius over the sim's: a seam between tiles
-const WARN = 150; // ticks before the rim takes a tile that it darkens and shakes
+const WARN = 375; // ticks before the rim takes a tile that it darkens (and shakes, the last 60)
 const FALL = 1.5; // s a tile is drawn falling
 const RISE = 60; // ticks a crater's tiles take to rise back
 const BLAST = 70; // ticks a blast is drawn
 const BAND = 2 * 1.5 * L.BO_S; // m a ring of colour is wide: two tiles
-// the rings' colours, out from the core, and the core's
-const RINGS = [[0.96, 0.9, 0.78], [0.92, 0.36, 0.27]];
-const CORE = [[1, 0.8, 0.28], [0.97, 0.9, 0.62]];
-const DOOM = [0.32, 0.24, 0.2]; // a tile the rim is about to take
+// the rings' colours, out from the core, and the core's: cool, so the red of a bomb's zone stands out on them
+const RINGS = [[0.82, 0.88, 0.95], [0.26, 0.46, 0.74]];
+const CORE = [[0.96, 0.96, 0.92], [0.3, 0.68, 0.7]];
+const DOOM = [0.22, 0.2, 0.24]; // a tile the rim is about to take
 const HOT = [1, 0.5, 0.12]; // a tile a big bomb is about to take
 
 const BOMB0 = L.PG_S + L.BO_BOMBS;
@@ -107,20 +107,55 @@ function tile(sc, x, y, z, yaw, rgb, look = LOOK.PLASTIC, a = 0, b = 0, alpha = 
 
 // ---- the AI ball
 
-// Once a world tick: the bombs in a grid of 8 m squares, for danger's few reads.
+// Once a world tick: the bombs and the balls in, each in a grid of CELL m
+// squares over the disc (flat lists: head per square, next per item), for
+// the brain's many reads round a spot.
 const CELL = 8;
+const G = 18; // squares a side: 144 m, the biggest disc and a margin
+const DC = 2.5; // m a side of the crowd's squares
+const DG = Math.ceil((G * CELL) / DC);
 function world(view) {
   if (view._bo?.tick === view.tick && view._bo.bank === view.bank) return view._bo;
-  const bombs = bombsOf(view);
-  const grid = new Map();
-  for (const b of bombs) {
-    const k = Math.floor(b.x / CELL) * 4096 + Math.floor(b.z / CELL);
-    const list = grid.get(k);
-    if (list) list.push(b); else grid.set(k, [b]);
-  }
   const g = view.party();
-  view._bo = { tick: view.tick, bank: view.bank, bombs, grid, start: g.start, playing: g.state === L.H_PLAY, st: stage(view) };
+  const st = stage(view);
+  const o = (st.cx || g.cx) - (G * CELL) / 2;
+  const sq = (x, z) => {
+    const i = Math.floor((x - o) / CELL), j = Math.floor((z - o) / CELL);
+    return i < 0 || j < 0 || i >= G || j >= G ? -1 : i * G + j;
+  };
+  const bombs = bombsOf(view);
+  const nb = bombs.length;
+  const bx = new Float64Array(nb), bz = new Float64Array(nb), br = new Float64Array(nb), bw = new Float64Array(nb);
+  const land = new Int32Array(nb), shown = new Int32Array(nb), head = new Int16Array(G * G).fill(-1), next = new Int16Array(nb);
+  bombs.forEach((b, k) => {
+    bx[k] = b.x; bz[k] = b.z; br[k] = b.r; bw[k] = b.big ? 1.6 : 1; land[k] = b.land; shown[k] = b.land - b.fall;
+    const c = sq(b.x, b.z);
+    if (c >= 0) { next[k] = head[c]; head[c] = k; }
+  });
+  const dense = new Uint8Array(DG * DG);
+  for (let p = 0; p < L.NPLAYER; p++) {
+    const a = L.PLAYERS + view.bank + p * L.PSIZE;
+    if ((view.u8[a + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_FALL)) !== L.PF_LIVE) continue;
+    const i = Math.floor((view.dv.getFloat32(a + L.P_PX, true) - o) / DC), j = Math.floor((view.dv.getFloat32(a + L.P_PZ, true) - o) / DC);
+    if (i >= 0 && j >= 0 && i < DG && j < DG && dense[i * DG + j] < 255) dense[i * DG + j]++;
+  }
+  const buf = view.dv.buffer;
+  view._bo = { tick: view.tick, bank: view.bank, o, bombs, bx, bz, br, bw, land, shown, head, next, dense,
+    u16: new Uint16Array(buf, TILE0, L.BO_W * L.BO_W * 4), u32: new Uint32Array(buf, TILE0, L.BO_W * L.BO_W * 2),
+    start: g.start, playing: g.state === L.H_PLAY, st };
   return view._bo;
+}
+// The balls round (x, z): those in its crowd square count 1, those in the
+// eight round it a half, less the asker itself where it stands (x0, z0).
+function crowd(w, x, z, x0, z0) {
+  const i = Math.floor((x - w.o) / DC), j = Math.floor((z - w.o) / DC);
+  const si = Math.floor((x0 - w.o) / DC), sj = Math.floor((z0 - w.o) / DC);
+  let n = 0;
+  for (let a = Math.max(0, i - 1); a <= Math.min(DG - 1, i + 1); a++) for (let b = Math.max(0, j - 1); b <= Math.min(DG - 1, j + 1); b++) {
+    const k = a === i && b === j ? 1 : 0.5;
+    n += k * (w.dense[a * DG + b] - (a === si && b === sj ? 1 : 0));
+  }
+  return n;
 }
 // A ball as the brain is handed it: a slot or a record.
 const slotOf = (me) => (typeof me === 'number' ? me : me?.slot ?? -1);
@@ -138,25 +173,26 @@ function cellAt(x, z, cx) {
 }
 // How bad being at (x, z) on tick t is: a fall where no tile holds then (or
 // is about to stop), a blast landing round then, a little the rim coming.
+// Asked 90 times a think: a few array reads.
 function danger(view, x, z, t, slot) {
   const w = world(view);
   if (!w.playing) return 0;
   const cx = w.st.cx, tp = (t - w.start) | 0;
   const a = cellAt(x, z, cx);
-  if (!holds(view, a, t, tp)) return 1;
+  // holds(), from the world's own views of the tiles
+  const rim = a < 0 ? 0 : w.u16[(a >> 1) + 2], c = a < 0 ? 0 : w.u32[a >> 2];
+  if (tp >= rim || (c && ((t - c) >>> 0) < L.BO_HOLE)) return 1;
   let d = 0;
-  const rim = rimOf(view, a), c = craterOf(view, a);
   if (rim - tp < 40) d = 0.7;
   if (c && c - t > 0 && c - t < 40) d = Math.max(d, 0.8);
   const seen = view.tick - (REACT[slot] ?? 20);
-  const i0 = Math.floor((x - CELL) / CELL), i1 = Math.floor((x + CELL) / CELL), j0 = Math.floor((z - CELL) / CELL), j1 = Math.floor((z + CELL) / CELL);
+  const i0 = Math.max(0, Math.floor((x - CELL - w.o) / CELL)), i1 = Math.min(G - 1, Math.floor((x + CELL - w.o) / CELL));
+  const j0 = Math.max(0, Math.floor((z - CELL - w.o) / CELL)), j1 = Math.min(G - 1, Math.floor((z + CELL - w.o) / CELL));
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-    const list = w.grid.get(i * 4096 + j);
-    if (!list) continue;
-    for (const b of list) {
-      const dt = b.land - t;
-      if (dt < -8 || dt > 40 || b.land - b.fall > seen) continue;
-      const R = b.r + 1.2, e = Math.hypot(b.x - x, b.z - z);
+    for (let k = w.head[i * G + j]; k >= 0; k = w.next[k]) {
+      const dt = w.land[k] - t;
+      if (dt < -8 || dt > 40 || w.shown[k] > seen) continue;
+      const R = w.br[k] + 1.2, e = Math.hypot(w.bx[k] - x, w.bz[k] - z);
       if (e < R) d = Math.max(d, 0.45 + 0.55 * (1 - e / R));
     }
   }
@@ -164,14 +200,19 @@ function danger(view, x, z, t, slot) {
   if (rho > edge - 2.5) d = Math.max(d, 0.25);
   return d;
 }
-// How much the bombs still to land in the next 1.4 s threaten (x, z), each by how hard it would shove.
-function threat(w, x, z, t) {
+// How much the bombs seen by tick `seen` and still to land in the 1.4 s
+// after t threaten (x, z), each by how hard it would shove.
+function threat(w, x, z, t, seen) {
   let s = 0;
-  for (const b of w.bombs) {
-    const dt = b.land - t;
-    if (dt < 0 || dt > 175) continue;
-    const e = Math.hypot(b.x - x, b.z - z), R = b.r + 1.5;
-    if (e < R) s += (1 - e / R) * (b.big ? 1.6 : 1);
+  const i0 = Math.max(0, Math.floor((x - CELL - w.o) / CELL)), i1 = Math.min(G - 1, Math.floor((x + CELL - w.o) / CELL));
+  const j0 = Math.max(0, Math.floor((z - CELL - w.o) / CELL)), j1 = Math.min(G - 1, Math.floor((z + CELL - w.o) / CELL));
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    for (let k = w.head[i * G + j]; k >= 0; k = w.next[k]) {
+      const dt = w.land[k] - t;
+      if (dt < 0 || dt > 175 || w.shown[k] > seen) continue;
+      const e = Math.hypot(w.bx[k] - x, w.bz[k] - z), R = w.br[k] + 1.5;
+      if (e < R) s += (1 - e / R) * w.bw[k];
+    }
   }
   return s;
 }
@@ -241,11 +282,6 @@ export default {
       }
       tile(sc, T.x + dx, y0 + dy, T.z + dz, 0, rgb, look, ga, look === LOOK.GLOW ? 0.3 : 0);
     }
-    // the rim as it will be in a second, faint, where the floor will end
-    if (tp >= 0) {
-      const edge = rimAt(st.r0, tp + 125);
-      if (edge < rimAt(st.r0, tp) - 0.05) out.decals?.push({ pos: [st.cx, PLAT_Y + 0.03, st.cx], radius: edge + 0.3, width: 0.3, color: [1, 0.85, 0.5, 0.28], kind: DECAL.RING });
-    }
     // the bombs: falling into their zones, then going off
     for (const b of bombs) {
       const left = b.land - now;
@@ -257,19 +293,32 @@ export default {
         out.decals?.push({ pos: [b.x, PLAT_Y + 0.04, b.z], radius: b.r, width: 0.35, color: [...zone, 0.35 + 0.55 * u], kind: DECAL.ZONE });
         out.decals?.push({ pos: [b.x, PLAT_Y + 0.06, b.z], radius: Math.max(0.5, b.r * (1 - u)), width: 0.28, color: [1, 0.95, 0.75, 0.5 + 0.5 * u], kind: DECAL.RING });
         if (b.big) out.decals?.push({ pos: [b.x, PLAT_Y + 0.08, b.z], radius: L.BO_CRATER + S * 0.8, width: 0.2, color: [1, 0.8, 0.3, 0.4 + 0.5 * u], kind: DECAL.TARGET });
-        out.solid.push({ pos: [b.x, y + r, b.z], size: r, color: b.big ? [0.22, 0.2, 0.22, 1] : [0.12, 0.12, 0.14, 1], kind: SPRITE.BOMB, roll: u, minpx: 2 });
+        // black until its last 0.3 s, then red-hot as it comes down
+        const hotness = Math.max(0, 1 - left / 38);
+        out.solid.push({ pos: [b.x, y + r, b.z], size: r, color: b.big ? [0.22, 0.2, 0.24, 1] : [0.1, 0.1, 0.12, 1], kind: SPRITE.BOMB, roll: hotness, minpx: 2 });
         out.casters?.push([b.x, y + r, b.z, -r]);
         continue;
       }
       const a = -left / BLAST;
       if (a >= 1) continue;
-      const big = b.big ? 1.25 : 1;
-      out.glow.push({ pos: [b.x, PLAT_Y + 1.2 * big, b.z], size: b.r * (0.5 + 0.7 * Math.min(1, a * 3)), color: [1, 0.75, 0.35, 1 - a], kind: SPRITE.FLASH, minpx: 2 });
-      out.glow.push({ pos: [b.x, PLAT_Y + 0.4, b.z], size: b.r * (0.3 + 1.0 * a), color: [1, 0.9, 0.6, (1 - a) * 0.9], kind: SPRITE.RING, minpx: 2 });
-      out.decals?.push({ pos: [b.x, PLAT_Y + 0.05, b.z], radius: b.r * 0.9, width: b.r * 0.9, color: [0.05, 0.03, 0.02, 0.55 * (1 - a)], kind: DECAL.DISC });
-      for (let i = 0; i < 6; i++) {
-        const ang = (b.k * 2.4 + i * 1.047), sp = (7 + ((b.k * 7 + i * 3) % 5)) * big, s = a * BLAST * TICK;
-        out.glow.push({ pos: [b.x + Math.cos(ang) * sp * s, PLAT_Y + 1 + 9 * s - 15 * s * s, b.z + Math.sin(ang) * sp * s], size: 0.35, color: [1, 0.7, 0.3, 1 - a], kind: SPRITE.SPARK, minpx: 1 });
+      // a fireball, quick: white-hot for a moment, then orange going out; the shock running over the floor to
+      // the blast's reach; chips of floor and sparks thrown out and falling; a scorch fading
+      const big = b.big ? 1.3 : 1, s = -left * TICK;
+      const fire = Math.max(0, 1 - a * 1.6);
+      if (fire > 0) {
+        out.glow.push({ pos: [b.x, PLAT_Y + 1.4 * big + 2 * s, b.z], size: b.r * (0.5 + 0.5 * Math.min(1, a * 5)) * big, color: [1, 0.4, 0.06, fire], kind: SPRITE.FLASH, minpx: 2 });
+        if (a < 0.2) out.glow.push({ pos: [b.x, PLAT_Y + 1, b.z], size: b.r * 0.6 * big, color: [1, 0.92, 0.7, 1 - a / 0.2], kind: SPRITE.FLASH, minpx: 2 });
+      }
+      const shock = Math.min(1, a * 3.5);
+      if (shock < 1) out.decals?.push({ pos: [b.x, PLAT_Y + 0.07, b.z], radius: b.r * (0.25 + 0.75 * shock), width: 0.5 + 0.5 * big, color: [1, 0.7, 0.3, 0.9 * (1 - shock)], kind: DECAL.RING });
+      out.decals?.push({ pos: [b.x, PLAT_Y + 0.05, b.z], radius: b.r * 0.7, width: b.r * 0.7, color: [0.04, 0.02, 0.02, 0.5 * (1 - a)], kind: DECAL.DISC });
+      for (let i = 0; i < 8; i++) {
+        const ang = b.k * 2.4 + i * 0.785 + ((i * 5) % 3) * 0.2, sp = (5 + ((b.k * 7 + i * 3) % 5)) * big, up = 7 + ((b.k + i * 11) % 4) * 1.5;
+        const y = PLAT_Y + 0.8 + up * s - 15 * s * s;
+        if (y < PLAT_Y - 3) continue;
+        const pos = [b.x + Math.cos(ang) * sp * s, y, b.z + Math.sin(ang) * sp * s];
+        if (i & 1) out.glow.push({ pos, size: 0.4, color: [1, 0.65, 0.25, 1 - a], kind: SPRITE.SPARK, minpx: 1 });
+        else out.solid.push({ pos, size: 0.22 * big, color: [0.25, 0.22, 0.24, 1], kind: SPRITE.CRUMB, minpx: 1, seed: b.k * 8 + i });
       }
     }
   },
@@ -308,10 +357,8 @@ export default {
     const st = stage(view);
     if (!(st.r0 > 0)) return;
     const w = view.dv.getUint32(L.PG_H + L.BO_WAVE, true), n = view.dv.getUint32(L.PG_H + L.BO_LAST, true);
-    const next = Math.max(0, view.dv.getUint32(L.PG_H + L.BO_NEXT, true) - g.t);
     const gap = view.dv.getUint32(L.PG_H + L.BO_GAP, true) || L.BO_GAP0;
     ctx.right(3, `WAVE ${w}  ${n} ${n === 1 ? 'BOMB' : 'BOMBS'}  EVERY ${(gap * TICK).toFixed(1)}S`, C.GREY);
-    if (next < 40 && w > 0) ctx.right(4, 'INCOMING', C.ORANGE);
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     if (!me || !me.live || me.out || me.falling) return;
     const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
@@ -346,10 +393,9 @@ export default {
       const tp = (t - w.start) | 0, cx = w.st.cx;
       const edge = rimAt(w.st.r0, tp + 190);
       const seen = view.tick - REACT[slot];
-      const visible = { bombs: w.bombs.filter((o) => o.land - o.fall <= seen) };
       const score = (x, z) => {
         const rho = Math.hypot(x - cx, z - cx);
-        let s = 3 * threat(visible, x, z, t) + 0.04 * Math.hypot(x - x0, z - z0) + 0.03 * rho;
+        let s = 3 * threat(w, x, z, t, seen) + 0.04 * Math.hypot(x - x0, z - z0) + 0.03 * rho + 0.35 * crowd(w, x, z, x0, z0);
         if (rho > edge - 3) s += 2 + (rho - edge + 3);
         if (!holds(view, cellAt(x, z, cx), t + 60, tp + 60)) s += 6;
         return s;
