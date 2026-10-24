@@ -4,13 +4,15 @@
 // shared by them all) and Chrome on the Fireplace page with a guest at its
 // controls. Passes when the referee checked interval hashes from every
 // session and none differed, the room moved from one game to the next with
-// everyone in it (given time: bumper balls' two rounds come first), and
-// Chrome kept up. Screenshots go to traces/.
+// everyone in it (given time: bumper balls' two rounds come first, then
+// party), and Chrome kept up. Screenshots go to traces/.
 //   node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--impair delay=60,jitter=10,loss=0.05] [--shots 1] [--res 1280x800]
+//                              [--port 4433: the relay's, its native door the next]
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { serve } from '../tools/serve.mjs';
+import * as L from '../src/layout.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
@@ -19,7 +21,7 @@ const chrome = Number(opt('chrome', 1));
 const seconds = Number(opt('seconds', 240));
 const impair = opt('impair', '');
 const shots = opt('shots', '1') !== '0';
-const port = 4433;
+const port = Number(opt('port', 4433));
 const DENO = existsSync('.tools/deno') ? '.tools/deno' : 'deno';
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
@@ -29,12 +31,12 @@ const hash = readFileSync('certs/hash.txt', 'utf8').trim();
 mkdirSync('traces', { recursive: true });
 const summaryPath = 'traces/fireplace.relay.json';
 rmSync(summaryPath, { force: true });
-const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--seed', '7',
+const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--native-port', String(port + 1), '--seed', '7',
   '--wasm', 'build/fireplace/game.wasm', '--duration', String(seconds + 40), '--summary', summaryPath, '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
 await new Promise((ok) => setTimeout(ok, 1500));
 const botsPath = 'traces/fireplace.bots.json';
 rmSync(botsPath, { force: true });
-const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--fireplace', '--relay', '127.0.0.1:4434', '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
+const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--fireplace', '--relay', `127.0.0.1:${port + 1}`, '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
   { stdio: ['ignore', 'inherit', 'inherit'] }) : null;
 const botsDone = bots ? new Promise((ok) => bots.once('exit', ok)) : null;
 
@@ -94,8 +96,9 @@ const gate = {
   everyBotIn: !nbots || (!!b && b.joined === nbots && !b.errors.length),
   refereeChecked: !!r && r.compared >= 4 * (nbots + chrome),
   hashesAgree: !!r && (r.mismatches?.length ?? r.mismatches) === 0 && r.agreed === r.compared,
-  // bumper balls' two rounds take three minutes or so: the first switch comes after
+  // bumper balls' two rounds take three minutes or so: the first switch, into party, comes after
   switched: seconds < 220 || (report.botHost?.games?.length ?? 0) >= 2 || (report.chromeState || []).some((s) => s.games >= 2),
+  reachedParty: seconds < 220 || (report.botHost?.games || []).some((g) => g.game === L.G_PARTY),
   chromeKeptUp: (report.chromeState || []).every((s) => !s.behind),
   noErrors: report.errors.length === 0,
 };

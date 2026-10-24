@@ -2,10 +2,11 @@
 
 One engine, hand-written WebAssembly (no compiler), deterministic lockstep at
 125 Hz: only inputs cross the network, and every machine steps the same bits.
-Three games build from `src/`: golf (`build/game.wasm`), the arena with
-`ARENA` set (`build/arena/`), and bumper balls with `BUMPER` set
-(`build/bumper/`). **Fireplace** (`build/fireplace/`) is the party game made
-of them: all three in one module, a playlist the room plays through, a living
+Four games build from `src/`: golf (`build/game.wasm`), the arena with
+`ARENA` set (`build/arena/`), bumper balls with `BUMPER` set
+(`build/bumper/`), and party, a minigame a round, with `BUMPER` and `PARTY`
+(`build/party/`). **Fireplace** (`build/fireplace/`) is the party game made
+of them: all four in one module, a playlist the room plays through, a living
 room for a menu (`client/fireplace.html`). `xbox/sim/` is a frozen fork of
 `src/` for the original Xbox (`build/xbox/`). README.md is the long-form doc;
 read the section for whatever you touch.
@@ -70,11 +71,14 @@ shell whose own command line contains the name: it kills that shell.
   memory through names that must mean the same in both layouts
   (`test/fork.test.mjs`); add new names, don't move old ones.
 - Fireplace (`src/fireplace.wat`): each game is its own build under a prefix
-  (`tools/asm.mjs` `prefixed()`), so a change to a game changes Fireplace too.
-  The playlist's state is the header's last 16 bytes (`FP_GAME`...) and
-  `REGION + 0xe000` (8 KiB no game uses): keep games out of both. A game's
-  static world (terrain, map) is rebuilt by `regrid` when a keyframe from
-  another game arrives (`FP_WORLD`, `FP_STASH` at `0x360000`).
+  (`tools/asm.mjs` `prefixed()`, `GAMESETS`), so a change to a game changes
+  Fireplace too. The playlist's state is the header's last 16 bytes
+  (`FP_GAME`...) and `REGION + 0xe000` (8 KiB no game uses: marshmallows,
+  `FP_NEXT`, `FP_MODE`): keep games out of both. `PLAYLIST` goes by position
+  (games played mod its length), so a game may come twice; the next seed is
+  drawn as a game ends (the arena's forces a mode, party's never a minigame).
+  A game's static world (terrain, map) is rebuilt by `regrid` when a keyframe
+  from another game arrives (`FP_WORLD`, `FP_STASH` at `0x360000`).
 - Inputs are one u32 word per player per tick (golf's layout in
   `src/view.mjs`; the arena's in `arena-view.mjs`; bumper reuses golf's).
   Keep fields that rarely change still: wire v4 codes deltas.
