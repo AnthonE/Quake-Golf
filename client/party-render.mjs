@@ -166,7 +166,7 @@ function buildMeshes() {
   if (V.length / 6 > 65535) throw new Error('party-render: meshes need 32-bit indices');
   return { vertices: new Float32Array(V), indices: new Uint16Array(I.length % 2 ? [...I, 0] : I), parts };
 }
-const MESH = buildMeshes();
+export const MESH = buildMeshes();
 const SHAPE_MESH = ['box', 'cyl', 'hex', 'sphere'];
 const SHADOW_MESH = ['box', 'cyl', 'hex', 'sphereLo'];
 
