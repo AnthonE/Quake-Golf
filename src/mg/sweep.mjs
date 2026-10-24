@@ -5,8 +5,8 @@
 // the other way when one is added), all of them turning faster as the round
 // goes; from SW_TR0 the rings of the platform drop one by one to SW_RMIN.
 export const SW_R0 = 10; // the platform: SW_R0 m plus SW_RK times the root of the balls in, at most SW_RMAX
-export const SW_RK = 2.6;
-export const SW_RMAX = 50;
+export const SW_RK = 3;
+export const SW_RMAX = 56;
 export const SW_RMIN = 9; // the platform once every ring has dropped
 export const SW_LEN = 15000; // 120 s
 export const SW_HOP = 7; // hop speed, m/s: a ball's bottom 1.2 m up, 0.7 s in the air
@@ -14,7 +14,8 @@ export const SW_IDLE = 0.98; // rolling drag a tick with no keys: from 10 m/s to
 export const SW_POST = 1.3; // the post's radius, m
 export const SW_POSTH = 3; // its height over the floor
 export const SW_SPAWN0 = 2.5; // balls start on a spiral from this far out from the post's side...
-export const SW_SPAWN1 = 0.85; // ...to this much of the platform's radius
+export const SW_SPAWN1 = 0.85; // ...to this much of the platform's radius,
+export const SW_CLEAR = 1.7; // and at least this far across from the first bar, m (a ball on the floor touches it within 1.07)
 // The bars: an axis SW_BY over the floor, SW_BW thick either side (a ball
 // touches one within its radius plus SW_BW of the axis, so a ball's bottom
 // clears it from SW_BY + SW_BW = 0.6 m up), reaching SW_OVER past the rim.

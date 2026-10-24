@@ -5,6 +5,7 @@ import { View, partyWord, PLAT_Y, seed as pseed } from '../src/party-view.mjs';
 import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
+import { Partier } from '../client/party-bot.mjs';
 import * as L from '../src/layout.mjs';
 import sweep, { angleAt, dropsAt, rimOf, rimAt, solidAt, barsAt, stage, spinAt, touches, nextBar, AIR } from '../client/mg/sweep.mjs';
 
@@ -77,6 +78,8 @@ test('the stage for 1, 8, 64 and 256: a platform sized for the crowd, its knobs 
       const rho = Math.hypot(b.pos[0] - C, b.pos[2] - C);
       assert.ok(rho >= L.SW_POST + L.SW_SPAWN0 - 1e-3 && rho <= r.size * L.SW_SPAWN1 + 1e-3, `${n}: P${p + 1} ${rho.toFixed(2)} m out`);
       for (const [x, z] of pos) assert.ok(Math.hypot(b.pos[0] - x, b.pos[2] - z) >= 2, `${n}: P${p + 1} apart`);
+      const [along, across] = split([b.pos[0] - C, 0, b.pos[2] - C], bar(st, 0, 0));
+      assert.ok(along < 0 || Math.abs(across) >= L.SW_CLEAR - 0.05, `${n}: P${p + 1} clear of the bar (${across.toFixed(2)} m across)`);
       pos.push([b.pos[0], b.pos[2]]);
     }
   }
@@ -468,4 +471,20 @@ test('the client module: draws every phase, frames the platform, writes its HUD 
   assert.ok(hopped > 0, 'it hopped');
   assert.equal(fxs(g2.v, L.SW_FX_HIT, k0).filter((e) => e.owner === 0).length, 0, 'and cleared the bar');
   assert.ok(g2.v.partier(0).ground && !g2.v.partier(0).out);
+  // and the whole AI ball (client/party-bot.mjs, its words landing 8 ticks late) alone with three bars for 10 s: it stands, hops them, stays on
+  const g3 = await room(1, { seed: 43 });
+  at(g3, L.SW_TS[1] + L.SW_PAUSE + 10);
+  const ai = new Partier(0, 5, 1);
+  const k1 = g3.v.fxCount(), late = [];
+  let hops = 0, last = 0;
+  for (let i = 0; i < 1250; i++) {
+    late.push(ai.think(g3.v, g3.v.tick + 8, 8));
+    const w = late.length > 8 ? late.shift() : partyWord({});
+    if ((w >>> 28) & 1 && !((last >>> 28) & 1)) hops++;
+    last = w;
+    g3.step([[L.EV_INPUT, 0, w]]);
+  }
+  assert.ok(hops >= 4, `${hops} hops`);
+  assert.equal(fxs(g3.v, L.SW_FX_HIT, k1).length, 0, 'never flung');
+  assert.ok(!g3.v.partier(0).out);
 });

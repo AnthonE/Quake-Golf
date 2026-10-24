@@ -1,9 +1,9 @@
 // SWEEPER, as drawn and as the AI ball sees it. The platform is a target of
-// concentric rings round a steel post; yellow and black bars turn round the
-// post at ball height, a glow at each tip and a faint smear behind; a bar
-// that's coming shows as a pulsing ghost first. The ring that drops next
-// shakes and reddens, a red line on the floor where the edge will be, and
-// falls away. Under your own ball a ring closes in as the next bar comes,
+// concentric rings round a candy-striped post; yellow and black bars turn
+// round it at ball height, a glow at each tip and a faint smear behind; a bar
+// that's coming shows as a flashing ghost first. The ring that drops next
+// flashes red and shakes, a red line on the floor where the edge will be,
+// and falls away. Under your own ball a ring closes in as the next bar comes,
 // green while a hop now clears it. All of it is the sim's own schedule
 // (src/mg/sweep.wat): the bars' angle in 2^-24 turn worked again here in
 // i32, the rim in f32, so what is drawn and what the bots steer by is what
@@ -21,8 +21,7 @@ const R = 1; // a ball's radius (no power-ups here)
 const REACH = R + L.SW_BW; // a ball's centre touches a bar's axis within this
 const AXIS = PLAT_Y + L.SW_BY;
 const BAND = Math.sqrt(REACH * REACH - (R - L.SW_BY) ** 2); // how near the axis a ball on the floor touches, across
-const HOP_G = 0.16; // GP_DT: gravity a tick in the air
-const AIR_DRAG = Math.fround(Number(L.BPHYS.B_AIR_DRAG));
+const HOP_G = f(Number(L.PHYS.GP_DT)); // gravity a tick in the air
 const HUB = 5; // m from the centre in which a bar is too slow to hop
 // The AI ball's luck with a bar: it misses seeing one MISS0 plus MISS times
 // its clumsiness squared of the time, and hops too late LATE times its
@@ -117,7 +116,7 @@ const HOP = (() => {
   const v0 = L.SW_HOP;
   const out = [];
   let y = 0, vy = v0;
-  for (;;) { vy = f(vy - HOP_G); y = f(y + f(vy * 0.008)); if (y <= 0) break; out.push(y); }
+  for (;;) { vy = f(vy - HOP_G); y = f(y + f(vy * f(TICK))); if (y <= 0) break; out.push(y); }
   return out;
 })();
 // How near a bar's axis, across, the ball touches it i ticks into a hop (0 clear above it).
@@ -125,14 +124,17 @@ const HOP_BAND = HOP.map((y) => { const dy = y + R - L.SW_BY; return dy >= REACH
 export const AIR = HOP.length + 1; // ticks a hop is in the air
 
 // From tick t0 into play, the ball rolling from (x, z) at (vx, vz) on the
-// floor: how far across the nearest bar each tick for n ticks (|h|, 1e9 for
-// none near), when it first meets a bar on the floor and when that stops.
+// floor, its speed times drag a tick: how far across the nearest bar each
+// tick for n ticks (|h|, 1e9 for none near), when it first meets a bar on
+// the floor and when that stops.
 const SCR = { h: new Float64Array(256) };
-function across(st, t0, x, z, vx, vz, n) {
+function across(st, t0, x, z, vx, vz, n, drag) {
   const h = SCR.h;
-  let first = -1, last = -1;
+  let first = -1, last = -1, run = 0, keep = 1;
   for (let i = 0; i < n; i++) {
-    const t = t0 + i, px = x + vx * i * TICK - st.cx, pz = z + vz * i * TICK - st.cx;
+    const t = t0 + i, px = x + vx * run * TICK - st.cx, pz = z + vz * run * TICK - st.cx;
+    keep *= drag;
+    run += keep;
     const j = trig(st, t), c0 = TRIG.c[j], s0 = TRIG.s[j], len = rimAt(st, t) + L.SW_OVER;
     let best = 1e9;
     for (let k = 0; k < 4; k++) {
@@ -158,10 +160,11 @@ function clears(j, first, last) {
   return true;
 }
 // The next bar for a ball on the floor at (x, z) rolling (vx, vz) on tick t0
-// into play: { meet (ticks till it touches), early, late (the first and last
-// ticks from t0 a hop may start and clear it; late < 0: none does) }, or null.
-export function nextBar(st, t0, x, z, vx = 0, vz = 0, horizon = 160) {
-  const { first, last } = across(st, t0, x, z, vx, vz, Math.min(256, horizon));
+// into play (its speed times drag a tick): { meet (ticks till it touches),
+// until (the last tick it would), early, late (the first and last ticks from
+// t0 a hop may start and clear it; late < 0: none does) }, or null.
+export function nextBar(st, t0, x, z, vx = 0, vz = 0, horizon = 160, drag = 1) {
+  const { first, last } = across(st, t0, x, z, vx, vz, Math.min(256, horizon), drag);
   if (first < 0) return null;
   let early = -1, late = -1;
   for (let j = first; j >= Math.max(0, first - AIR); j--) {
@@ -174,7 +177,54 @@ export function nextBar(st, t0, x, z, vx = 0, vz = 0, horizon = 160) {
 
 const ball = (view, me) => (typeof me === 'number' ? view.partier(me) : me);
 let cue = null; // your ball's next bar as draw last saw it: { at (ms), go (a hop now clears it), ready (it's near) }
+let sound = null; // the page's sound, as the last FX handed it: a click as the hop's moment comes
 const tickIn = (st, tick) => (tick - st.start) | 0;
+
+// The AI ball and the next bar. It means to hop in the middle of the
+// moments that clear it, give or take: off by luck (more the clumsier it is),
+// now and then too late, now and then not at all. The window is reckoned in
+// ticks into play while it's all still to come, and moved with the bar once
+// the ball is in it; it hops at the tick it means to or as the window closes,
+// whichever is first, so a think that comes late or a word that lands late
+// still clears. Its luck for a bar is fixed when it first sees it (bot.mem).
+// With a bar within SETTLE ticks and room to stand (between the hub and the
+// last 3 m to the rim, the edge not about to drop) it stands still, braking,
+// so the bar comes when it reckoned. -> { hop, still } or null
+const SETTLE = 70;
+function plan(view, me, bot, coast) {
+  const b = ball(view, me);
+  if (!b || !b.ground || b.out) return null;
+  const st = stage(view);
+  if (st.state !== L.H_PLAY) return null;
+  const t0 = tickIn(st, bot?.at ?? view.tick);
+  const x = bot?.pos?.[0] ?? b.pos[0], z = bot?.pos?.[1] ?? b.pos[2];
+  const vx = bot?.vel?.[0] ?? b.vel[0], vz = bot?.vel?.[1] ?? b.vel[2];
+  const rho = Math.hypot(x - st.cx, z - st.cx), k = dropsAt(t0 + SETTLE);
+  const room = rho > HUB && rho < rimAt(st, t0 + SETTLE) - 3
+    && !(k < L.SW_RINGS && t0 + SETTLE >= L.SW_TR0 + k * L.SW_TRI - L.SW_RWARN && rho > rimOf(st.r0, k + 1) - 1.5);
+  const nb = nextBar(st, t0, x, z, vx, vz, 140, coast && room ? view.dv.getFloat32(L.PG_IDLE + (view.bank || 0), true) : 1);
+  if (!nb) return null;
+  const still = coast && room && nb.meet <= SETTLE;
+  const mem = bot?.mem || {};
+  const skill = bot?.skill ?? 0.6, clumsy = 1 - skill;
+  const pass = t0 + nb.meet;
+  if (!mem.sw || Math.abs(mem.sw.pass - pass) > 20) {
+    const r1 = bot?.rand ? bot.rand() : 0.5, r2 = bot?.rand ? bot.rand() : 0.5;
+    mem.sw = { pass, miss: r1 < MISS0 + MISS * clumsy * clumsy, late: r1 > 1 - LATE * clumsy, off: (r2 - 0.5) * 0.8 * clumsy, from: -1, to: -1 };
+    if (bot) bot.mem = mem;
+  }
+  const sw = mem.sw;
+  sw.pass = pass;
+  if (sw.miss) return { hop: false, still };
+  // too late: once no hop clears it, before it gets here
+  if (sw.late) return { hop: nb.late < 0 && nb.meet < 40, still };
+  if (nb.late < 0) return { hop: false, still };
+  if (sw.from < 0 || nb.early > 0) sw.from = t0 + nb.early;
+  else sw.from += t0 + nb.late - sw.to;
+  sw.to = t0 + nb.late;
+  const at = Math.round((sw.from + sw.to) / 2 + sw.off * (sw.to - sw.from));
+  return { hop: at - t0 <= 3 || nb.late <= 6, still };
+}
 
 export default {
   id: L.MG_SWEEP, key: 'sweep', name: 'SWEEPER',
@@ -210,10 +260,11 @@ export default {
       } else if (j === k && j < L.SW_RINGS) {
         const drop = L.SW_TR0 + j * L.SW_TRI, w = (t - (drop - L.SW_RWARN)) / L.SW_RWARN;
         if (w > 0) {
-          const pulse = 0.5 + 0.5 * Math.sin(now * 14);
-          const red = Math.min(1, w * 1.5) * (0.55 + 0.45 * pulse);
-          rr += (0.95 - rr) * red; gg += (0.18 - gg) * red; bb += (0.12 - bb) * red;
-          const sh = 0.05 * w;
+          // red, flashing faster as it goes, and shaking
+          const pulse = 0.5 + 0.5 * Math.sin(now * (10 + 14 * w));
+          const red = 0.65 + 0.35 * pulse;
+          rr += (1 - rr) * red; gg += (0.22 - gg) * red; bb += (0.1 - bb) * red;
+          const sh = 0.03 + 0.07 * w;
           x += sh * Math.sin(now * 37); z += sh * Math.sin(now * 29 + 1);
         }
       }
@@ -250,8 +301,10 @@ export default {
       const ang = a + quarter(b), c = Math.cos(ang), s = Math.sin(ang);
       const x = st.cx + c * mid, z = st.cx + s * mid;
       if (ghost) {
-        const pulse = 0.5 + 0.5 * Math.sin(now * 10);
-        sc.box(x, AXIS, z, half, L.SW_BW, L.SW_BW, ang, 1, 0.9, 0.5, LOOK.GLOW, 0.6 + 0.6 * pulse, 0.5, 0.25 + 0.25 * pulse);
+        // a bar coming: a flashing ghost where it will be, and its line on the floor
+        const pulse = 0.5 + 0.5 * Math.sin(now * 12);
+        sc.box(x, AXIS, z, half, L.SW_BW, L.SW_BW, ang, 1, 0.92, 0.6, LOOK.GLOW, 1 + pulse, 0.3, 0.4 + 0.3 * pulse, 30 + b);
+        sc.box(x, PLAT_Y + 0.02, z, half, 0.02, L.SW_BW + 0.9, ang, 1, 0.85, 0.3, LOOK.GLOW, 0.6 + 0.6 * pulse, 0.6, 0.3 + 0.2 * pulse, 34 + b);
         continue;
       }
       sc.box(x, AXIS, z, half, L.SW_BW, L.SW_BW, ang, ...BAR_COL, LOOK.HAZARD, 0.7, 0, 1, 7 + b);
@@ -265,15 +318,14 @@ export default {
     }
     // under your own ball, the next bar's coming: a ring closing in, green while a hop now clears it
     const me = ctx.pme ?? ctx.me;
-    if (st.state === L.H_PLAY && me && me.live && !me.out && ctx.slot >= 0) {
-      const nb = nextBar(st, ti, me.pos[0], me.pos[2], me.vel[0], me.vel[2], 160);
-      if (nb) {
-        const go = nb.late >= 0 && nb.early === 0;
-        cue = { at: ctx.now ?? 0, go, ready: nb.late >= 0 && nb.meet < 125 };
-        const u = Math.min(1, nb.meet / 150);
-        out.decals?.push({ pos: [me.pos[0], PLAT_Y + 0.04, me.pos[2]], radius: 1.15 + 2.6 * u, width: 0.22,
-          color: go ? [0.3, 1, 0.35, 0.95] : nb.late < 0 ? [1, 0.3, 0.2, 0.7 * (1 - u) + 0.15] : [1, 0.95, 0.6, 0.85 * (1 - u) + 0.15], kind: DECAL.RING });
-      }
+    const nb = st.state === L.H_PLAY && me && me.live && !me.out && me.ground && ctx.slot >= 0 ? nextBar(st, ti, me.pos[0], me.pos[2], me.vel[0], me.vel[2], 160) : null;
+    const go = !!nb && nb.late >= 0 && nb.early === 0;
+    if (go && !cue?.go) sound?.tick?.();
+    cue = { at: ctx.now ?? 0, go, ready: !!nb && nb.late >= 0 && nb.meet < 125 };
+    if (nb) {
+      const u = Math.min(1, nb.meet / 150);
+      out.decals?.push({ pos: [me.pos[0], PLAT_Y + 0.04, me.pos[2]], radius: 1.15 + 2.6 * u, width: 0.22,
+        color: go ? [0.3, 1, 0.35, 0.95] : nb.late < 0 ? [1, 0.3, 0.2, 0.7 * (1 - u) + 0.15] : [1, 0.95, 0.6, 0.85 * (1 - u) + 0.15], kind: DECAL.RING });
     }
   },
 
@@ -287,6 +339,7 @@ export default {
   },
 
   fx(fx, ctx) {
+    sound = ctx.sound || sound;
     const d = typeof ctx.dist === 'function' ? ctx.dist(fx.pos) : ctx.dist ?? 0;
     if (fx.kind === L.SW_FX_HIT) {
       const mine = fx.owner === ctx.slot;
@@ -304,7 +357,7 @@ export default {
       else ctx.banner?.('HOP THE BAR!', C.GREEN, 1400);
       ctx.sound?.count?.(0);
     } else if (fx.kind === L.SW_FX_RING) {
-      if (fx.shot === 0) { ctx.banner?.('THE EDGE DROPS  GET IN', C.ORANGE, 1800); ctx.sound?.tick?.(); }
+      if (fx.shot === 0) ctx.sound?.count?.(1);
       else ctx.sound?.land?.(28);
     }
   },
@@ -318,7 +371,7 @@ export default {
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     const playing = me && me.live && !me.out;
     const w = Math.abs(spinAt(st, t + 1));
-    ctx.right(3, `BARS ${barsAt(t)}  SPEED ${(w / (L.SW_S0 * L.SW_RAD_TICK)).toFixed(1)}X` + (playing ? `  WHACKED ${me.m}` : ''), C.GREY);
+    ctx.right(3, `BARS ${barsAt(t)}  ${w ? `SPEED ${(w / (L.SW_S0 * L.SW_RAD_TICK)).toFixed(1)}X` : 'STILL'}` + (playing ? `  WHACKED ${me.m}` : ''), C.GREY);
     if (t < L.SW_GRACE) { ctx.centre(row, `HOP OVER THE BAR  IT TURNS IN ${((L.SW_GRACE - t) * TICK).toFixed(1)}`, C.YELLOW); return; }
     for (const tk of L.SW_TS) {
       if (t >= tk - L.SW_WARN && t < tk + L.SW_PAUSE) { ctx.centre(row, `NEW BAR  TURNING BACK IN ${((tk + L.SW_PAUSE - t) * TICK).toFixed(1)}`, C.YELLOW); break; }
@@ -364,39 +417,19 @@ export default {
       const x = bot?.pos?.[0] ?? b.pos[0], z = bot?.pos?.[1] ?? b.pos[2];
       const rim = rimAt(st, t + 500);
       const lo = Math.min(HUB + 1, rim * 0.5), hi = Math.max(lo, rim - 4);
-      const want = lo + (hi - lo) * (0.25 + 0.45 * (((b.slot ?? 0) * 37) % 100) / 100);
+      const want = lo + (hi - lo) * (0.15 + 0.7 * (((b.slot ?? 0) * 37) % 100) / 100);
       const dx = x - st.cx, dz = z - st.cx, rho = Math.hypot(dx, dz) || 1;
       if (Math.abs(rho - want) < 1.5) return [x, z];
       return [st.cx + (dx / rho) * want, st.cx + (dz / rho) * want];
     },
 
-    // Hop at the last moment that still clears the next bar, give or take:
-    // a little early by luck, now and then too late, now and then not at
-    // all (both more often the clumsier it is). Its luck for a bar is fixed
-    // when it first sees it coming (kept in bot.mem).
-    hop(view, me, bot) {
-      const b = ball(view, me);
-      if (!b || !b.ground || b.out) return false;
-      const st = stage(view);
-      if (st.state !== L.H_PLAY) return false;
-      const t0 = tickIn(st, bot?.at ?? view.tick);
-      const x = bot?.pos?.[0] ?? b.pos[0], z = bot?.pos?.[1] ?? b.pos[2];
-      const vx = bot?.vel?.[0] ?? b.vel[0], vz = bot?.vel?.[1] ?? b.vel[2];
-      const nb = nextBar(st, t0, x, z, vx, vz, 140);
-      if (!nb || nb.late < 0) return false;
-      const mem = bot?.mem || {};
-      const skill = bot?.skill ?? 0.6, clumsy = 1 - skill;
-      const pass = t0 + nb.meet;
-      if (!mem.sw || Math.abs(mem.sw.pass - pass) > 20) {
-        const r1 = bot?.rand ? bot.rand() : 0.5, r2 = bot?.rand ? bot.rand() : 0.5;
-        mem.sw = { pass, miss: r1 < MISS0 + MISS * clumsy * clumsy, late: r1 > 1 - LATE * clumsy, early: Math.floor(r2 * 16 * clumsy) };
-        if (bot) bot.mem = mem;
-      }
-      mem.sw.pass = pass;
-      if (mem.sw.miss) return false;
-      // the tick to hop on, from this think's: the last that clears, a little before, or too late
-      const at = mem.sw.late ? nb.late + 4 : Math.max(nb.early, nb.late - 2 - mem.sw.early);
-      return at <= 3;
+    // what plan() says about hopping, steering as the planner likes
+    hop(view, me, bot) { return plan(view, me, bot, false)?.hop ?? false; },
+
+    // a bar on its way and room to stand: still, to hop it from where it is
+    think(view, me, bot) {
+      const p = plan(view, me, bot, true);
+      return p?.still ? { yaw: (bot?.yaw ?? 0) / 16384 * TAU, move: 0, hop: p.hop } : null;
     },
   },
 };

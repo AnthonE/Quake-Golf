@@ -75,9 +75,11 @@
   (i32.store (i32.const @(PG_H + SW_DIR)) (select (i32.const -1) (i32.const 1) (i32.shr_u (local.get $h) (i32.const 31)))))
 
 ;; A sunflower spiral over the ring between the post and most of the rim,
-;; turned an eighth of a turn off the first bar.
+;; clear of the first bar: point i's turn from the bar (the golden angle's)
+;; squeezed into the arc that keeps it SW_CLEAR across from the bar, the arc's
+;; ends worked from asin(x) ~ x + x^3/6 in 1/16384 turn.
 (func $sw_spawn (param $i i32) (param $n i32) (result f32 f32 f32)
-  (local $a f32) (local $b f32) (local $rho f32) (local $s f32) (local $c f32) (local $cx f32)
+  (local $a f32) (local $b f32) (local $rho f32) (local $x f32) (local $s f32) (local $c f32) (local $cx f32) (local $du i32)
   (local.set $cx (f32.load (i32.const @PG_CX)))
   (local.set $a (f32.const @(SW_POST + SW_SPAWN0)))
   (local.set $b (f32.mul (f32.load (i32.const @(PG_H + SW_RAD))) (f32.const @SW_SPAWN1)))
@@ -85,8 +87,13 @@
                                    (f32.div (f32.add (f32.convert_i32_u (local.get $i)) (f32.const 0.5))
                                             (f32.convert_i32_u (select (local.get $n) (i32.const 1) (local.get $n))))
                                    (f32.mul (local.get $a) (local.get $a)))))
-  (call $sincos (i32.add (i32.add (i32.mul (local.get $i) (i32.const 6258)) (i32.const 2048))
-                         (i32.shr_u (i32.load (i32.const @(PG_H + SW_A0))) (i32.const 10))))
+  (local.set $x (f32.div (f32.const @SW_CLEAR) (local.get $rho)))
+  (local.set $du (i32.trunc_sat_f32_u (f32.mul (!madd (f32.mul (local.get $x) (local.get $x)) (f32.mul (local.get $x) (f32.const 0.16666667)) (local.get $x))
+                                               (f32.const 2607.5945))))
+  (call $sincos (i32.add (i32.add (i32.shr_u (i32.load (i32.const @(PG_H + SW_A0))) (i32.const 10)) (local.get $du))
+                         (i32.shr_u (i32.mul (i32.and (i32.mul (local.get $i) (i32.const 6258)) (i32.const 16383))
+                                             (i32.sub (i32.const 16384) (i32.shl (local.get $du) (i32.const 1))))
+                                    (i32.const 14))))
   (local.set $c) (local.set $s)
   (!madd (local.get $c) (local.get $rho) (local.get $cx))
   (f32.const @PLAT_Y)
