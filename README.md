@@ -706,7 +706,9 @@ Every stage moves on a schedule: what a ball meets (a falling tile, a bar,
 a wall, a fruit, a bomb's blast, a hill) is a function of the tick, the round's
 seed and state the confirmed world fixed at least a second before, so the
 prediction rolls your ball through it exactly as the confirmed world will,
-and you dodge on the next frame at any latency. Only ball against ball (a
+and you dodge on the next frame at any latency. Thin Ice's tile drops 0.64 s
+after your ball cracks it, so the prediction cracks your ball's ice itself
+(marked in its own FX ring), and is exact as far ahead as it runs. Only ball against ball (a
 bump, a pass, a tag, a claim) is the confirmed world's and comes a round trip
 later, eased in like any correction. The minigames' tests check the
 prediction bit for bit against the confirmed ball through each hazard.

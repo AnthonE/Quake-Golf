@@ -174,6 +174,58 @@ test('the prediction matches the confirmed ball bit for bit as it rolls onto ice
   assert.ok(g.v.partier(0).pos[1] < top(1) - 1, 'through the second layer');
 });
 
+// Slot 0 predicted through words in one run, then the confirmed world stepped
+// through them: the same position on every tick, the same record at the end,
+// and the cracks the prediction made (in its FX ring) the ones the confirmed
+// world made under it. Returns those, [tick from the run's start, cell], and
+// the ball's track.
+function ahead(g, words) {
+  const n = words.length;
+  for (let i = 0; i < n; i++) g.dv.setUint32(L.PWORDS + 4 * i, words[i], true);
+  g.sim.x.predict(0, n);
+  const t0 = g.v.tick;
+  const track = Array.from({ length: n }, (_, k) => [0, 4, 8].map((o) => g.dv.getFloat32(L.PTRACK + 16 * k + o, true)));
+  const player = g.sim.u8.slice(L.PLAYERS + L.PRED_D, L.PLAYERS + L.PRED_D + L.PSIZE);
+  const cracks = fxs(new View(g.sim.memory.buffer, L.PRED_D), L.TI_FX_CRACK).map((f) => [f.tick - t0, f.shot]);
+  const seen = g.v.fxCount();
+  for (let k = 0; k < n; k++) {
+    g.step([[L.EV_INPUT, 0, words[k]]]);
+    assert.deepEqual(g.v.partier(0).pos, track[k], `predicted ${k + 1} of ${n}`);
+  }
+  assert.equal(g.sim.error().code, 0);
+  assert.deepEqual(player, g.sim.u8.slice(L.PLAYERS, L.PLAYERS + L.PSIZE), `the record, ${n} ahead`);
+  const mine = [];
+  for (let i = seen; i < g.v.fxCount(); i++) { const f = g.v.fx(i); if (f.kind === L.TI_FX_CRACK && f.owner === 0) mine.push([f.tick - t0, f.shot]); }
+  assert.deepEqual(cracks, mine, 'its cracks');
+  return { cracks, track };
+}
+
+test('the prediction is exact however far ahead it runs: it cracks its own ball\'s ice, at rest and back onto a tile it cracked and left', async () => {
+  const [x0, z0] = hexCentre(0, 0, L.TI_S), [x1, z1] = hexCentre(0, 4, L.TI_S);
+  // at rest: its tile cracks at once, holds TI_HOLD, drops; at PRED_MAX it has landed a layer down and cracked that
+  for (const n of [L.TI_HOLD + 70, 201, L.PRED_MAX]) {
+    const g = await room(2);
+    put(g, 0, x0, z0);
+    put(g, 1, x1, z1);
+    const { cracks } = ahead(g, Array(n).fill(partyWord({ yaw: 0 })));
+    assert.deepEqual(cracks[0], [0, index(0, 0, 0)]);
+    const b = g.v.partier(0);
+    if (n === L.PRED_MAX) {
+      assert.ok(b.ground && b.pos[1] === top(1), `a layer down at ${b.pos[1]}`);
+      assert.deepEqual(cracks.map(([, c]) => c), [index(0, 0, 0), index(0, 0, 1)]);
+    } else assert.ok(!b.ground && b.pos[1] < PLAT_Y - 1, `through at ${b.pos[1]}`);
+  }
+  // thrown along x at 8 m/s, keys the other way: onto the next tile, cracking it, and back onto the first after it went
+  const g = await room(2);
+  put(g, 0, x0, z0, { vx: 8 });
+  put(g, 1, x1, z1);
+  const { cracks, track } = ahead(g, Array(201).fill(partyWord({ yaw: 8192, move: 1 })));
+  assert.deepEqual(cracks.map(([, c]) => c), [index(0, 0, 0), index(1, 0, 0)]);
+  const k = track.findIndex((p) => p[1] < PLAT_Y);
+  assert.ok(k > cracks[1][0] && k > L.TI_HOLD, `off the top at ${k}`);
+  assert.deepEqual(hexAt(track[k][0], track[k][2], L.TI_S), [0, 0], 'through the first tile');
+});
+
 test('a long scripted round of 16 balls on the debug build: no trap, tiles crack and drop, every ball placed; equal on 1 and 4 threads', async () => {
   const seed = (0xa7000000 | (L.MG_THINICE << 16) | 21) >>> 0;
   let cracks = 0, drops = 0, seen = 0, over = -1, start = -1, pts = null, places = null;

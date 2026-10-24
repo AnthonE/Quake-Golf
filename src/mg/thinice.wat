@@ -5,9 +5,13 @@
 ;;
 ;; A cell is 0 (no tile), 1 (intact) or the tick the tile stops holding, so
 ;; whether a tile holds is a function of the tick: $ti_ground reads the
-;; confirmed cells against bank d's own tick. The prediction is exact while
-;; it runs at most TI_HOLD ticks ahead of the confirmed world: a crack the
-;; confirmed world hasn't made yet holds on every tick the prediction reaches.
+;; confirmed cells against bank d's own tick. A prediction running more than
+;; TI_HOLD ahead would reach the drop of a crack the confirmed world hasn't
+;; made yet, so it cracks its own ball's ice too: $ti_push does on bank d what
+;; $ti_tick will, the crack an FX in that bank's ring (rebuilt every run), and
+;; $ti_ground reads it there. That is exact however far ahead the prediction
+;; runs (to PRED_MAX); a bump or another ball's crack comes a round trip late,
+;; as everywhere.
 
 ;; Cell (q, r) of layer k, an index across the layers; -1 off the grid.
 (func $ti_cell (param $q i32) (param $r i32) (param $k i32) (result i32)
@@ -70,11 +74,50 @@
         (if (i32.ge_s (local.get $c) (i32.const 0))
           (then
             (local.set $v (i32.load offset=@(PG_BIG + TI_TILES) (i32.shl (local.get $c) (i32.const 2))))
+            (if (i32.and (i32.ne (local.get $d) (i32.const 0)) (i32.eq (local.get $v) (i32.const 1)))
+              (then (local.set $v (call $ti_mine (local.get $c)))))
             (if (i32.or (i32.eq (local.get $v) (i32.const 1)) (i32.lt_u (local.get $t) (local.get $v)))
               (then (return (local.get $top)))))))))
   (f32.const -1000))
 
-(func $ti_push (param $p i32) (param $d i32))
+;; The prediction's own crack of cell c, from its FX ring: the tick the tile
+;; stops holding, or 1 if its ball hasn't cracked it.
+(func $ti_mine (param $c i32) (result i32)
+  (local $n i32) (local $i i32) (local $r i32)
+  (local.set $n (i32.load (i32.const @PFX)))
+  (!for $i (select (i32.sub (local.get $n) (i32.const @FX_MAX)) (i32.const 0) (i32.gt_u (local.get $n) (i32.const @FX_MAX))) (local.get $n)
+    (local.set $r (i32.add (i32.const @(PFX + 16)) (i32.shl (i32.and (local.get $i) (i32.const @(FX_MAX - 1))) (i32.const 5))))
+    (if (i32.and (i32.eq (i32.load8_u offset=4 (local.get $r)) (i32.const @TI_FX_CRACK)) (i32.eq (i32.load16_u offset=6 (local.get $r)) (local.get $c)))
+      (then (return (i32.add (i32.load (local.get $r)) (i32.const @TI_HOLD))))))
+  (i32.const 1))
+
+;; Ball p after its roll, in the prediction (the confirmed world's cracks are
+;; $ti_tick's): on the ice from TI_GRACE into play, the intact tile under its
+;; centre cracks as $ti_tick will crack it, an FX in its bank's ring.
+(func $ti_push (param $p i32) (param $d i32)
+  (local $pb i32) (local $q i32) (local $r i32) (local $k i32) (local $c i32) (local $py f32) (local $top f32) (local $x f32) (local $z f32)
+  (if (i32.eqz (local.get $d)) (then (return)))
+  (if (i32.lt_u (call $p_t (local.get $d)) (i32.const @TI_GRACE)) (then (return)))
+  (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
+  (if (i32.eqz (i32.and (call $p_in (local.get $pb)) (i32.ne (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_GROUND)) (i32.const 0))))
+    (then (return)))
+  (call $p_hex (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (!at f32 @(PLAYERS + P_PZ) (local.get $pb)) (f32.const @TI_S))
+  (local.set $r) (local.set $q)
+  (local.set $py (!at f32 @(PLAYERS + P_PY) (local.get $pb)))
+  (!for $k (i32.const 0) (i32.const @TI_LAYERS)
+    (local.set $top (call $ti_top (local.get $k)))
+    (if (f32.lt (f32.abs (f32.sub (local.get $py) (local.get $top))) (f32.const 0.05))
+      (then
+        (local.set $c (call $ti_cell (local.get $q) (local.get $r) (local.get $k)))
+        (if (i32.ge_s (local.get $c) (i32.const 0))
+          (then
+            (if (i32.and (i32.eq (i32.load offset=@(PG_BIG + TI_TILES) (i32.shl (local.get $c) (i32.const 2))) (i32.const 1))
+                         (i32.eq (call $ti_mine (local.get $c)) (i32.const 1)))
+              (then
+                (call $p_hexc (local.get $q) (local.get $r) (f32.const @TI_S))
+                (local.set $z) (local.set $x)
+                (call $fx (local.get $d) (i32.const @TI_FX_CRACK) (local.get $p) (local.get $c)
+                          (local.get $x) (local.get $top) (local.get $z) (f32.convert_i32_u (local.get $k)))))))))))
 
 ;; Every ball on the ice, in slot order, cracks the tile under its centre
 ;; (from TI_GRACE into play: from a standstill a ball rolls about 1.8 m in

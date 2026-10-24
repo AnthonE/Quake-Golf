@@ -33,6 +33,14 @@ function tileAt(view, x, z, k, cx) {
   else if (dr > ds) r = -q - s;
   return cell(view, q, r, k);
 }
+// The prediction's own cracks, from its FX ring (rebuilt every run, as
+// $ti_ground reads it): cell -> the tick the tile stops holding.
+function ownCracks(pview) {
+  const m = new Map();
+  const n = pview.fxCount();
+  for (let i = Math.max(0, n - L.FX_MAX); i < n; i++) { const f = pview.fx(i); if (f.kind === L.TI_FX_CRACK) m.set(f.shot, f.tick + L.TI_HOLD); }
+  return m;
+}
 // Does a tile holding v hold on tick t (t may be fractional)? As $ti_ground has it.
 const holds = (v, t) => v === 1 || (v > 1 && t < v);
 const radius = (view) => view.dv.getFloat32(L.PG_H + L.TI_RAD, true);
@@ -67,14 +75,17 @@ export default {
     const rad = radius(view);
     if (!(rad > 0)) return;
     const cx = view.party().cx;
-    // on the prediction's clock: a tile goes as your own ball drops through it
+    // on the prediction's clock, with its own cracks: a tile goes as your own ball drops through it
     const now = ctx.ptick ?? ctx.tick + ctx.dt / TICK;
+    const mine = ctx.pme && ctx.pview ? ownCracks(ctx.pview) : null;
     const span = Math.min(L.TI_N, Math.ceil(rad / L.TI_S) + 1);
     for (let k = 0; k < L.TI_LAYERS; k++) {
       const [cr, cg, cb] = COLOR[k];
       for (let r = -span; r <= span; r++) for (let q = -span; q <= span; q++) {
-        const v = at(view, index(q, r, k));
+        const c = index(q, r, k);
+        let v = at(view, c);
         if (!v) continue;
+        if (v === 1 && mine?.size) v = mine.get(c) ?? 1;
         const x = cx + L.TI_S * (1.7320508 * q + 0.8660254 * r), z = cx + L.TI_S * 1.5 * r;
         if (v === 1 || now < v) {
           // cracked: lines at once, spreading, the ice whitening and sinking a little, trembling as it gives
