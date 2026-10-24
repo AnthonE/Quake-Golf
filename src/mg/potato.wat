@@ -106,6 +106,7 @@
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
 
 (func $hp_start)
+(func $hp_begin (param $p i32) (param $d i32))
 
 ;; The floor's top within the edge as it is on bank d's tick.
 (func $hp_ground (param $d i32) (param $x f32) (param $y f32) (param $z f32) (result f32)

@@ -171,6 +171,7 @@
          (f32.const @(FC_SP / 2)) (local.get $cx)))
 
 (func $fc_start)
+(func $fc_begin (param $p i32) (param $d i32))
 
 ;; Inside the walls, the floor's top under (x, z), whatever y: the chute is
 ;; one surface, nothing to go under, so a ball pushed a hair into it is put

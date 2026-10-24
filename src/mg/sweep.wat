@@ -100,6 +100,7 @@
   (!madd (local.get $s) (local.get $rho) (local.get $cx)))
 
 (func $sw_start)
+(func $sw_begin (param $p i32) (param $d i32))
 
 ;; The floor's top under (x, z) if it's within the rim on bank d's tick.
 (func $sw_ground (param $d i32) (param $x f32) (param $y f32) (param $z f32) (result f32)

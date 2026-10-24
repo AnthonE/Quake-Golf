@@ -416,6 +416,20 @@ test('the prediction matches the confirmed ball bit for bit: into a pillar and o
   assert.equal(fxs(g.v, L.FX_USE).at(-1).size, L.PU_DASH);
 });
 
+test('the prediction across the countdown\'s end: its own ball marked as dealt from play\'s first tick, an it pushing harder, a free ball in the round', async () => {
+  for (const it of [1, 0]) {
+    let g = null;
+    for (let s = 1; !g; s++) {
+      const r = await room(2, { play: false, seed: s });
+      if (r.v.u8[L.PG_S + L.TG_ROLE] === it) g = r;
+    }
+    while (g.v.hole().until - g.v.tick > 10) g.step();
+    assert.ok(predicted(g, Array(40).fill(partyWord({ yaw: 0, move: 1 }))) >= 40);
+    assert.equal(g.v.hole().state, L.H_PLAY);
+    assert.equal(g.v.partier(0).m, it ? IT : FREE);
+  }
+});
+
 // A round of Partier balls on the debug build: no trap, a round played to
 // its end, equal on every tick on 1 and 4 threads.
 for (const [balls, ticks] of [[8, 9000], [64, 7000]]) {

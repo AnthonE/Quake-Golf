@@ -136,6 +136,8 @@
   (local $p i32)
   (!for $p (i32.const 0) (i32.const @NPLAYER) (call $cr_keep (local.get $p))))
 
+(func $cr_begin (param $p i32) (param $d i32))
+
 ;; Slot p's velocity and hard bumps kept for the next tick's hit test.
 (func $cr_keep (param $p i32)
   (local $pb i32) (local $s i32)

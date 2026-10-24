@@ -165,6 +165,7 @@
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
 
 (func $pp_start)
+(func $pp_begin (param $p i32) (param $d i32))
 
 ;; The floor's top under (x, z) if that is on the disc.
 (func $pp_ground (param $d i32) (param $x f32) (param $y f32) (param $z f32) (result f32)

@@ -83,6 +83,7 @@
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
 
 (func $bo_start)
+(func $bo_begin (param $p i32) (param $d i32))
 
 ;; The floor's top if the tile under (x, z) holds on bank d's tick: the rim
 ;; hasn't taken it, and no crater is open there.

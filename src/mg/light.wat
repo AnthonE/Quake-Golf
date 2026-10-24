@@ -121,6 +121,7 @@
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
 
 (func $rl_start)
+(func $rl_begin (param $p i32) (param $d i32))
 
 ;; The field's floor, from the back wall to the yard's end, rail to rail and a
 ;; little past them: the rails keep every ball on it.

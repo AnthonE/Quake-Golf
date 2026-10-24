@@ -504,6 +504,7 @@
   (local.get $a))
 
 (func $rc_start)
+(func $rc_begin (param $p i32) (param $d i32))
 
 ;; The track's top under (x, z) if it's no higher than y: the floor of the
 ;; piece there, none over a gap or past an edge.

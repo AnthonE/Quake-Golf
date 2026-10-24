@@ -54,6 +54,7 @@
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
 
 (func $ti_start)
+(func $ti_begin (param $p i32) (param $d i32))
 
 ;; The highest layer no higher than y whose tile under (x, z) holds on bank d's tick.
 (func $ti_ground (param $d i32) (param $x f32) (param $y f32) (param $z f32) (result f32)
