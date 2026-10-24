@@ -14,8 +14,13 @@
   (if (i32.gt_u (local.get $n) (i32.const @PRED_MAX)) (then (local.set $n (i32.const @PRED_MAX))))
   (!for $k (i32.const 0) (local.get $n)
     (!put i32 @(PLAYERS + P_IN) (local.get $pb) (!ld i32 @PWORDS (local.get $k)))
+#if BUMPER
+    ;; a ball's own roll and power-ups; bumps, blasts and rockets are the confirmed world's
+    (call $b_move (local.get $p) (i32.const @PRED_D))
+#else
     (call $move (local.get $p) (i32.const @PRED_D))
     (call $projectiles (i32.const @PRED_D) (local.get $p))
+#endif
     ;; the countdown ends on time here too, so the first shot at tee-off is predicted
     (local.set $t (i32.load (i32.const @(HDR_TICK + PRED_D))))
     (if (i32.and (i32.eq (i32.load (i32.const @(HDR_STATE + PRED_D))) (i32.const @H_COUNT))
@@ -26,7 +31,11 @@
 #if ARENA
         (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @MATCH_TICKS)))))
 #else
+#if BUMPER
+        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @ROUND_TICKS)))))
+#else
         (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @LIMIT_TICKS)))))
+#endif
 #endif
     (local.set $t (i32.add (local.get $t) (i32.const 1)))
     (i32.store (i32.const @(HDR_TICK + PRED_D)) (local.get $t))

@@ -487,3 +487,104 @@ export const FX_SPAWN = 7;
 export const FX_PICKUP = 8;
 export const FX_MELEE = 9;
 export const FX_TELE = 10; // a fighter through a teleporter: where it came out, the slot as owner
+
+// ---- Bumper balls: src/ built with BUMPER (build/bumper/game.wasm). The
+// same world, netcode and lockstep; every player is a ball now, and the golf
+// cup is what you keep out of. A wheel of Swiss cheese floats at PLAT_Y over
+// the sea, its holes laid out from the room's PRNG each round; a ball whose
+// centre rolls over a hole, or off the rim, drops through and is out. Balls
+// bump: an elastic hit with a kick on top, heavier balls shoved less. The
+// rim crumbles in and the holes widen as the round goes on. Power-ups drop
+// from the sky; roll over one to hold it, fire to use it. The last ball
+// rolling wins the round. Golf's balls, cup and guns are left out; the hole
+// states run the round (H_COUNT before it, H_PLAY during it, H_OVER after).
+//
+// The input word is golf's (yaw b0-13, move b24-27, jump b28 for a hop, the
+// shot counter b29-30 to use the power-up held); pitch and b31 are unused,
+// so a client keeps them still and they cost nothing on the wire.
+export const B_CX = 512; // the wheel's centre, world x and z
+export const B_COUNT = 625; // 5 s countdown: late joiners still make the round
+export const ROUND_TICKS = 11250; // 90 s, then whoever is still rolling shares the win
+export const SHRINK_TICKS = 7500; // 60 s for the rim to crumble in to B_RMIN and the holes to widen by half
+export const B_OVER = 625; // 5 s of the round's result
+export const NHOLE = 64;
+export const NORB = 32;
+export const DROP_FIRST = 250; // 2 s into the round, the first power-ups fall
+export const DROP_TICKS = 500; // then a drop every 4 s, one orb plus one for every 24 balls still in
+export const ORB_LIFE = 1250; // 10 s on the cheese, then gone
+export const ORB_Y = 36; // m above the cheese they start falling from
+export const MEGA_TICKS = 1000; // 8 s
+export const DASH_TICKS = 60;
+export const USE_REFIRE = 40;
+export const CREDIT_TICKS = 375; // a ball out within 3 s of a bump is the bumper's KO
+export const OUT_DEPTH = 14; // m under the cheese a falling ball is out
+
+// The header, in golf's tee and cup fields (all inside the prediction's copy).
+export const BH_R0 = HDR_TEE; // f32 the wheel's radius at the round's start
+export const BH_NHOLE = HDR_TEE + 4; // u32
+export const BH_N0 = HDR_TEE + 8; // u32 balls in at the start
+export const BH_DROP = HDR_CUP; // u32 tick of the next drop
+export const BH_LEFT = HDR_CUP + 4; // u32 balls still in, counted every tick
+export const BH_WINNER = HDR_CUP + 8; // u32 the last round's winner, 255 for none or a shared win
+
+// Bumper state past the projectiles, where the arena keeps its pads (hashed, in every keyframe).
+export const B_HOLES = REGION + 0xc100; // 64 x 16 B: f32 x, z, radius at the start | u32 0
+export const B_ORBS = REGION + 0xc500; // 32 x 16 B: f32 x, y, z | u8 kind (0 none) | u8 1 falling, 2 landed | u16 ticks left
+export const HOLE_SIZE = 16;
+export const ORB_SIZE = 16;
+// serial scratch for laying a round out (spawn candidates) and the bump pass (the balls in): never hashed
+export const B_SCR = DVX;
+
+// A ball's fields in the player record, where golf keeps its own.
+export const B_ITEM = 29; // u8 the power-up held (PU_*), 0 none
+export const B_HOLE = 31; // u8 the hole a falling ball went down, 255 the rim
+export const B_MEGA = 34; // u16 ticks of MEGA left
+export const B_WINS = 36; // u16 rounds won
+export const B_KOS = 38; // u16 balls knocked out
+export const B_HITBY = 40; // u8 who bumped this ball last
+export const B_PLACE = 41; // u8 where it finished last round (1 won), 0 while it's in
+export const B_HITT = 42; // u16 ticks that bump still counts
+export const B_DASH = 44; // u16 ticks of a dash's glow left
+export const B_ROUNDS = 46; // u16 rounds played
+export const B_OUTAT = 48; // u32 tick it went out
+export const B_BUMPS = 54; // u16 hard bumps dealt
+export const PF_FALL = 16; // under the cheese's top: going down a hole or off the rim
+export const PF_STOMP = 32; // a SPRING jump: landing shoves everyone near
+
+// Power-ups, by PU_* (index 0 is none).
+export const PU_MEGA = 1; // 1.6 times the size, three times the weight, for 8 s
+export const PU_DASH = 2; // a burst of speed where you face
+export const PU_POW = 3; // a shockwave: everyone near is shoved away
+export const PU_ROCKET = 4; // golf's club: a rocket where you face, its blast shoves
+export const PU_SPRING = 5; // a high jump; the landing shoves everyone near
+export const NPU = 5;
+export const PU_NAMES = ['', 'MEGA', 'DASH', 'POW', 'ROCKET', 'SPRING'];
+export const FX_BUMP = 11; // a hard bump: the two as owner and shot, where they met, how hard (m/s) as size
+export const FX_USE = 12; // a power-up used: owner, its use number as shot, the kind as size
+export const FX_DROP = 13; // an orb starts to fall: the kind as size
+
+// Physics, as the f32 literals the module inlines.
+export const BPHYS = {
+  PLAT_Y: '40', // the cheese's top
+  PLAT_T: '6', // how thick it is
+  B_RMIN: '9', // the rim's radius once it has crumbled in
+  B_RAD: '1', // a ball's radius
+  MEGA_RAD: '1.6',
+  MEGA_M: '3', // MEGA's weight
+  B_ACC_DT: '0.088', // 11 m/s^2 rolling, per tick
+  B_AIR_DT: '0.026', // a third of it in the air
+  B_DRAG: '0.9912', // 1.1/s rolling: 10 m/s flat out
+  B_AIR_DRAG: '0.998',
+  B_HOP: '6',
+  B_E: '1', // restitution of a bump
+  B_KICK: '5', // m/s more apart on every bump
+  DASH_V: '20',
+  SPRING_V: '13',
+  ROCKET_BV: '30',
+  BLAST_UP: '0.35', // a blast lifts as well as shoves
+  POW_R: '11', POW_S: '18',
+  STOMP_R: '6', STOMP_S: '14',
+  BROCKET_R: '5', BROCKET_S: '20',
+  ORB_R: '0.7', // an orb's reach, past the ball's radius
+  ORB_FALL: '0.08', // 10 m/s, per tick
+};

@@ -103,6 +103,8 @@ export function createSound({ music = true } = {}) {
     kill: () => [0, 7].forEach((n, i) => blip(660 * 2 ** (n / 12), 660 * 2 ** (n / 12), 0.12, 0.07, 'square', i * 0.08)),
     melee: (dist = 0) => burst(0.3 * Math.min(1, 6 / (dist + 6)), 900, 0.12, 120),
     pickup: () => blip(500, 1500, 0.12, 0.08, 'triangle'),
+    // bumper balls': two balls meeting, louder the harder and nearer
+    boing: (speed, dist = 0) => blip(140 + speed * 12, 420 + speed * 30, 0.14, Math.min(0.14, speed / 120) * Math.min(1, 10 / (dist + 10)), 'triangle'),
     music: play,
     toggleMusic: () => { music = !music; play(...want); return music; },
   };

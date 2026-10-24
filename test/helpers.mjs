@@ -42,3 +42,14 @@ export async function hashes(sim, log, from, to, step = (s) => s.x.step()) {
   }
   return out;
 }
+
+// Bumper balls' build of the same sources (build/bumper/).
+export function bumperBytes(debug = false) {
+  wasmBytes();
+  return readFileSync(`${ROOT}build/bumper/${debug ? 'game.debug' : 'game'}.wasm`);
+}
+
+export async function newBumper(debug = false) {
+  const memory = newMemory();
+  return new Sim(await instantiate(await WebAssembly.compile(bumperBytes(debug)), memory), memory);
+}

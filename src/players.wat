@@ -79,7 +79,11 @@
   (local $p i32)
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (if (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @PF_LIVE))
+#if BUMPER
+      (then (call $b_move (local.get $p) (i32.const 0))))))
+#else
       (then (call $move (local.get $p) (i32.const 0))))))
+#endif
 
 ;; One live player's tick. Every player and projectile record address carries
 ;; the bank offset d: 0 for the confirmed world, PRED_D for the prediction

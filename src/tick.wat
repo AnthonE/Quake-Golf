@@ -21,7 +21,11 @@
 #if ARENA
   (call $arena)
 #else
+#if BUMPER
+  (call $bumper)
+#else
   (call $hole)
+#endif
 #endif
   ;; every ball integrate moved: this tick's awake list
   (!for $k (i32.const 0) (i32.load (i32.const @JOB_NA))
@@ -128,7 +132,11 @@
 #if ARENA
   (call $arena_gen (local.get $seed)))
 #else
+#if BUMPER
+  (call $bumper_gen (local.get $seed)))
+#else
   (call $course_gen (local.get $seed)))
+#endif
 #endif
 
 ;; Keyframes only at interval boundaries (a multiple of 128), right after an
