@@ -13,6 +13,7 @@ export const RL_SP = 2.4; // m between balls on the start grid, across and back 
 export const RL_EDGE = 1.6; // m in from a rail to the outermost centres on the grid
 export const RL_GRID0 = 1.4; // m behind the start line to the front row's centres; the back wall as far behind the last row
 export const RL_PEN0 = 4; // m past the finish line to the pen's front row
+export const RL_PROWS = 15; // the pen's rows, and as many in their gaps: (RL_YARD - RL_PEN0 - RL_SP / 2 - a ball) / RL_SP + 1, on the floor
 export const RL_LEN = 11250; // 90 s
 export const RL_RUSH = 3750; // once the first ball is over the line, 30 s left (if there were more)
 export const RL_IDLE = 0.975; // rolling drag a tick with no keys: 10 m/s to under RL_VMAX in 0.67 s

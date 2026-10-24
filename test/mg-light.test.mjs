@@ -255,6 +255,33 @@ test('on red a bump has no kick: two balls all but still that touch in the grace
   }
 });
 
+test('the pen holds every finisher on the yard\'s floor however many there are: RL_PROWS rows of the grid\'s width, as many of one fewer in their gaps, then round again', async () => {
+  const g = await room(2);
+  const st = stage(g.v);
+  assert.equal(st.cols, 12, 'the narrowest field');
+  at(g, startOf(st, longGreen(st, 400)) + 20);
+  const spots = [];
+  for (let k = 0; k < 400; k++) {
+    g.dv.setUint32(L.PG_H + L.RL_FIN, k, true);
+    put(g, 0, C, st.zf + 0.05, { vz: -10 });
+    g.step([[L.EV_INPUT, 0, k & 1 ? FWD : NONE]]);
+    const b = g.v.partier(0);
+    assert.ok(b.out && fateOf(b.m).n === k + 1, `finisher ${k + 1}`);
+    assert.ok(b.pos[2] >= st.zf - L.RL_YARD + 1 - 1e-3 && b.pos[2] <= st.zf - L.RL_PEN0 + 1e-3, `finisher ${k + 1} in the yard: ${(st.zf - b.pos[2]).toFixed(1)} m past the line`);
+    assert.ok(Math.abs(b.pos[0] - C) <= st.hw - 1 + 1e-3, `finisher ${k + 1} inside the rails`);
+    spots.push([b.pos[0], b.pos[2]]);
+  }
+  const cap = L.RL_PROWS * (2 * st.cols - 1);
+  assert.ok(cap >= L.NPLAYER && cap < 400);
+  for (let i = 0; i < cap; i++) for (let j = i + 1; j < cap; j++) {
+    const d = Math.hypot(spots[i][0] - spots[j][0], spots[i][1] - spots[j][1]);
+    const one = (i < L.RL_PROWS * st.cols) === (j < L.RL_PROWS * st.cols);
+    assert.ok(d >= (one ? L.RL_SP : L.RL_SP * 0.7) - 1e-3, `spots ${i} and ${j} ${d.toFixed(2)} m apart`);
+  }
+  assert.deepEqual(spots[cap], spots[0], 'round again');
+  assert.equal(g.v.hole().state, L.H_PLAY, 'P2 still racing');
+});
+
 test('over the line: out of play into the pen, placed by the order they crossed in (balls over on one tick share it); the first leaves the rest RL_RUSH', async () => {
   const g = await room(4);
   const st = stage(g.v);
@@ -484,6 +511,10 @@ test('the client module: draws the countdown, every light and the result, frames
   for (let t = wc.s + 100; t < wc.j; t += 4) if (light.brain.think(g.v, 0, bot, T + t).move === 0) { off.push(t); break; }
   assert.ok(off.length && wc.j - off[0] >= Math.log(L.RL_VMAX / 10) / Math.log(IDLE) && wc.j - off[0] < 130, `let go ${wc.j - off[0]} ticks before red looks`);
   assert.equal(light.brain.think(g.v, 0, bot, T + wc.j + 10).move, 0, 'no keys on red');
+  // having let go this green, it still pushes off from rest in red's last 10 ticks, for the next green
+  put(g, 0, C, C + 40);
+  assert.equal(light.brain.think(g.v, 0, bot, T + wc.e - 11).move, 0, 'no keys on red');
+  for (let t = wc.e - 10; t < wc.e; t++) assert.equal(light.brain.think(g.v, 0, bot, T + t).move, 1, `a push ${wc.e - t} ticks before the green`);
   assert.equal(light.brain.danger(g.v, C, C, T), 0);
   assert.equal(light.brain.danger(g.v, C + st.hw + 1, C, T), 1);
   assert.equal(light.brain.hop(), false);
