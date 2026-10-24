@@ -246,7 +246,8 @@
                     (br $burst)))))))))))
 
 ;; The leader, for its FX: the most cells (the one leading keeps it on a tie),
-;; told at most once in PP_LEADGAP ticks.
+;; told at most once in PP_LEADGAP ticks; the last told its shot, 0xffff for
+;; none (255 is a slot).
 (func $pp_lead (param $t i32)
   (local $p i32) (local $best i32) (local $bc i32) (local $c i32) (local $prev i32) (local $pb i32)
   (local.set $best (i32.const -1))
@@ -265,7 +266,7 @@
   (if (i32.or (i32.lt_s (local.get $best) (i32.const 0)) (i32.eq (local.get $best) (local.get $prev))) (then (return)))
   (if (i32.lt_u (i32.sub (local.get $t) (i32.load (i32.const @(PG_H + PP_LEADT)))) (i32.const @PP_LEADGAP)) (then (return)))
   (local.set $pb (i32.shl (local.get $best) (i32.const 6)))
-  (call $fx (i32.const 0) (i32.const @PP_FX_LEAD) (local.get $best) (select (local.get $prev) (i32.const 255) (i32.ge_s (local.get $prev) (i32.const 0)))
+  (call $fx (i32.const 0) (i32.const @PP_FX_LEAD) (local.get $best) (select (local.get $prev) (i32.const 0xffff) (i32.ge_s (local.get $prev) (i32.const 0)))
             (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (!at f32 @(PLAYERS + P_PZ) (local.get $pb))
             (f32.convert_i32_u (local.get $bc)))
   (i32.store (i32.const @(PG_H + PP_LEAD)) (i32.add (local.get $best) (i32.const 1)))
