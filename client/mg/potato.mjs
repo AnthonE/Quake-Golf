@@ -10,6 +10,7 @@
 // is in the header, so it is worked here as the sim works it; who holds a
 // bomb is read off each ball's record, the confirmed world's.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/potato.mjs'; // HP_*: the minigame's own constants
 import { PLAT_Y, B_RAD } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL, COLS } from '../party-render.mjs';
 import { C } from '../font.mjs';
@@ -33,25 +34,25 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v));
 export function sched(view) {
   const dv = view.dv, o = view.bank || 0;
   const u = (k) => dv.getUint32(L.PG_H + k + o, true), h = (k) => dv.getFloat32(L.PG_H + k + o, true);
-  return { rad: h(L.HP_RAD), rnext: h(L.HP_RNEXT), wave: u(L.HP_WAVE), deal: u(L.HP_DEAL), boom: u(L.HP_BOOM), last: u(L.HP_LAST),
-    bombs: u(L.HP_BOMBS), fuse: u(L.HP_FUSE), cx: dv.getFloat32(L.PG_CX + o, true) };
+  return { rad: h(MC.HP_RAD), rnext: h(MC.HP_RNEXT), wave: u(MC.HP_WAVE), deal: u(MC.HP_DEAL), boom: u(MC.HP_BOOM), last: u(MC.HP_LAST),
+    bombs: u(MC.HP_BOMBS), fuse: u(MC.HP_FUSE), cx: dv.getFloat32(L.PG_CX + o, true) };
 }
 // The edge's radius on tick t into play ($hp_rim, in f32 for a whole tick; a fraction for drawing).
 export function rimAt(s, t) {
-  const a = s.last + L.HP_SHRINK0, b = s.deal;
+  const a = s.last + MC.HP_SHRINK0, b = s.deal;
   if (t >= b) return s.rnext;
   if (t <= a) return s.rad;
   return Number.isInteger(t) ? f(f(f(s.rnext - s.rad) * f(f(t - a) / f(b - a))) + s.rad) : s.rad + (s.rnext - s.rad) * (t - a) / (b - a);
 }
 // The tick into play the edge comes in to radius r, between the boom's hold and the deal.
-const rimWhen = (s, r) => s.last + L.HP_SHRINK0 + (s.rad - r) / Math.max(1e-6, s.rad - s.rnext) * (s.deal - s.last - L.HP_SHRINK0);
+const rimWhen = (s, r) => s.last + MC.HP_SHRINK0 + (s.rad - r) / Math.max(1e-6, s.rad - s.rnext) * (s.deal - s.last - MC.HP_SHRINK0);
 const rec = (view, p) => L.PLAYERS + (view.bank || 0) + p * L.PSIZE;
 // Does slot p hold a bomb ($hp_holds: in the room, not out)?
-export const holds = (view, p) => (view.u8[rec(view, p) + L.HP_FL] & L.HP_HOLD) !== 0 && (view.u8[rec(view, p) + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === L.PF_LIVE;
+export const holds = (view, p) => (view.u8[rec(view, p) + MC.HP_FL] & MC.HP_HOLD) !== 0 && (view.u8[rec(view, p) + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === L.PF_LIVE;
 // Is slot p picked for the next deal (tick t into play, still before it)? PG_S is the confirmed world's.
-export const picked = (view, s, p, t) => t < s.deal && view.u8[L.PG_S + L.HP_NEXT + p] === s.wave + 1;
+export const picked = (view, s, p, t) => t < s.deal && view.u8[L.PG_S + MC.HP_NEXT + p] === s.wave + 1;
 // Ticks into play slot p's bomb sticks till (it can't pass it on before).
-export const freeAt = (view, p) => view.dv.getUint16(rec(view, p) + L.HP_AT, true) + L.HP_COOL;
+export const freeAt = (view, p) => view.dv.getUint16(rec(view, p) + MC.HP_AT, true) + MC.HP_COOL;
 
 // Ticks into play to draw at (fractional; the prediction's clock if given), -1 before play; frozen where the round ended.
 function playTime(view, g, ctx) {
@@ -81,9 +82,9 @@ function worldOf(view) {
   for (let p = 0; p < L.NPLAYER; p++) {
     const a = L.PLAYERS + o + p * L.PSIZE;
     if ((u8[a + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_FALL)) !== L.PF_LIVE) continue;
-    const hold = (u8[a + L.HP_FL] & L.HP_HOLD) !== 0;
+    const hold = (u8[a + MC.HP_FL] & MC.HP_HOLD) !== 0;
     const b = { slot: p, x: dv.getFloat32(a + L.P_PX, true), z: dv.getFloat32(a + L.P_PZ, true), vx: dv.getFloat32(a + L.P_VX, true), vz: dv.getFloat32(a + L.P_VZ, true),
-      hold, pick: !hold && picked(view, s, p, t), free: hold ? dv.getUint16(a + L.HP_AT, true) + L.HP_COOL : 0 };
+      hold, pick: !hold && picked(view, s, p, t), free: hold ? dv.getUint16(a + MC.HP_AT, true) + MC.HP_COOL : 0 };
     balls.push(b);
     bySlot[p] = b;
     if (b.hold || b.pick) threats.push(b);
@@ -205,7 +206,7 @@ export default {
     if (tp >= 0 && s.wave > 0 && age < 0.9) {
       for (let p = 0; p < L.NPLAYER; p++) {
         const a = L.PLAYERS + p * L.PSIZE;
-        if ((u8[a + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === (L.PF_LIVE | L.PF_DEAD) && (u8[a + L.HP_FL] & L.HP_BLOWN) && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) blown++;
+        if ((u8[a + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === (L.PF_LIVE | L.PF_DEAD) && (u8[a + MC.HP_FL] & MC.HP_BLOWN) && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) blown++;
       }
     }
     const fire = Math.min(1, 6 / Math.max(1, blown));
@@ -214,7 +215,7 @@ export default {
       const fl = u8[a + L.P_FL];
       if ((fl & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE) {
         // where a holder went off at the last boom (not a ball that fell on its tick): a fireball, then a scorch
-        if ((fl & L.PF_LIVE) && (u8[a + L.HP_FL] & L.HP_BLOWN) && tp >= 0 && s.wave > 0 && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) {
+        if ((fl & L.PF_LIVE) && (u8[a + MC.HP_FL] & MC.HP_BLOWN) && tp >= 0 && s.wave > 0 && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) {
           const x = dvb.getFloat32(a + L.P_PX, true), y = dvb.getFloat32(a + L.P_PY, true), z = dvb.getFloat32(a + L.P_PZ, true);
           if (y > PLAT_Y - 0.5 && Math.hypot(x - cx, z - cx) < R - 0.5) sc.cyl(x, PLAT_Y + 0.012, z, 1.3, 0.01, 0.07, 0.05, 0.05, LOOK.MATTE, 0, 0, 0.45);
           if (age < 0.8) {
@@ -224,8 +225,8 @@ export default {
         }
         continue;
       }
-      const hold = (u8[a + L.HP_FL] & L.HP_HOLD) !== 0;
-      const pick = !hold && (tp < 0 ? u8[L.PG_S + L.HP_NEXT + p] === 1 : picked(view, s, p, tt));
+      const hold = (u8[a + MC.HP_FL] & MC.HP_HOLD) !== 0;
+      const pick = !hold && (tp < 0 ? u8[L.PG_S + MC.HP_NEXT + p] === 1 : picked(view, s, p, tt));
       if (!hold && !pick) continue;
       let x, y, z;
       if (mine && p === ctx.slot) { x = mine.pos[0] + mine.vel[0] * dtp; y = mine.pos[1] + mine.vel[1] * dtp; z = mine.pos[2] + mine.vel[2] * dtp; }
@@ -239,7 +240,7 @@ export default {
       const yaw = mine && p === ctx.slot ? mine.yaw : ((dvb.getUint32(a + L.P_IN, true) & 0x3fff) / 16384) * 2 * Math.PI;
       const hx = x - Math.sin(yaw) * 0.62, hz = z + Math.cos(yaw) * 0.62;
       if (hold) {
-        const stuck = tt < dvb.getUint16(a + L.HP_AT, true) + L.HP_COOL;
+        const stuck = tt < dvb.getUint16(a + MC.HP_AT, true) + MC.HP_COOL;
         const hy = y + 2 * r + 0.42 + (stuck ? 0.06 * Math.sin(now * 40) : 0);
         out.solid.push({ pos: [hx, hy, hz], size: 0.4, color: [...BOMB, 1], kind: SPRITE.BOMB, minpx: 2.5, roll: heat });
         out.casters?.push([hx, hy, hz, -0.3]);
@@ -247,7 +248,7 @@ export default {
         if (stuck) out.glow.push({ pos: [hx, hy, hz], size: 0.9, color: [1, 1, 1, 0.5], kind: SPRITE.SPARK, minpx: 1 });
         if (y > PLAT_Y - 0.5) {
           out.decals.push({ pos: [x, PLAT_Y + 0.02, z], radius: 1.75, width: 0.35, color: [1, 0.3, 0.08, 0.75], kind: DECAL.RING });
-          if (last) out.decals.push({ pos: [x, PLAT_Y + 0.02, z], radius: L.HP_BLAST_R, width: 0.25, color: [1, 0.15, 0.05, 0.25 + 0.5 * pulse], kind: DECAL.RING });
+          if (last) out.decals.push({ pos: [x, PLAT_Y + 0.02, z], radius: MC.HP_BLAST_R, width: 0.25, color: [1, 0.15, 0.05, 0.25 + 0.5 * pulse], kind: DECAL.RING });
         }
       } else {
         // picked for the next wave: an unlit bomb, bobbing, and an orange ring
@@ -267,7 +268,7 @@ export default {
 
   fx(fx, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(fx.pos) : ctx.dist ?? 0;
-    if (fx.kind === L.HP_FX_PASS) {
+    if (fx.kind === MC.HP_FX_PASS) {
       ctx.glow?.({ pos: fx.pos, size: 1.6, color: [1, 0.6, 0.2, 0.9], kind: SPRITE.SPARK, life: 300 });
       ctx.glow?.({ pos: fx.pos, size: 2.2, color: [1, 0.4, 0.1, 0.7], kind: SPRITE.RING, life: 350, grow: true });
       if (fx.owner === ctx.slot) {
@@ -278,14 +279,14 @@ export default {
         ctx.sound?.pickup?.();
       }
       if (d < 30) ctx.sound?.crackle?.(Math.min(1.5, 12 / (d + 8)));
-    } else if (fx.kind === L.HP_FX_BOOM) {
+    } else if (fx.kind === MC.HP_FX_BOOM) {
       ctx.banner?.(fx.shot ? `BOOM!  ${fx.shot} OUT` : 'BOOM!', C.ORANGE, 1600);
       ctx.glow?.({ pos: [fx.pos[0], fx.pos[1] + SIGN, fx.pos[2]], size: 14, color: [1, 0.6, 0.2, 0.9], kind: SPRITE.FLASH, life: 500, grow: true });
       ctx.sound?.blast?.(0, 6);
-    } else if (fx.kind === L.HP_FX_TICK) {
+    } else if (fx.kind === MC.HP_FX_TICK) {
       ctx.sound?.count?.(fx.shot);
       ctx.glow?.({ pos: [fx.pos[0], fx.pos[1] + SIGN, fx.pos[2]], size: 6, color: [1, 0.4, 0.15, 0.7], kind: SPRITE.FLASH, life: 300 });
-    } else if (fx.kind === L.HP_FX_DEAL) {
+    } else if (fx.kind === MC.HP_FX_DEAL) {
       // (a holder's own line is the HUD's)
       ctx.banner?.(`${fx.shot} ${fx.shot === 1 ? 'BOMB' : 'BOMBS'} LIT  ${Math.round(fx.size * TICK)} S`, C.YELLOW, 1500);
       ctx.sound?.count?.(0);
@@ -297,7 +298,7 @@ export default {
   sink(f, name, view) {
     const g = view.party();
     if (f.tick !== ((g.start + sched(view).last) >>> 0) || sched(view).wave === 0) return null;
-    if (!(view.u8[rec(view, f.owner) + L.HP_FL] & L.HP_BLOWN)) return null;
+    if (!(view.u8[rec(view, f.owner) + MC.HP_FL] & MC.HP_BLOWN)) return null;
     return `${name(f.owner)} BLEW UP` + (f.shot === 255 ? '' : `  ${name(f.shot)} PASSED IT`);
   },
 
@@ -365,7 +366,7 @@ export default {
         let k = 0;
         if (h.hold) {
           k = clamp01((5 - dd) / 3) * (0.5 + 0.35 * urgent);
-          if (s.boom - t < 125 && dd < L.HP_BLAST_R + 0.5) k = Math.max(k, 0.6);
+          if (s.boom - t < 125 && dd < MC.HP_BLAST_R + 0.5) k = Math.max(k, 0.6);
         } else if (t >= s.deal - 125) k = clamp01((4 - dd) / 3) * 0.4;
         if (k > d) d = k;
       }

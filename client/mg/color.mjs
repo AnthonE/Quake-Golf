@@ -9,12 +9,13 @@
 // (src/mg/color.wat) worked again here in f32 where the sim works in f32, so
 // what is drawn and what the bots steer by is what the sim does.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/color.mjs'; // CC_*: the minigame's own constants
 import { PLAT_Y, hexAt, hexCentre, hash32 } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL, COLS } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const f = Math.fround;
-const S = f(L.CC_S); // the sim's f32 circumradius: hexAt and hexCentre must divide by it, not by 2.2
+const S = f(MC.CC_S); // the sim's f32 circumradius: hexAt and hexCentre must divide by it, not by 2.2
 const TICK = 0.008;
 const TURN = 16384;
 const HH = 0.4; // a tile's half height, m
@@ -39,33 +40,33 @@ const GREY = [0.45, 0.45, 0.49];
 
 // ---- the schedule, as $cc_cycle_at, $cc_warn, $cc_when and $cc_rim have it
 
-const LEN0 = L.CC_REST + L.CC_DROP + L.CC_WARN0;
-const LEN1 = L.CC_REST + L.CC_DROP + L.CC_WARN1;
-const LENSD = L.CC_REST + L.CC_DROP + L.CC_WARNSD;
-export const warnOf = (c) => (c < L.CC_FULL ? L.CC_WARN0 - L.CC_WARNK * c : c < L.CC_SD ? L.CC_WARN1 : L.CC_WARNSD);
+const LEN0 = MC.CC_REST + MC.CC_DROP + MC.CC_WARN0;
+const LEN1 = MC.CC_REST + MC.CC_DROP + MC.CC_WARN1;
+const LENSD = MC.CC_REST + MC.CC_DROP + MC.CC_WARNSD;
+export const warnOf = (c) => (c < MC.CC_FULL ? MC.CC_WARN0 - MC.CC_WARNK * c : c < MC.CC_SD ? MC.CC_WARN1 : MC.CC_WARNSD);
 // Cycle c's first tick into play.
 export function cycleAt(c) {
-  if (c <= L.CC_FULL) return c * LEN0 - (L.CC_WARNK * c * (c - 1)) / 2;
-  if (c <= L.CC_SD) return L.CC_T_FULL + (c - L.CC_FULL) * LEN1;
-  return L.CC_T_SD + (c - L.CC_SD) * LENSD;
+  if (c <= MC.CC_FULL) return c * LEN0 - (MC.CC_WARNK * c * (c - 1)) / 2;
+  if (c <= MC.CC_SD) return MC.CC_T_FULL + (c - MC.CC_FULL) * LEN1;
+  return MC.CC_T_SD + (c - MC.CC_SD) * LENSD;
 }
 // The cycle on tick t into play (fractions dropped): c, its start s, the
 // warning's w0, the drop's d0 and its end e (the next cycle's start).
 export function when(t) {
   t = Math.max(0, Math.floor(t));
   let c = 0;
-  if (t >= L.CC_T_SD) c = L.CC_SD + Math.floor((t - L.CC_T_SD) / LENSD);
-  else if (t >= L.CC_T_FULL) c = L.CC_FULL + Math.floor((t - L.CC_T_FULL) / LEN1);
+  if (t >= MC.CC_T_SD) c = MC.CC_SD + Math.floor((t - MC.CC_T_SD) / LENSD);
+  else if (t >= MC.CC_T_FULL) c = MC.CC_FULL + Math.floor((t - MC.CC_T_FULL) / LEN1);
   else while (cycleAt(c + 1) <= t) c++;
-  const s = cycleAt(c), w0 = s + L.CC_REST, d0 = w0 + warnOf(c);
-  return { c, s, w0, d0, e: d0 + L.CC_DROP };
+  const s = cycleAt(c), w0 = s + MC.CC_REST, d0 = w0 + warnOf(c);
+  return { c, s, w0, d0, e: d0 + MC.CC_DROP };
 }
 // The rim cycle c's drop leaves, in f32 as the sim has it.
 export function rimOf(r0, c) {
-  const k = c - (L.CC_SHRINK - 1);
+  const k = c - (MC.CC_SHRINK - 1);
   if (k <= 0) return r0;
-  if (k >= L.CC_SHRINKN) return L.CC_RMIN;
-  return f(r0 - f(f(r0 - L.CC_RMIN) * f(k / L.CC_SHRINKN)));
+  if (k >= MC.CC_SHRINKN) return MC.CC_RMIN;
+  return f(r0 - f(f(r0 - MC.CC_RMIN) * f(k / MC.CC_SHRINKN)));
 }
 
 // ---- the board: the round's seed, radius and colours, read once a round
@@ -74,7 +75,7 @@ let memo = null;
 // This round's board on the view's bank, its colours and calls worked out once.
 export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
-  const r0 = dv.getFloat32(L.PG_H + L.CC_RAD + o, true), k = dv.getUint32(L.PG_H + L.CC_K + o, true) || 4;
+  const r0 = dv.getFloat32(L.PG_H + MC.CC_RAD + o, true), k = dv.getUint32(L.PG_H + MC.CC_K + o, true) || 4;
   const cx = dv.getFloat32(L.PG_CX + o, true), s = dv.getUint32(L.HDR_SEED + o, true), h = dv.getUint32(L.HDR_HOLE + o, true);
   const m = memo;
   if (m && m.r0 === r0 && m.k === k && m.cx === cx && m.s === s && m.h === h) return m;
@@ -83,7 +84,7 @@ export function stage(view) {
 }
 const boardSeed = (st, c) => {
   let v = st.seeds.get(c);
-  if (v === undefined) st.seeds.set(c, (v = hash32(st.s, st.h, L.CC_KBOARD + c)));
+  if (v === undefined) st.seeds.set(c, (v = hash32(st.s, st.h, MC.CC_KBOARD + c)));
   return v;
 };
 // Tile (q, r)'s colour in cycle c ($cc_colour).
@@ -99,8 +100,8 @@ const inside = (d2, rim) => d2 <= f(rim * rim);
 // $cc_pick: a tile for cycle c's call whose colour is neither a nor b (the
 // tries, then the board in order), else the middle tile.
 function pick(st, c, a, b) {
-  const rim = rimOf(st.r0, c), sc = f(rim * 2 ** -15), base = hash32(st.s, st.h, L.CC_KCALL + c);
-  for (let j = 0; j < L.CC_TRIES; j++) {
+  const rim = rimOf(st.r0, c), sc = f(rim * 2 ** -15), base = hash32(st.s, st.h, MC.CC_KCALL + c);
+  for (let j = 0; j < MC.CC_TRIES; j++) {
     const h = hash32(j, c, base);
     const x = f(f(((h & 0xffff) - 32768) * sc) + st.cx), z = f(f(((h >>> 16) - 32768) * sc) + st.cx);
     const [q, r] = hexAt(x, z, S, st.cx);
@@ -108,7 +109,7 @@ function pick(st, c, a, b) {
     const colour = colourOf(st, q, r, c);
     if (colour !== a && colour !== b) return { q, r, colour };
   }
-  const n = Math.trunc(f(rim / f(1.5 * L.CC_S))) + 1, w = 2 * n + 1;
+  const n = Math.trunc(f(rim / f(1.5 * MC.CC_S))) + 1, w = 2 * n + 1;
   for (let j = 0; j < w * w; j++) {
     const q = (j % w) - n, r = Math.floor(j / w) - n;
     if (!inside(d2Of(st, q, r), rim)) continue;
@@ -132,10 +133,10 @@ export function holds(st, q, r, t, w = when(t)) {
   if (t < w.d0) return true;
   if (!inside(d2, rimOf(st.r0, w.c))) return false;
   const call = callOf(st, w.c);
-  return w.c >= L.CC_SD ? q === call.q && r === call.r : colourOf(st, q, r, w.c) === call.colour;
+  return w.c >= MC.CC_SD ? q === call.q && r === call.r : colourOf(st, q, r, w.c) === call.colour;
 }
 // The calls slot p has lived through this round (CC_SURV, the confirmed world's).
-export const survived = (view, p) => view.u8[L.PG_S + L.CC_SURV + p];
+export const survived = (view, p) => view.u8[L.PG_S + MC.CC_SURV + p];
 // Is there floor under (x, z) on tick t into play?
 export function solidAt(st, x, z, t) {
   const [q, r] = hexAt(x, z, S, st.cx);
@@ -200,7 +201,7 @@ function safeOf(st, c) {
   v = new Uint8Array(tiles.length);
   for (let i = 0; i < tiles.length; i++) {
     const T = tiles[i];
-    v[i] = T.d2 <= r2 && (c >= L.CC_SD ? T.q === call.q && T.r === call.r : cols[i] === call.colour) ? 1 : 0;
+    v[i] = T.d2 <= r2 && (c >= MC.CC_SD ? T.q === call.q && T.r === call.r : cols[i] === call.colour) ? 1 : 0;
   }
   if (st.safe.size > 8) st.safe.clear();
   st.safe.set(c, v);
@@ -263,7 +264,7 @@ function plan(view, me, bot, tick) {
   if (mind.c !== w.c) {
     mind.c = w.c;
     mind.react = w.w0 + Math.round((0.15 + 0.6 * (1 - skill) * luck(st, slot, w.c, 1)) / TICK);
-    mind.misread = luck(st, slot, w.c, 2) < 0.3 * (1 - skill) && w.c < L.CC_SD;
+    mind.misread = luck(st, slot, w.c, 2) < 0.3 * (1 - skill) && w.c < MC.CC_SD;
     mind.target = -1;
     mind.at = -1e9;
   }
@@ -315,7 +316,7 @@ function plan(view, me, bot, tick) {
       s += luck(st, slot, w.c, 100 + (i & 63)) * 0.3 * (1 - skill);
       if (s < best) { best = s; pick = i; }
     };
-    if (w.c >= L.CC_SD && !misled) consider(indexOf(st, call.q, call.r));
+    if (w.c >= MC.CC_SD && !misled) consider(indexOf(st, call.q, call.r));
     else for (const [dq, dr] of RINGS) { const i = indexOf(st, mq + dq, mr + dr); if (i >= 0) consider(i); }
     if (pick < 0 && !misled) { const i = indexOf(st, call.q, call.r); if (i >= 0) consider(i); }
     if (pick >= 0) {
@@ -383,7 +384,7 @@ export default {
       return;
     }
     const w = when(tp);
-    const c = w.c, sd = c >= L.CC_SD;
+    const c = w.c, sd = c >= MC.CC_SD;
     const phase = tp < w.w0 ? 0 : tp < w.d0 ? 1 : 2;
     const call = callOf(st, c);
     const prev = c > 0 ? callOf(st, c - 1) : null;
@@ -412,7 +413,7 @@ export default {
       const safe = !doomed && (sd ? T.q === call.q && T.r === call.r : cols[i] === call.colour);
       if (phase === 0) {
         // the new colours sweep out from the middle; a tile that held through the last drop flips with a hop
-        const held = c > 0 && (c - 1 >= L.CC_SD ? T.q === prev.q && T.r === prev.r : colsP[i] === prev.colour);
+        const held = c > 0 && (c - 1 >= MC.CC_SD ? T.q === prev.q && T.r === prev.r : colsP[i] === prev.colour);
         const at = w.s + 6 + FLIP * (T.rho / st.r0);
         const u = held ? Math.min(1, Math.max(0, (tp - at) / 14)) : 1;
         const pop = held && u > 0 && u < 1 ? Math.sin(Math.PI * u) : 0;
@@ -463,18 +464,18 @@ export default {
   fx(fx, ctx) {
     const colour = COLORS[fx.shot & 15] || COLORS[0];
     const c = fx.shot >> 4;
-    if (fx.kind === L.CC_FX_CALL) {
-      if (c >= L.CC_SD) ctx.banner?.(c === L.CC_SD ? 'SUDDEN DEATH  ONE TILE HOLDS' : `ONE TILE  ${colour.name}`, C.YELLOW, 1600);
+    if (fx.kind === MC.CC_FX_CALL) {
+      if (c >= MC.CC_SD) ctx.banner?.(c === MC.CC_SD ? 'SUDDEN DEATH  ONE TILE HOLDS' : `ONE TILE  ${colour.name}`, C.YELLOW, 1600);
       else ctx.banner?.(`${colour.name}!`, colour.hud, 1300);
       ctx.sound?.pickup?.();
       ctx.glow?.({ pos: [fx.pos[0], fx.pos[1] + 0.1, fx.pos[2]], size: 3, color: [...colour.rgb, 0.8], kind: SPRITE.RING, life: 500, grow: true });
-    } else if (fx.kind === L.CC_FX_DROP) {
+    } else if (fx.kind === MC.CC_FX_DROP) {
       ctx.sound?.land?.(28);
       ctx.sound?.count?.(0);
-    } else if (fx.kind === L.CC_FX_RISE) {
+    } else if (fx.kind === MC.CC_FX_RISE) {
       ctx.sound?.tick?.();
-      if (c === L.CC_SHRINK) ctx.banner?.('GREY TILES FALL FOR GOOD', C.ORANGE, 1800);
-      if (c === L.CC_SD) ctx.banner?.('SUDDEN DEATH', C.YELLOW, 1800);
+      if (c === MC.CC_SHRINK) ctx.banner?.('GREY TILES FALL FOR GOOD', C.ORANGE, 1800);
+      if (c === MC.CC_SD) ctx.banner?.('SUDDEN DEATH', C.YELLOW, 1800);
     }
   },
 
@@ -486,7 +487,7 @@ export default {
     const tp = playTime(view, g, ctx);
     if (tp < 0 || !(st.r0 > 0)) return;
     const w = when(tp);
-    const c = w.c, sd = c >= L.CC_SD;
+    const c = w.c, sd = c >= MC.CC_SD;
     const call = callOf(st, c), col = COLORS[call.colour];
     const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
     // a bar of n cells, u of it lit in c and the rest grey, centred
@@ -499,7 +500,7 @@ export default {
     const playing = me && me.live && !me.out;
     if (tp < w.w0) {
       ctx.centre(row, c === 0 ? 'GET READY' : sd ? 'SUDDEN DEATH' : `CALL ${c + 1}`, sd ? C.YELLOW : C.WHITE);
-      if (sd ? c === L.CC_SD : rimOf(st.r0, c) < rimOf(st.r0, c - 1)) ctx.centre(row + 1, sd ? 'ONE TILE WILL HOLD' : 'GREY TILES FALL FOR GOOD', C.ORANGE);
+      if (sd ? c === MC.CC_SD : rimOf(st.r0, c) < rimOf(st.r0, c - 1)) ctx.centre(row + 1, sd ? 'ONE TILE WILL HOLD' : 'GREY TILES FALL FOR GOOD', C.ORANGE);
     } else if (tp < w.d0) {
       ctx.centre(row, sd ? `ONE TILE  ${col.name}  ${((w.d0 - tp) * TICK).toFixed(1)}` : `${col.name}  ${((w.d0 - tp) * TICK).toFixed(1)}`, col.hud);
       bar(row + 1, (w.d0 - tp) / (w.d0 - w.w0), col.hud);
@@ -509,7 +510,7 @@ export default {
       }
     } else {
       ctx.centre(row, `HOLD ON  ${col.name}`, col.hud);
-      bar(row + 1, (w.e - tp) / L.CC_DROP, C.WHITE);
+      bar(row + 1, (w.e - tp) / MC.CC_DROP, C.WHITE);
     }
     const right = `CALL ${c + 1}  ${(warnOf(c) * TICK).toFixed(1)}S` + (playing ? `  SURVIVED ${survived(view, me.slot)}` : '');
     ctx.right(3, right, C.GREY);

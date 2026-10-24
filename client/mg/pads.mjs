@@ -9,15 +9,16 @@
 // from its header and drawn on the prediction's clock, so a pad lights on the
 // same tick of your own ball whatever your lag.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/pads.mjs'; // MP_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL, COLS } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const f = Math.fround;
 const TICK = 0.008;
-const PAD_R = f(L.MP_PAD_R);
+const PAD_R = f(MC.MP_PAD_R);
 const PAD_R2 = f(PAD_R * PAD_R);
-const HIGH = f(PLAT_Y + L.MP_HIGH);
+const HIGH = f(PLAT_Y + MC.MP_HIGH);
 const HH = 0.7; // the record's half thickness, m
 const BALL_R = 1;
 const MUSIC = 0, SCRAMBLE = 1, PAUSE = 2;
@@ -34,20 +35,20 @@ export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
   const u = (k) => dv.getUint32(L.PG_H + k + o, true), r = (k) => dv.getFloat32(L.PG_H + k + o, true);
   return {
-    r0: r(L.MP_R), rimA: r(L.MP_RIMA), rimB: r(L.MP_RIMB), rimT: u(L.MP_RIMT), cycle: u(L.MP_CYCLE), start: u(L.MP_START),
-    stop: u(L.MP_STOP), claim: u(L.MP_CLAIM), next: u(L.MP_NEXT), npad: Math.min(u(L.MP_NPAD), L.MP_NMAX), gold: u(L.MP_GOLD),
-    glides: u(L.MP_GLIDES), n: u(L.MP_N), held: u(L.MP_HELD), lost: u(L.MP_LOST),
+    r0: r(MC.MP_R), rimA: r(MC.MP_RIMA), rimB: r(MC.MP_RIMB), rimT: u(MC.MP_RIMT), cycle: u(MC.MP_CYCLE), start: u(MC.MP_START),
+    stop: u(MC.MP_STOP), claim: u(MC.MP_CLAIM), next: u(MC.MP_NEXT), npad: Math.min(u(MC.MP_NPAD), MC.MP_NMAX), gold: u(MC.MP_GOLD),
+    glides: u(MC.MP_GLIDES), n: u(MC.MP_N), held: u(MC.MP_HELD), lost: u(MC.MP_LOST),
     cx: dv.getFloat32(L.PG_CX + o, true), t0: dv.getUint32(L.HDR_START + o, true), state: dv.getUint32(L.HDR_STATE + o, true),
   };
 }
 // Pads for n balls ($mp_pads).
-export const padsFor = (n) => (n <= L.MP_CHAIRS ? Math.max(1, n - 1) : (n + 1) >> 1);
+export const padsFor = (n) => (n <= MC.MP_CHAIRS ? Math.max(1, n - 1) : (n + 1) >> 1);
 // The rim on tick t into play ($mp_rim), in f32 on whole ticks; fractional t eases between them for drawing.
 export function rimAt(st, t) {
   if (t <= st.rimT) return st.rimA;
-  if (t - st.rimT >= L.MP_SHRINKT) return st.rimB;
-  if (t !== Math.floor(t)) return st.rimA + (st.rimB - st.rimA) * (t - st.rimT) / L.MP_SHRINKT;
-  return f(f(f(st.rimB - st.rimA) * f((t - st.rimT) / L.MP_SHRINKT)) + st.rimA);
+  if (t - st.rimT >= MC.MP_SHRINKT) return st.rimB;
+  if (t !== Math.floor(t)) return st.rimA + (st.rimB - st.rimA) * (t - st.rimT) / MC.MP_SHRINKT;
+  return f(f(f(st.rimB - st.rimA) * f((t - st.rimT) / MC.MP_SHRINKT)) + st.rimA);
 }
 // What tick t into play is: the music, the scramble or the pause after a claim
 // (and past the next cycle's start, before the confirmed world has laid it out, its music).
@@ -57,9 +58,9 @@ export const PHASE = { MUSIC, SCRAMBLE, PAUSE };
 export function padsOf(view, st = stage(view)) {
   const dv = view.dv, out = [];
   for (let i = 0; i < st.npad; i++) {
-    const a = L.PG_S + L.MP_PADS + 16 * i;
+    const a = L.PG_S + MC.MP_PADS + 16 * i;
     out.push({ i, x0: dv.getFloat32(a, true), z0: dv.getFloat32(a + 4, true), x1: dv.getFloat32(a + 8, true), z1: dv.getFloat32(a + 12, true),
-      held: view.u8[L.PG_S + L.MP_HOLD + i], gold: i === st.gold });
+      held: view.u8[L.PG_S + MC.MP_HOLD + i], gold: i === st.gold });
   }
   return out;
 }
@@ -88,7 +89,7 @@ export function claims(pads, centres, pos) {
   return hold;
 }
 // The claims slot p has lived through this round (MP_WON, the confirmed world's).
-export const survived = (view, p) => view.u8[L.PG_S + L.MP_WON + p];
+export const survived = (view, p) => view.u8[L.PG_S + MC.MP_WON + p];
 // Is the ball at record b in (live, not out, not falling)?
 const inAt = (view, b) => (view.u8[b + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_FALL)) === L.PF_LIVE;
 
@@ -109,7 +110,7 @@ const look = { spin: 0, w: 0, at: -1, tp: -1, me: null }; // the record's turn, 
 function record(out, st, tp, now) {
   const sc = out.scene, cx = st.cx;
   const rim = tp < 0 ? st.r0 : rimAt(st, tp);
-  const warn = tp >= 0 && st.rimB < st.rimA && tp >= st.rimT - L.MP_SHRINK0 && rim > st.rimB + 0.01;
+  const warn = tp >= 0 && st.rimB < st.rimA && tp >= st.rimT - MC.MP_SHRINK0 && rim > st.rimB + 0.01;
   const inner = warn ? st.rimB : rim;
   sc.cyl(cx, PLAT_Y - HH, cx, inner, HH, 0.035, 0.035, 0.045, LOOK.RUBBER);
   if (warn) sc.cyl(cx, PLAT_Y - HH - 0.01, cx, rim, HH, 0.9, 0.22, 0.12, LOOK.HAZARD, 0.9);
@@ -133,7 +134,7 @@ function record(out, st, tp, now) {
   if (tp >= 0 && st.rimB < st.rimA && tp > st.rimT) {
     const span = st.rimA - st.rimB;
     for (let r = st.rimA - 0.75; r > st.rimB; r -= 1.5) {
-      const passed = st.rimT + L.MP_SHRINKT * (st.rimA - r) / span;
+      const passed = st.rimT + MC.MP_SHRINKT * (st.rimA - r) / span;
       const age = (tp - passed) * TICK;
       if (age < 0 || age > 1.1) continue;
       const m = Math.max(12, Math.round(2 * Math.PI * r / 3));
@@ -186,7 +187,7 @@ function pads(view, ctx, out, st, tp, ph) {
   const urgency = ph === SCRAMBLE ? 1 - left / Math.max(1, st.claim - st.stop) : 1;
   const pulse = 0.5 + 0.5 * Math.sin(tp * TICK * Math.PI * 2 * (1.5 + 5 * urgency));
   const born = ph === SCRAMBLE ? Math.min(1, (tp - st.stop) / 12) : 1;
-  const fade = ph === PAUSE ? Math.max(0, 1 - (tp - st.claim) / L.MP_PAUSE) : 1;
+  const fade = ph === PAUSE ? Math.max(0, 1 - (tp - st.claim) / MC.MP_PAUSE) : 1;
   for (let i = 0; i < list.length; i++) {
     const p = list[i], [x, z] = centres[i], h = hold[i];
     const rgb = h !== 255 ? slotColor(h) : p.gold ? GOLD : FREE;
@@ -268,7 +269,7 @@ function worldOf(view, st) {
       if (dd < n1[i]) { n2[i] = n1[i]; n1[i] = dd; s1[i] = p; } else if (dd < n2[i]) n2[i] = dd;
     }
   }
-  const keep = world && world.cycleKey === `${st.t0}:${st.cycle}` ? world.claimed : new Uint16Array(L.MP_NMAX);
+  const keep = world && world.cycleKey === `${st.t0}:${st.cycle}` ? world.claimed : new Uint16Array(MC.MP_NMAX);
   world = { key, buf: view.dv.buffer, list, at, n1, s1, n2, balls, claimed: keep, cycleKey: `${st.t0}:${st.cycle}` };
   return world;
 }
@@ -438,21 +439,21 @@ export default {
   },
 
   fx(fx, ctx) {
-    if (fx.kind === L.MP_FX_STOP) {
+    if (fx.kind === MC.MP_FX_STOP) {
       ctx.banner?.('THE MUSIC STOPPED!', C.YELLOW, 1300);
       ctx.sound?.shot?.(false);
       ctx.sound?.count?.(0);
-    } else if (fx.kind === L.MP_FX_CLAIM) {
+    } else if (fx.kind === MC.MP_FX_CLAIM) {
       if (fx.shot === 0) { ctx.banner?.('NOBODY MADE IT  AGAIN', C.ORANGE, 1800); return; }
       if (fx.owner !== 255) { ctx.banner?.(`A POINT TO ${ctx.name?.(fx.owner) ?? `P${fx.owner + 1}`}`, C.YELLOW, 1600); ctx.sound?.pickup?.(); return; }
       ctx.sound?.land?.(24);
       if (fx.size) ctx.feed?.(`${fx.size} OUT AT THE CLAIM`, C.GREY);
-      const me = ctx.slot >= 0 ? ctx.view?.u8?.[L.PG_S + L.MP_PADOF + ctx.slot] : 255;
+      const me = ctx.slot >= 0 ? ctx.view?.u8?.[L.PG_S + MC.MP_PADOF + ctx.slot] : 255;
       if (me !== undefined && me !== 255) { ctx.banner?.('SAFE!', C.GREEN, 1200); ctx.sound?.pickup?.(); }
-    } else if (fx.kind === L.MP_FX_CLOSE) {
+    } else if (fx.kind === MC.MP_FX_CLOSE) {
       // the HUD says so while it closes
       ctx.sound?.tick?.();
-    } else if (fx.kind === L.MP_FX_MUSIC && fx.shot > 0) {
+    } else if (fx.kind === MC.MP_FX_MUSIC && fx.shot > 0) {
       ctx.sound?.tick?.();
     }
   },
@@ -480,12 +481,12 @@ export default {
     if (g.left === 2 && st.npad === 1) {
       const two = [];
       for (let p = 0; p < L.NPLAYER && two.length < 2; p++) { const b = L.PLAYERS + p * L.PSIZE; if ((view.u8[b + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === L.PF_LIVE) two.push(p); }
-      if (two.length === 2) final = `${name(two[0])} ${view.u8[L.PG_S + L.MP_FINAL + two[0]]} - ${view.u8[L.PG_S + L.MP_FINAL + two[1]]} ${name(two[1])}`;
+      if (two.length === 2) final = `${name(two[0])} ${view.u8[L.PG_S + MC.MP_FINAL + two[0]]} - ${view.u8[L.PG_S + MC.MP_FINAL + two[1]]} ${name(two[1])}`;
     }
     if (ph === MUSIC) {
       const k = Math.floor(tp / 30) % 4;
       ctx.centre(row, `${' '.repeat(k)}~ MUSIC ~${' '.repeat(3 - k)}`, C.PURPLE);
-      if (final) ctx.centre(row + 1, `FINAL  ${final}  FIRST TO ${L.MP_FINALS}`, C.YELLOW);
+      if (final) ctx.centre(row + 1, `FINAL  ${final}  FIRST TO ${MC.MP_FINALS}`, C.YELLOW);
       else if (tp < st.next) ctx.centre(row + 1, st.npad === 1 ? 'ONE PAD WHEN IT STOPS' : `${st.npad} PADS WHEN IT STOPS`, C.GREY);
     } else if (ph === SCRAMBLE) {
       const left = (st.claim - tp) * TICK;
@@ -515,7 +516,7 @@ export default {
       if (final && st.lost === 0 && st.held === 1) ctx.centre(row, `FINAL  ${final}`, C.YELLOW);
       else if (st.held) ctx.centre(row, st.lost === 1 ? '1 OUT' : `${st.lost} OUT`, C.WHITE);
     }
-    if (st.rimB < st.rimA && tp >= st.rimT - L.MP_SHRINK0 && tp < st.rimT + L.MP_SHRINKT) ctx.centre(row + 3, 'THE FLOOR CLOSES IN', C.ORANGE);
+    if (st.rimB < st.rimA && tp >= st.rimT - MC.MP_SHRINK0 && tp < st.rimT + MC.MP_SHRINKT) ctx.centre(row + 3, 'THE FLOOR CLOSES IN', C.ORANGE);
     ctx.right(3, `SONG ${st.cycle + 1}  PADS ${st.npad}` + (playing ? `  CLAIMS ${survived(view, ctx.slot)}` : ''), C.GREY);
   },
 

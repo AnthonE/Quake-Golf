@@ -6,12 +6,13 @@ import { replay, parseLog, encodeLog, decodeTrace, newMemory, instantiate, Sim }
 import { startWorkers } from '../harness/run-node.mjs';
 import { Partier } from '../client/party-bot.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/pads.mjs'; // MP_*: the minigame's own constants
 import pads, { stage, padsFor, rimAt, phaseOf, PHASE, padsOf, padAt, claims, survived } from '../client/mg/pads.mjs';
 
 const C = L.B_CX;
 const TICK = 0.008;
 const f = Math.fround;
-const rad = (n) => f(Math.min(f(f(f(Math.sqrt(n)) * f(L.MP_RK)) + L.MP_R0), L.MP_RMAX));
+const rad = (n) => f(Math.min(f(f(f(Math.sqrt(n)) * f(MC.MP_RK)) + MC.MP_R0), MC.MP_RMAX));
 
 // A room of n balls on Musical Pads, on the debug build (a NaN traps), stepped into play.
 async function room(n = 2, { play = true, seed = 7 } = {}) {
@@ -40,9 +41,9 @@ const playT = (g) => g.v.party().t; // the tick into play the next step plays
 const stepTo = (g, t, recs) => { while (playT(g) < t) g.step(recs?.()); };
 const fxs = (v, kind, from = 0) => { const out = []; for (let k = from; k < v.fxCount(); k++) { const x = v.fx(k); if (x.kind === kind) out.push(x); } return out; };
 const ends = (g) => padsOf(g.v, stage(g.v)).map((p) => [p.x1, p.z1]);
-const won = (g, p) => g.v.u8[L.PG_S + L.MP_FINAL + p];
+const won = (g, p) => g.v.u8[L.PG_S + MC.MP_FINAL + p];
 // A spot on the floor at least `pad` m from every pad's end and `gap` m from each of `away`, nearest (x, z).
-function offPads(g, away = [], { pad = L.MP_PAD_R + 1.5, gap = 3, x = C, z = C } = {}) {
+function offPads(g, away = [], { pad = MC.MP_PAD_R + 1.5, gap = 3, x = C, z = C } = {}) {
   const list = ends(g), r = stage(g.v).rimB - 2;
   let best = null, bd = Infinity;
   for (let k = 0; k < 2000; k++) {
@@ -73,13 +74,13 @@ test('the stage for 1, 8, 64 and 256: a floor sized for the crowd, every ball on
     assert.equal(r.size, rad(n), `${r.size} m for ${n}`);
     assert.ok(r.size > last, 'grows with the crowd');
     last = r.size;
-    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.hop], [L.PK_OUT, L.MP_LEN, PLAT_Y, f(L.MP_IDLE), 6]);
+    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.hop], [L.PK_OUT, MC.MP_LEN, PLAT_Y, f(MC.MP_IDLE), 6]);
     const st = stage(g.v);
     assert.deepEqual([st.r0, st.rimA, st.rimB, st.rimT], [r.size, r.size, r.size, 0]);
     for (let p = 0; p < n; p++) {
       const b = g.v.partier(p);
       assert.ok(b.ground && !b.out && b.pos[1] === PLAT_Y);
-      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) <= r.size * L.MP_SPAWN + 1e-3, 'on the middle of the floor');
+      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) <= r.size * MC.MP_SPAWN + 1e-3, 'on the middle of the floor');
       for (let q = 0; q < p; q++) {
         const o = g.v.partier(q);
         assert.ok(Math.hypot(b.pos[0] - o.pos[0], b.pos[2] - o.pos[2]) >= 2, `${n}: P${p + 1} and P${q + 1} apart`);
@@ -91,25 +92,25 @@ test('the stage for 1, 8, 64 and 256: a floor sized for the crowd, every ball on
     const s = stage(g.v);
     const m = s.stop - s.start;
     assert.equal(s.start, 0);
-    assert.equal(m, L.MP_M0 + pseed(g.v, L.MP_KMUSIC) % (L.MP_M1 - L.MP_M0 + 1), 'the song\'s length from $p_seed');
-    assert.equal(s.claim - s.stop, n >= L.MP_FEW ? L.MP_WIN : L.MP_WIN1);
-    assert.equal(s.next, s.claim + L.MP_PAUSE);
+    assert.equal(m, MC.MP_M0 + pseed(g.v, MC.MP_KMUSIC) % (MC.MP_M1 - MC.MP_M0 + 1), 'the song\'s length from $p_seed');
+    assert.equal(s.claim - s.stop, n >= MC.MP_FEW ? MC.MP_WIN : MC.MP_WIN1);
+    assert.equal(s.next, s.claim + MC.MP_PAUSE);
     assert.equal(s.npad, padsFor(n));
     assert.equal(s.n, n);
-    assert.equal(s.glides, n <= L.MP_GLIDEN ? 1 : 0);
+    assert.equal(s.glides, n <= MC.MP_GLIDEN ? 1 : 0);
     assert.ok(s.npad >= 2 ? s.gold < s.npad : s.gold === 255, `gold ${s.gold}`);
     const list = padsOf(g.v, s);
-    const ru = r.size - L.MP_EDGE + 1e-3;
+    const ru = r.size - MC.MP_EDGE + 1e-3;
     let near = Infinity;
     for (const p of list) {
       assert.ok(Math.hypot(p.x0 - C, p.z0 - C) <= ru && Math.hypot(p.x1 - C, p.z1 - C) <= ru, 'in from the rim');
       const glide = Math.hypot(p.x1 - p.x0, p.z1 - p.z0);
-      if (s.glides) assert.ok(glide <= L.MP_GLIDE + 1e-3 && glide > 0.5, `glides ${glide.toFixed(2)} m`);
+      if (s.glides) assert.ok(glide <= MC.MP_GLIDE + 1e-3 && glide > 0.5, `glides ${glide.toFixed(2)} m`);
       else assert.equal(glide, 0);
       for (const o of list) if (o !== p) near = Math.min(near, Math.hypot(p.x0 - o.x0, p.z0 - o.z0));
     }
-    if (list.length > 1) assert.ok(near >= L.MP_GAP, `${n}: pads ${near.toFixed(2)} m apart at least`);
-    const music = fxs(g.v, L.MP_FX_MUSIC, k0);
+    if (list.length > 1) assert.ok(near >= MC.MP_GAP, `${n}: pads ${near.toFixed(2)} m apart at least`);
+    const music = fxs(g.v, MC.MP_FX_MUSIC, k0);
     assert.equal(music.length, 1);
     assert.deepEqual([music[0].owner, music[0].shot, music[0].size], [255, 0, s.npad]);
   }
@@ -131,9 +132,9 @@ test('the music, then the pads light (laid out a song before, unchanged), the sc
   stepTo(g, s.stop - 1);
   assert.equal(pads.music(g.v, g.v.tick), true);
   g.step();
-  assert.equal(fxs(g.v, L.MP_FX_STOP, k0).length, 0, 'quiet through the music');
+  assert.equal(fxs(g.v, MC.MP_FX_STOP, k0).length, 0, 'quiet through the music');
   g.step();
-  const stop = fxs(g.v, L.MP_FX_STOP, k0);
+  const stop = fxs(g.v, MC.MP_FX_STOP, k0);
   assert.equal(stop.length, 1);
   assert.deepEqual([stop[0].tick - g.v.party().start, stop[0].shot, stop[0].size], [s.stop, 0, s.claim - s.stop]);
   assert.equal(pads.music(g.v, g.v.tick), false, 'the music stops with it');
@@ -149,9 +150,9 @@ test('the music, then the pads light (laid out a song before, unchanged), the sc
   const was = inNow(g.v);
   g.step();
   const holdJs = claims(padsOf(g.v), ends(g), judged(g, was));
-  const claim = fxs(g.v, L.MP_FX_CLAIM, k0);
+  const claim = fxs(g.v, MC.MP_FX_CLAIM, k0);
   assert.equal(claim.length, 1);
-  const hold = g.sim.u8.slice(L.PG_S + L.MP_HOLD, L.PG_S + L.MP_HOLD + s.npad);
+  const hold = g.sim.u8.slice(L.PG_S + MC.MP_HOLD, L.PG_S + MC.MP_HOLD + s.npad);
   assert.deepEqual([...hold], [...holdJs], 'the JS claims as the sim makes them');
   const held = [...hold].filter((h) => h !== 255).length;
   assert.deepEqual([...hold].slice(0, 3), [0, 1, 2]);
@@ -163,7 +164,7 @@ test('the music, then the pads light (laid out a song before, unchanged), the sc
   assert.equal(t.cycle, 1);
   assert.equal(t.start, s.next);
   assert.equal(pads.music(g.v, g.v.tick), true);
-  assert.equal(fxs(g.v, L.MP_FX_MUSIC, k0).length, 1);
+  assert.equal(fxs(g.v, MC.MP_FX_MUSIC, k0).length, 1);
 });
 
 test('the claim: each pad to the ball nearest its centre, on it, near the floor; the rest out together, sharing the place', async () => {
@@ -180,10 +181,10 @@ test('the claim: each pad to the ball nearest its centre, on it, near the floor;
   g.step();
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.partier(p).out), [false, true, false, true]);
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.partier(p).place), [0, 4, 0, 4], 'out on one tick: one place');
-  assert.deepEqual([...g.sim.u8.slice(L.PG_S + L.MP_HOLD, L.PG_S + L.MP_HOLD + 3)], [0, 2, 255]);
-  assert.deepEqual([0, 1, 2, 3].map((p) => g.v.u8[L.PG_S + L.MP_PADOF + p]), [0, 255, 1, 255]);
+  assert.deepEqual([...g.sim.u8.slice(L.PG_S + MC.MP_HOLD, L.PG_S + MC.MP_HOLD + 3)], [0, 2, 255]);
+  assert.deepEqual([0, 1, 2, 3].map((p) => g.v.u8[L.PG_S + MC.MP_PADOF + p]), [0, 255, 1, 255]);
   assert.deepEqual([0, 1, 2, 3].map((p) => survived(g.v, p)), [1, 0, 1, 0]);
-  const claim = fxs(g.v, L.MP_FX_CLAIM, k0)[0];
+  const claim = fxs(g.v, MC.MP_FX_CLAIM, k0)[0];
   assert.deepEqual([claim.owner, claim.shot, claim.size], [255, 2, 2]);
   assert.equal(fxs(g.v, L.FX_SINK, k0).length, 2);
   assert.deepEqual([stage(g.v).held, stage(g.v).lost, g.v.party().left], [2, 2, 2]);
@@ -206,7 +207,7 @@ test('a gliding pad is claimed where it has glided to; the gold pad\'s holder ge
   put(g, 3, list[others[2]].x0, list[others[2]].z0); // where the pad that glid furthest lit, not where it went
   put(g, 4, C + 200, C, { y: PLAT_Y - 5, ground: false }); // gone over the edge, falling
   g.dv.setUint8(rec(4) + L.P_FL, L.PF_LIVE | L.PF_FALL);
-  assert.ok(Math.hypot(list[others[2]].x1 - list[others[2]].x0, list[others[2]].z1 - list[others[2]].z0) > L.MP_PAD_R + 1, 'it glided off');
+  assert.ok(Math.hypot(list[others[2]].x1 - list[others[2]].x0, list[others[2]].z1 - list[others[2]].z0) > MC.MP_PAD_R + 1, 'it glided off');
   const k0 = g.v.fxCount();
   g.step();
   assert.deepEqual([0, 1, 2, 3, 4].map((p) => g.v.partier(p).out), [false, false, false, true, true]);
@@ -228,7 +229,7 @@ test('nobody on a pad: nobody is out, and the song plays again', async () => {
   const k0 = g.v.fxCount();
   g.step();
   assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).out), [false, false, false]);
-  assert.deepEqual([fxs(g.v, L.MP_FX_CLAIM, k0)[0].shot, fxs(g.v, L.MP_FX_CLAIM, k0)[0].size], [0, 0]);
+  assert.deepEqual([fxs(g.v, MC.MP_FX_CLAIM, k0)[0].shot, fxs(g.v, MC.MP_FX_CLAIM, k0)[0].size], [0, 0]);
   assert.equal(stage(g.v).rimB, stage(g.v).r0, 'the floor stays');
   stepTo(g, s.next + 1);
   assert.equal(stage(g.v).npad, s.npad, 'the same again');
@@ -248,7 +249,7 @@ test('the final: the last two play for two claims of the one pad', async () => {
     put(g, 1 - who, C + (x - C) / d * (d - 6), C + (z - C) / d * (d - 6));
     const k0 = g.v.fxCount();
     g.step();
-    const claim = fxs(g.v, L.MP_FX_CLAIM, k0)[0];
+    const claim = fxs(g.v, MC.MP_FX_CLAIM, k0)[0];
     assert.deepEqual([claim.owner, claim.shot], [who, 1]);
     tally.push([won(g, 0), won(g, 1), g.v.partier(0).out, g.v.partier(1).out]);
     if (g.v.party().state !== L.H_PLAY) break;
@@ -275,10 +276,10 @@ test('two left of three after the stop, two pads lit: a claim of one is no final
   const [a, b] = ends(g);
   put(g, 0, a[0], a[1]);
   put(g, 1, ...offPads(g));
-  assert.ok(Math.hypot(g.v.partier(1).pos[0] - b[0], g.v.partier(1).pos[2] - b[1]) > L.MP_PAD_R, 'P2 off pad 1 as well');
+  assert.ok(Math.hypot(g.v.partier(1).pos[0] - b[0], g.v.partier(1).pos[2] - b[1]) > MC.MP_PAD_R, 'P2 off pad 1 as well');
   const k0 = g.v.fxCount();
   g.step();
-  const claim = fxs(g.v, L.MP_FX_CLAIM, k0)[0];
+  const claim = fxs(g.v, MC.MP_FX_CLAIM, k0)[0];
   assert.deepEqual([claim.owner, claim.shot, claim.size], [255, 1, 1], 'no final\'s point: one out');
   assert.deepEqual([won(g, 0), won(g, 1)], [0, 0]);
   assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).out), [false, true, true]);
@@ -309,7 +310,7 @@ test('the floor closes in after a claim to fit the balls left: a ball on the rin
   g.step();
   s = stage(g.v);
   assert.equal(g.v.party().left, 8);
-  assert.deepEqual([s.rimA, s.rimB, s.rimT], [rad(16), rad(8), s.claim + L.MP_SHRINK0]);
+  assert.deepEqual([s.rimA, s.rimB, s.rimT], [rad(16), rad(8), s.claim + MC.MP_SHRINK0]);
   assert.equal(g.v.party().size, rad(8));
   // P1 still on the ring the floor loses, P2 inside the rim to come, both away from the rest
   const rr = (rad(16) + rad(8)) / 2;
@@ -322,22 +323,22 @@ test('the floor closes in after a claim to fit the balls left: a ball on the rin
   put(g, 0, C + Math.cos(a0) * rr, C + Math.sin(a0) * rr);
   put(g, 1, C + Math.cos(a0) * (rad(8) - 2), C + Math.sin(a0) * (rad(8) - 2));
   let fell = -1;
-  for (let k = 0; k < L.MP_SHRINK0 + L.MP_SHRINKT + 20; k++) {
+  for (let k = 0; k < MC.MP_SHRINK0 + MC.MP_SHRINKT + 20; k++) {
     const t = playT(g);
     g.step();
     if (fell < 0 && !g.v.partier(0).ground) fell = t;
     assert.ok(g.v.partier(1).ground, 'inside it stays up');
   }
-  const passed = s.rimT + L.MP_SHRINKT * (s.rimA - rr) / (s.rimA - s.rimB);
+  const passed = s.rimT + MC.MP_SHRINKT * (s.rimA - rr) / (s.rimA - s.rimB);
   assert.ok(Math.abs(fell - passed) <= 2, `fell at ${fell}, the rim passed at ${passed.toFixed(1)}`);
-  for (let t = s.rimT - 3; t < s.rimT + L.MP_SHRINKT + 3; t++) assert.ok(rimAt(s, t) <= s.rimA && rimAt(s, t) >= s.rimB);
-  const close = fxs(g.v, L.MP_FX_CLOSE, k0);
+  for (let t = s.rimT - 3; t < s.rimT + MC.MP_SHRINKT + 3; t++) assert.ok(rimAt(s, t) <= s.rimA && rimAt(s, t) >= s.rimB);
+  const close = fxs(g.v, MC.MP_FX_CLOSE, k0);
   assert.equal(close.length, 1);
   assert.deepEqual([close[0].tick - g.v.party().start, close[0].size], [s.rimT, rad(8)]);
   for (let k = 0; k < 200 && !g.v.partier(0).out; k++) g.step();
   assert.ok(g.v.partier(0).out, 'out');
   // the next song's pads inside the floor it closed to
-  for (const p of padsOf(g.v)) assert.ok(Math.hypot(p.x0 - C, p.z0 - C) <= rad(8) - L.MP_EDGE + 1e-3);
+  for (const p of padsOf(g.v)) assert.ok(Math.hypot(p.x0 - C, p.z0 - C) <= rad(8) - MC.MP_EDGE + 1e-3);
 });
 
 test('the prediction matches the confirmed ball bit for bit: rolling through the music and the scramble, a claim it survives, the rim closing in under it', async () => {
@@ -408,11 +409,11 @@ async function aiRound({ bytes, seed, balls, ticks, delay = 8 }) {
     if (was) {
       const list = padsOf(v, st);
       const js = claims(list, list.map((p) => padAt(st, p, st.claim)), (p) => { const b = v.partier(p); return was.has(p) && !b.falling ? b.pos : null; });
-      assert.deepEqual([...sim.u8.slice(L.PG_S + L.MP_HOLD, L.PG_S + L.MP_HOLD + js.length)], [...js]);
+      assert.deepEqual([...sim.u8.slice(L.PG_S + MC.MP_HOLD, L.PG_S + MC.MP_HOLD + js.length)], [...js]);
       stats.mirror++;
     }
     const g = v.party();
-    for (; seen < v.fxCount(); seen++) { const x = v.fx(seen); if (x.kind === L.MP_FX_CLAIM) stats.claims.push([x.shot, x.size]); }
+    for (; seen < v.fxCount(); seen++) { const x = v.fx(seen); if (x.kind === MC.MP_FX_CLAIM) stats.claims.push([x.shot, x.size]); }
     if (stats.start < 0 && g.state === L.H_PLAY) stats.start = t;
     if (stats.over < 0 && stats.start >= 0 && g.state === L.H_OVER) {
       stats.over = t;
@@ -431,7 +432,7 @@ for (const [balls, ticks] of [[8, 8000], [64, 16000]]) {
     assert.equal(sim.error().code, 0);
     assert.ok(stats.over > 0, 'the round ended');
     const secs = (stats.over - stats.start) * TICK;
-    assert.ok(secs > (balls > 8 ? 40 : 20) && secs < L.MP_LEN * TICK, `${secs.toFixed(1)} s of play`);
+    assert.ok(secs > (balls > 8 ? 40 : 20) && secs < MC.MP_LEN * TICK, `${secs.toFixed(1)} s of play`);
     assert.ok(stats.claims.length >= 4, `${stats.claims.length} claims`);
     assert.ok(stats.mirror === stats.claims.length, 'every claim as the JS has it');
     const pads0 = padsFor(balls);

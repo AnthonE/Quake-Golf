@@ -10,63 +10,64 @@
 // own ball is drawn at; a coin your predicted ball rolls into is hidden at
 // once, before the take comes back from the confirmed world.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/coins.mjs'; // CR_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
-const YL = Math.fround(PLAT_Y + L.CR_CY); // a lying coin's centre, the sim's f32
+const YL = Math.fround(PLAT_Y + MC.CR_CY); // a lying coin's centre, the sim's f32
 const GOLD = [1, 0.8, 0.22];
 const COIN_R = 0.42, BIG_R = 0.66; // drawn radii, m
-const WAIT = [0, L.CR_LOOSE, L.CR_JWAIT]; // by kind: ticks after its throw before a coin is anyone's
+const WAIT = [0, MC.CR_LOOSE, MC.CR_JWAIT]; // by kind: ticks after its throw before a coin is anyone's
 // Ticks into play at tick T (fractional) of a round started on tick start: the sim's i32 subtraction wraps.
 const since = (T, start) => ((Math.floor(T) - start) | 0) + (T - Math.floor(T));
 const ordinal = (n) => `${n}${[, 'ST', 'ND', 'RD'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'TH'}`;
 
 // ---- the stage, read from the sim (its own state is the confirmed world's: bank 0 always)
 
-const radius = (view) => view.dv.getFloat32(L.PG_H + L.CR_RAD, true);
+const radius = (view) => view.dv.getFloat32(L.PG_H + MC.CR_RAD, true);
 const centre = (view) => view.dv.getFloat32(L.PG_CX, true);
 export function bumpers(view) {
-  const n = Math.min(L.CR_NBMAX, view.dv.getUint32(L.PG_H + L.CR_NB, true));
+  const n = Math.min(MC.CR_NBMAX, view.dv.getUint32(L.PG_H + MC.CR_NB, true));
   const out = [];
   for (let i = 0; i < n; i++) {
-    const a = L.PG_S + L.CR_BUMP + 16 * i;
+    const a = L.PG_S + MC.CR_BUMP + 16 * i;
     out.push({ i, x: view.dv.getFloat32(a, true), z: view.dv.getFloat32(a + 4, true), litAt: view.dv.getUint32(a + 8, true), hits: view.dv.getUint32(a + 12, true) });
   }
   return out;
 }
 // Jackpot j erupts this many ticks into play.
-export const jackAt = (j) => L.CR_JACK0 + j * L.CR_JACKP;
+export const jackAt = (j) => MC.CR_JACK0 + j * MC.CR_JACKP;
 // The jackpot about play tick tp: the next to erupt (or the one just gone,
 // within a second), whether it's been called, its spot, its coins.
 export function jackpot(view, tp) {
   const len = view.dv.getUint32(L.PG_LEN, true);
-  let j = Math.max(0, Math.ceil((tp - L.CR_JACK0 - 125) / L.CR_JACKP));
+  let j = Math.max(0, Math.ceil((tp - MC.CR_JACK0 - 125) / MC.CR_JACKP));
   if (jackAt(j) >= len) return null;
-  const called = view.dv.getUint32(L.PG_H + L.CR_JK, true) > j;
+  const called = view.dv.getUint32(L.PG_H + MC.CR_JK, true) > j;
   const live = view.dv.getUint32(L.HDR_LIVE, true);
   return {
-    j, at: jackAt(j), called, x: view.dv.getFloat32(L.PG_H + L.CR_JX, true), z: view.dv.getFloat32(L.PG_H + L.CR_JZ, true),
-    n: Math.min(L.CR_JACKMAX, L.CR_JACKN0 + Math.floor(live / L.CR_JACKNK)),
+    j, at: jackAt(j), called, x: view.dv.getFloat32(L.PG_H + MC.CR_JX, true), z: view.dv.getFloat32(L.PG_H + MC.CR_JZ, true),
+    n: Math.min(MC.CR_JACKMAX, MC.CR_JACKN0 + Math.floor(live / MC.CR_JACKNK)),
   };
 }
-export const frenzy = (tp) => tp >= L.CR_FRENZY;
+export const frenzy = (tp) => tp >= MC.CR_FRENZY;
 
 // Every coin in the records: { c, x, z (where it lies), x0, y0, z0, h, t0, air, v, kind, ready (the tick it is
 // anyone's, lying or low enough), gone (the tick it goes) }, once a world tick.
 export function coins(view) {
   if (view._cr?.tick === view.tick) return view._cr.list;
   const dv = view.dv, list = [];
-  for (let c = 0; c < L.CR_MAX; c++) {
-    const a = L.PG_BIG + L.CR_COINS + c * L.CR_CSIZE;
-    const v = view.u8[a + L.CR_C_V];
+  for (let c = 0; c < MC.CR_MAX; c++) {
+    const a = L.PG_BIG + MC.CR_COINS + c * MC.CR_CSIZE;
+    const v = view.u8[a + MC.CR_C_V];
     if (!v) continue;
-    const t0 = dv.getUint32(a + L.CR_C_T0, true), air = dv.getUint16(a + L.CR_C_AIR, true), kind = view.u8[a + L.CR_C_KIND];
+    const t0 = dv.getUint32(a + MC.CR_C_T0, true), air = dv.getUint16(a + MC.CR_C_AIR, true), kind = view.u8[a + MC.CR_C_KIND];
     list.push({
-      c, v, kind, t0, air, x: dv.getFloat32(a + L.CR_C_X, true), z: dv.getFloat32(a + L.CR_C_Z, true),
-      x0: dv.getFloat32(a + L.CR_C_X0, true), y0: dv.getFloat32(a + L.CR_C_Y0, true), z0: dv.getFloat32(a + L.CR_C_Z0, true), h: dv.getFloat32(a + L.CR_C_H, true),
-      ready: t0 + Math.max(WAIT[kind] ?? 0, air - 8), gone: t0 + air + L.CR_LIFE,
+      c, v, kind, t0, air, x: dv.getFloat32(a + MC.CR_C_X, true), z: dv.getFloat32(a + MC.CR_C_Z, true),
+      x0: dv.getFloat32(a + MC.CR_C_X0, true), y0: dv.getFloat32(a + MC.CR_C_Y0, true), z0: dv.getFloat32(a + MC.CR_C_Z0, true), h: dv.getFloat32(a + MC.CR_C_H, true),
+      ready: t0 + Math.max(WAIT[kind] ?? 0, air - 8), gone: t0 + air + MC.CR_LIFE,
     });
   }
   view._cr = { tick: view.tick, list };
@@ -83,8 +84,8 @@ export function coinAt(k, t) {
 function reaches(k, t, x, y, z, r = 1) {
   if (t < k.t0 + (WAIT[k.kind] ?? 0) || t >= k.gone) return false;
   const p = coinAt(k, t);
-  if (p[1] > PLAT_Y + L.CR_GRABH) return false;
-  const R = r + L.CR_REACH;
+  if (p[1] > PLAT_Y + MC.CR_GRABH) return false;
+  const R = r + MC.CR_REACH;
   return (p[0] - x) ** 2 + (p[1] - y - r) ** 2 + (p[2] - z) ** 2 < R * R;
 }
 
@@ -127,17 +128,17 @@ export default {
     table(out, cx, R, now);
     // the bumpers, pinball posts: a red skirt, a band glowing gold while lit (dark while it recharges,
     // blinking its last second back), a white cap; white-hot as it throws
-    const H = L.CR_BH;
+    const H = MC.CR_BH;
     for (const b of bumpers(view)) {
       const lit = !playing || tp >= b.litAt;
       const flash = Math.max(0, 1 - (now - (hitAt.get(b.i) ?? -1e9)) / 180);
       const soon = !lit && b.litAt - tp < 125 && Math.sin(now / 60) > 0;
       const pulse = 0.5 + 0.5 * Math.sin(now / 200 + b.i);
-      out.scene.cyl(b.x, PLAT_Y + 0.2, b.z, L.CR_BR, 0.2, 0.86, 0.13, 0.12, LOOK.PLASTIC);
-      if (lit || soon) out.scene.cyl(b.x, PLAT_Y + 0.4 + (H - 0.6) / 2, b.z, L.CR_BR * 0.9, (H - 0.6) / 2, 1, 0.8 + 0.1 * pulse, 0.3, LOOK.GLOW, 0.9 + 0.5 * pulse + 2 * flash, 0.3);
-      else out.scene.cyl(b.x, PLAT_Y + 0.4 + (H - 0.6) / 2, b.z, L.CR_BR * 0.9, (H - 0.6) / 2, 0.3 + 0.7 * flash, 0.08 + 0.7 * flash, 0.1 + 0.7 * flash, flash > 0 ? LOOK.GLOW : LOOK.PLASTIC, 2 * flash);
-      out.scene.cyl(b.x, PLAT_Y + H - 0.1, b.z, L.CR_BR, 0.1, 0.96, 0.95, 0.92, LOOK.PLASTIC);
-      out.decals.push({ pos: [b.x, PLAT_Y + 0.03, b.z], radius: L.CR_BR + 0.55, width: 0.25, color: lit ? [1, 0.85, 0.3, 0.8] : [0.8, 0.2, 0.15, 0.45], kind: DECAL.RING });
+      out.scene.cyl(b.x, PLAT_Y + 0.2, b.z, MC.CR_BR, 0.2, 0.86, 0.13, 0.12, LOOK.PLASTIC);
+      if (lit || soon) out.scene.cyl(b.x, PLAT_Y + 0.4 + (H - 0.6) / 2, b.z, MC.CR_BR * 0.9, (H - 0.6) / 2, 1, 0.8 + 0.1 * pulse, 0.3, LOOK.GLOW, 0.9 + 0.5 * pulse + 2 * flash, 0.3);
+      else out.scene.cyl(b.x, PLAT_Y + 0.4 + (H - 0.6) / 2, b.z, MC.CR_BR * 0.9, (H - 0.6) / 2, 0.3 + 0.7 * flash, 0.08 + 0.7 * flash, 0.1 + 0.7 * flash, flash > 0 ? LOOK.GLOW : LOOK.PLASTIC, 2 * flash);
+      out.scene.cyl(b.x, PLAT_Y + H - 0.1, b.z, MC.CR_BR, 0.1, 0.96, 0.95, 0.92, LOOK.PLASTIC);
+      out.decals.push({ pos: [b.x, PLAT_Y + 0.03, b.z], radius: MC.CR_BR + 0.55, width: 0.25, color: lit ? [1, 0.85, 0.3, 0.8] : [0.8, 0.2, 0.15, 0.45], kind: DECAL.RING });
       if (lit && playing) out.glow.push({ pos: [b.x, PLAT_Y + H + 0.5, b.z], size: 1.6 + 0.4 * pulse, color: [1, 0.8, 0.3, 0.3], kind: SPRITE.FLASH, minpx: 1 });
     }
     const night = env === 'night';
@@ -145,9 +146,9 @@ export default {
     const jp = playing ? jackpot(view, tp) : null;
     if (jp?.called) {
       const left = (jp.at - tp) * TICK;
-      const r = L.CR_JACKR0 + L.CR_JACKRK * Math.sqrt(jp.n);
+      const r = MC.CR_JACKR0 + MC.CR_JACKRK * Math.sqrt(jp.n);
       if (left > 0) {
-        const k = 1 - left / (L.CR_JACKW * TICK);
+        const k = 1 - left / (MC.CR_JACKW * TICK);
         const beat = 0.5 + 0.5 * Math.sin(now / (160 - 100 * k));
         out.decals.push({ pos: [jp.x, PLAT_Y + 0.04, jp.z], radius: r, width: r, color: [1, 0.82, 0.25, 0.2 + 0.3 * k * beat], kind: DECAL.ZONE });
         out.decals.push({ pos: [jp.x, PLAT_Y + 0.05, jp.z], radius: r * (1 - 0.8 * k) + 0.6, width: 0.3, color: [1, 0.95, 0.6, 0.9], kind: DECAL.RING });
@@ -169,11 +170,11 @@ export default {
       // the last two seconds it blinks, faster as it goes
       const left = (k.gone - T) * TICK;
       if (left < 2 && Math.sin(now / (40 + 60 * left)) < -0.2) continue;
-      const big = k.v >= L.CR_BIGV;
+      const big = k.v >= MC.CR_BIGV;
       const r = big ? BIG_R : COIN_R;
       const p = coinAt(k, T);
       const lying = T - k.t0 >= k.air;
-      if (lying) p[1] += r - L.CR_CY + 0.12 + 0.07 * Math.sin(now / 280 + k.c);
+      if (lying) p[1] += r - MC.CR_CY + 0.12 + 0.07 * Math.sin(now / 280 + k.c);
       out.solid.push({ pos: p, size: r, color: big ? [1, 0.9, 0.42, 1] : [1, 0.78, 0.2, 1], kind: SPRITE.COIN, minpx: 1.5, roll: k.c * 0.77 });
       // big ones shine; at night (the frenzy) every one does
       if (big || night) out.glow.push({ pos: p, size: big ? 1.3 : 0.9, color: [1, 0.85, 0.35, big ? 0.3 : 0.25], kind: SPRITE.FLASH, minpx: 1 });
@@ -181,7 +182,7 @@ export default {
         // its shadow, and a ring where it will land, closing in as it comes down
         out.casters.push([p[0], p[1], p[2], -r * 1.2]);
         const u = (T - k.t0) / k.air;
-        if (k.kind === L.CR_KRAIN) out.decals.push({ pos: [k.x, PLAT_Y + 0.03, k.z], radius: 0.5 + 0.8 * (1 - u), width: 0.14, color: [1, 0.85, 0.3, 0.25 + 0.5 * u], kind: DECAL.RING });
+        if (k.kind === MC.CR_KRAIN) out.decals.push({ pos: [k.x, PLAT_Y + 0.03, k.z], radius: 0.5 + 0.8 * (1 - u), width: 0.14, color: [1, 0.85, 0.3, 0.25 + 0.5 * u], kind: DECAL.RING });
       }
     }
   },
@@ -195,20 +196,20 @@ export default {
   fx(f, ctx) {
     const mine = f.owner === ctx.slot;
     const d = typeof ctx.dist === 'function' ? ctx.dist(f.pos) : ctx.dist ?? 0;
-    if (f.kind === L.CR_FX_TAKE) {
-      if (f.shot >= L.CR_MAX) {
+    if (f.kind === MC.CR_FX_TAKE) {
+      if (f.shot >= MC.CR_MAX) {
         // a lit bumper's pay
         ctx.glow?.({ pos: f.pos, size: 3, color: [1, 0.85, 0.3, 0.9], kind: SPRITE.FLASH, life: 350, grow: true });
         if (mine) { ctx.sound?.kill?.(); ctx.banner?.(`+${f.size} BUMPER`, C.YELLOW, 700); }
         return;
       }
-      const big = f.size >= L.CR_BIGV;
+      const big = f.size >= MC.CR_BIGV;
       ctx.glow?.({ pos: f.pos, size: big ? 1.6 : 0.9, color: [1, 0.9, 0.4, 0.9], kind: SPRITE.SPARK, life: 260 });
       if (big) ctx.glow?.({ pos: f.pos, size: 2.2, color: [1, 0.85, 0.3, 0.6], kind: SPRITE.RING, life: 400, grow: true });
       if (mine) { if (big) ctx.sound?.kill?.(); else ctx.sound?.pickup?.(); }
       return;
     }
-    if (f.kind === L.CR_FX_LOSE) {
+    if (f.kind === MC.CR_FX_LOSE) {
       const fall = f.size > 0.5;
       ctx.glow?.({ pos: f.pos, size: fall ? 3 : 2, color: [1, 0.8, 0.3, 0.8], kind: SPRITE.RING, life: 450, grow: true });
       if (mine) ctx.banner?.(fall ? `FELL  -${f.shot} COINS` : `-${f.shot} ${f.shot === 1 ? 'COIN' : 'COINS'}`, C.RED, fall ? 1800 : 900);
@@ -216,7 +217,7 @@ export default {
       if (mine || d < 20) ctx.sound?.land?.(fall ? 30 : 18);
       return;
     }
-    if (f.kind === L.CR_FX_CALL) {
+    if (f.kind === MC.CR_FX_CALL) {
       if (f.shot === 0) { ctx.banner?.('JACKPOT CALLED  GET TO THE BEAM', C.YELLOW, 1800); ctx.sound?.count?.(1); }
       else if (f.shot === 1) {
         ctx.banner?.('JACKPOT!', C.YELLOW, 1200);
@@ -226,7 +227,7 @@ export default {
       } else if (f.shot === 2) { ctx.banner?.('COIN FRENZY!  DOUBLE RAIN', C.ORANGE, 2200); ctx.sound?.holed?.(); }
       return;
     }
-    if (f.kind === L.CR_FX_BUMP) {
+    if (f.kind === MC.CR_FX_BUMP) {
       hitAt.set(f.shot, ctx.now ?? performance.now());
       ctx.glow?.({ pos: f.pos, size: 1.8, color: [1, 0.95, 0.7, 0.9], kind: SPRITE.RING, life: 260, grow: true });
       ctx.sound?.boing?.(Math.max(6, f.size), mine ? 0 : d);
@@ -245,7 +246,7 @@ export default {
       else if (left > 0) ctx.right(3, `NEXT JACKPOT ${Math.ceil(left)}`, C.GREY);
     }
     if (frenzy(tp)) ctx.right(4, 'COIN FRENZY', Math.floor(ctx.now / 250) % 2 ? C.ORANGE : C.YELLOW);
-    else ctx.right(4, `FRENZY IN ${Math.ceil((L.CR_FRENZY - tp) * TICK)}`, C.GREY);
+    else ctx.right(4, `FRENZY IN ${Math.ceil((MC.CR_FRENZY - tp) * TICK)}`, C.GREY);
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     if (me?.live) {
       let place = 1, n = 0;
@@ -267,7 +268,7 @@ export default {
       if (d2 >= w.R * w.R) return 1;
       const e = w.R - Math.sqrt(d2);
       let d = e < 2.5 ? 0.5 * (2.5 - e) / 2.5 : 0;
-      if (d2 < w.ring2) for (const b of w.bumpers) if ((x - b.x) ** 2 + (z - b.z) ** 2 < (L.CR_BR + 1.1) ** 2) d = Math.max(d, 0.12);
+      if (d2 < w.ring2) for (const b of w.bumpers) if ((x - b.x) ** 2 + (z - b.z) ** 2 < (MC.CR_BR + 1.1) ** 2) d = Math.max(d, 0.12);
       return d;
     },
     goal(view, me, bot) {
@@ -314,7 +315,7 @@ function fieldOf(view) {
   const coinHead = new Int32Array(GN * GN).fill(-1), coinNext = new Int32Array(list.length);
   list.forEach((k, n) => {
     k.inside = R - Math.hypot(k.x - cx, k.z - cx);
-    k.key = k.t0 * L.CR_MAX + k.c;
+    k.key = k.t0 * MC.CR_MAX + k.c;
     const c = cell(k.x, k.z);
     coinNext[n] = -1;
     if (c >= 0) { coinNext[n] = coinHead[c]; coinHead[c] = n; }
@@ -329,7 +330,7 @@ function fieldOf(view) {
   const ballHead = new Int32Array(GN * GN).fill(-1), ballNext = new Int32Array(balls.length);
   balls.forEach((b, n) => { const c = cell(b.x, b.z); ballNext[n] = -1; if (c >= 0) { ballNext[n] = ballHead[c]; ballHead[c] = n; } });
   const bs = bumpers(view);
-  const ring = R * L.CR_BRING + L.CR_BR + 1.2;
+  const ring = R * MC.CR_BRING + MC.CR_BR + 1.2;
   const most = balls.reduce((m, b) => Math.max(m, b.score), 0);
   view._crf = { tick: view.tick, R, cx, o, list, coinHead, coinNext, balls, ballHead, ballNext, bumpers: bs, ring2: ring * ring, most };
   return view._crf;
@@ -395,8 +396,8 @@ function plan(view, me, bot) {
     if (tp < bp.litAt) continue;
     const dx = bp.x - x0, dz = bp.z - z0, d = Math.hypot(dx, dz) || 1;
     // the near side of it
-    const ex = bp.x - dx / d * (L.CR_BR + 0.6), ez = bp.z - dz / d * (L.CR_BR + 0.6);
-    consider(ex, ez, L.CR_BPAY * 0.8 / (eta(ex, ez) + 0.35), BUMPER, bp.i, R);
+    const ex = bp.x - dx / d * (MC.CR_BR + 0.6), ez = bp.z - dz / d * (MC.CR_BR + 0.6);
+    consider(ex, ez, MC.CR_BPAY * 0.8 / (eta(ex, ez) + 0.35), BUMPER, bp.i, R);
   }
   const jp = jackpot(view, tp);
   if (jp?.called && jp.at > tp) {
