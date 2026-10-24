@@ -4,6 +4,7 @@
 // reads each back with capture() (headless Chrome, ?present=0) into
 // traces/party-render-<scene>.png; in a browser it draws the one in ?scene=
 // (or flips through them all, a click for the next), moving.
+//   ?orbit=0 holds the camera still
 //   ?scene=looks  ?env=night (any scene, another backdrop)  ?scene=crowd~over (seen from high over the edge)  ?res=1280x800  ?present=0
 import { createRenderer, Scene, LOOK, SPRITE, COLS, DECAL, ENVS } from './party-render.mjs';
 import { put, C } from './font.mjs';
@@ -422,7 +423,8 @@ const SCENES = {
     for (let row = 0; row < 2; row++) {
       for (let k = 0; k < 6; k++) {
         const [x, z] = hexCentre(k - 3 + (row ? 0 : 0), row * 2 - 1, 2);
-        const a = (k + 1) / 6 * (row ? 1 : 0.84) - (row ? 0 : 0.14);
+        const live = q.get('present') !== '0' ? ((s.time || 0) * 0.4) % 1.2 : 0;
+        const a = Math.min(1, ((k + 1) / 6 * (row ? 1 : 0.84) - (row ? 0 : 0.14) + live) % 1.2);
         sc.hex(x, FLOOR - 0.25, z, 1.94, 0.25, 0, 0.74, 0.9, 1.0, LOOK.ICE, Math.max(0, a), row ? 0.6 : 0, 1, 7 + k);
         label(s, r, [x, FLOOR, z + (row ? 1.2 : -1.6)], `A ${Math.max(0, a).toFixed(2)}`, C.GREY);
       }
@@ -483,6 +485,7 @@ async function main() {
     const [base, view] = scene.split('~');
     const s = frameState(W, H, HS);
     s.text = new Uint32Array(COLS * r.rows);
+    s.time = time;
     SCENES[base](s, r, env);
     if (env) s.env = env;
     // ~over: the frontends' view when there is nobody to follow, high over the stage's edge
@@ -540,11 +543,24 @@ async function main() {
   let name = q.get('scene') || names[k];
   canvas.addEventListener('click', () => { k = (k + 1) % names.length; name = names[k] + (q.get('env') ? '@' + q.get('env') : ''); note.textContent = name; });
   if (q.get('env') && !name.includes('@')) name += '@' + q.get('env');
-  let s = null, built = null;
+  // the camera goes slowly round the stage (?orbit=0 holds it); the crack close-up cracks over and over
+  let s = null, built = null, eye = null, t0 = 0;
+  const orbit = q.get('orbit') !== '0';
   const loop = (now) => {
     requestAnimationFrame(loop);
-    if (built !== name) { s = build(name, now / 1000); built = name; }
+    if (built !== name || name.startsWith('cracks')) {
+      if (built !== name) t0 = now;
+      s = build(name, now / 1000);
+      if (built !== name) eye = { cam: s.cam, yaw: s.yaw };
+      built = name;
+    }
     s.time = now / 1000;
+    if (orbit) {
+      const a = (now - t0) / 1000 * 0.08, c = Math.cos(a), sn = Math.sin(a);
+      const dx = eye.cam[0] - s.focus[0], dz = eye.cam[2] - s.focus[1];
+      s.cam = [s.focus[0] + dx * c - dz * sn, eye.cam[1], s.focus[1] + dx * sn + dz * c];
+      s.yaw = eye.yaw + a;
+    }
     r.frame(null, s);
   };
   requestAnimationFrame(loop);

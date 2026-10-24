@@ -32,7 +32,7 @@ try {
   const err = await page.evaluate(() => window.__demo.error);
   if (err) throw new Error(err);
   const all = await page.evaluate(() => window.__demo.names);
-  const names = opt('scenes', '') ? opt('scenes', '').split(',') : [...all, 'looks@sunset', 'looks@night', 'looks@snow', 'horizon@sunset', 'horizon@night', 'horizon@snow'];
+  const names = opt('scenes', '') ? opt('scenes', '').split(',') : [...all, 'looks@sunset', 'looks@night', 'looks@snow', 'horizon@sunset', 'horizon@night', 'horizon@snow', 'crowd~over', 'thinice~over'];
   if (argv.includes('--bench')) {
     for (const name of opt('scenes', 'stress,crowd,thinice').split(',')) console.log(name, JSON.stringify(await page.evaluate((n) => window.__demo.bench(n), name)));
     names.length = 0;
