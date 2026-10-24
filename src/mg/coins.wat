@@ -117,6 +117,8 @@
   (!for $i (i32.const 0) (local.get $nb)
     (call $p_disc (i32.add (local.get $i) (i32.const 1)) (i32.add (local.get $nb) (i32.const 1)) (f32.mul (local.get $rad) (f32.const @CR_BRING)))
     (local.set $z) (local.set $x)
+    (!chk (local.get $x) 96 (local.get $i))
+    (!chk (local.get $z) 96 (local.get $i))
     (f32.store offset=@(PG_S + CR_BUMP) (i32.shl (local.get $i) (i32.const 4)) (local.get $x))
     (f32.store offset=@(PG_S + CR_BUMP + 4) (i32.shl (local.get $i) (i32.const 4)) (local.get $z))))
 
@@ -403,6 +405,8 @@
           (local.set $z) (local.set $x)
           (call $cr_clear (local.get $x) (local.get $z) (f32.const @(CR_BR + 2)))
           (local.set $z) (local.set $x)
+          (!chk (local.get $x) 95 (local.get $tp))
+          (!chk (local.get $z) 95 (local.get $tp))
           (f32.store (i32.const @(PG_H + CR_JX)) (local.get $x))
           (f32.store (i32.const @(PG_H + CR_JZ)) (local.get $z))
           (i32.store (i32.const @(PG_H + CR_JK)) (i32.add (i32.div_u (local.get $k) (i32.const @CR_JACKP)) (i32.const 1)))
