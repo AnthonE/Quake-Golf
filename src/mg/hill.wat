@@ -6,8 +6,9 @@
 ;; next of KH_ZONES (the first in the middle, each after it far from the
 ;; last): its hills swell over the KH_RISE ticks before, the old ones sink
 ;; back over the KH_RISE after. A hill's slope pulls a rolling ball down it,
-;; so holding the top takes pushing; off the disc and a ball is down
-;; KH_RESPAWN ticks. Most points at 90 s wins.
+;; so holding the top takes pushing; KH_ORB_AT into a zone a power-up drops
+;; onto each top for whoever gets there first. Off the disc and a ball is
+;; down KH_RESPAWN ticks. Most points at 90 s wins.
 ;;
 ;; The spots and the sizes are laid out with the round, in PG_H; how far each
 ;; hill has risen, and how far the zone has shrunk, are functions of the tick
@@ -15,7 +16,8 @@
 ;; read only bank d's header and the ball's own record, and the prediction is
 ;; exact however far ahead it runs; the score is kept in push, on both banks
 ;; alike, so a predicted ball's record is the confirmed one's bit for bit.
-;; Only the bumps, which knock balls off the top, are the confirmed world's.
+;; Only the bumps, which knock balls off the top, and who takes a power-up
+;; are the confirmed world's, a round trip late.
 ;;
 ;; Hill h is zone h / KH_HMAX's hill h % KH_HMAX.
 
@@ -368,10 +370,10 @@
       (!put u16 @(PLAYERS + PG_SCORE) (local.get $pb) (select (local.get $sc) (i32.const 65535) (i32.lt_u (local.get $sc) (i32.const 65535)))))))
 
 ;; The power-ups: KH_ORB_AT into a zone one drops onto each of its tops
-;; (from KH_ORB_Y over it, at bumper's ORB_FALL), lands
-;; and rides its hill; the first ball in, holding nothing, whose centre comes
-;; within its radius and ORB_R of it takes it (in slot order), as bumper's
-;; orbs are taken. The zone moving on takes whatever is left.
+;; (from KH_ORB_Y over it, at bumper's ORB_FALL), lands and rides its hill;
+;; the first ball in, holding nothing, whose centre comes within its radius
+;; and ORB_R of it takes it (in slot order), as bumper's orbs are taken. The
+;; zone moving on takes whatever is left.
 (func $kh_orbs (param $t i32)
   (local $k i32) (local $a i32) (local $i i32) (local $nh i32) (local $o i32) (local $p i32) (local $pb i32) (local $kind i32)
   (local $x f32) (local $y f32) (local $z f32) (local $top f32) (local $rad f32) (local $dx f32) (local $dy f32) (local $dz f32) (local $lim f32)
@@ -431,8 +433,9 @@
                   (br $gone)))))))))))
 
 ;; The power-ups, the zones' moments as FX (the next hills swelling, a zone
-;; opening), and the leader: the most points of anyone in the room, a tie keeping the one who
-;; had it (KH_LEAD, for the crown; KH_FX_LEAD at most every KH_LEADGAP).
+;; opening), and the leader: the most points of anyone in the room, a tie
+;; keeping the one who had it (KH_LEAD, for the crown; KH_FX_LEAD at most
+;; every KH_LEADGAP).
 (func $kh_tick
   (local $t i32) (local $j i32) (local $p i32) (local $pb i32) (local $lead i32) (local $who i32) (local $best i32) (local $s i32)
   (local.set $t (call $p_t (i32.const 0)))

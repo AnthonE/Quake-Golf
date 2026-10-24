@@ -129,8 +129,15 @@ let mine = null;
 
 // ---- the AI ball
 
+// What a ball keeps from think to think: in the Partier's mem (cleared each round), else by the bot.
 const MINDS = new WeakMap();
-const mindOf = (bot) => { if (!bot || typeof bot !== 'object') return {}; let m = MINDS.get(bot); if (!m) MINDS.set(bot, (m = {})); return m; };
+function mindOf(bot) {
+  if (!bot || typeof bot !== 'object') return {};
+  if (bot.mem) return (bot.mem.kh ||= {});
+  let m = MINDS.get(bot);
+  if (!m) MINDS.set(bot, (m = {}));
+  return m;
+}
 const ball = (view, me) => (typeof me === 'number' ? view.partier(me) : me);
 // A number in [0, 1) for this ball and k, its own and the same every time.
 const luck = (slot, k) => { let h = Math.imul(slot + 1, 0x9e3779b1) ^ Math.imul(k + 7, 0x85ebca6b); h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 13; return (h >>> 0) / 2 ** 32; };
@@ -326,7 +333,7 @@ export default {
   fx(f, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(f.pos) : ctx.dist ?? 0;
     if (f.kind === L.KH_FX_NEXT) {
-      ctx.banner?.('THE HILL MOVES', C.ORANGE, 1500);
+      // (the HUD counts it down: no banner over it)
       ctx.sound?.tick?.();
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.3, f.pos[2]], size: 6, color: [...NEXT, 0.8], kind: SPRITE.RING, life: 700, grow: true });
     } else if (f.kind === L.KH_FX_MOVE) {

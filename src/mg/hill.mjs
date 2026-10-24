@@ -4,8 +4,8 @@
 // the ground in it, two on the very top, and it shrinks as it goes. Every
 // KH_PERIOD the zone moves: the next hills swell KH_RISE ahead where the next
 // zone will be, and the old ones sink back after. A hill's slope pulls a
-// rolling ball down it. Off the disc and you're down KH_RESPAWN; most points
-// at the end wins.
+// rolling ball down it; a power-up drops on each top mid-zone. Off the disc
+// and you're down KH_RESPAWN; most points at the end wins.
 export const KH_R0 = 14; // the disc: 14 m plus KH_RK times the root of the balls in, at most KH_RMAX
 export const KH_RK = 2.6;
 export const KH_RMAX = 56;
