@@ -432,7 +432,7 @@ test('the client module: draws every phase, frames the floor, writes its HUD lin
   const lines = [];
   const hctx = { put: (x, y, s, c) => lines.push([y, s, c]), centre: (y, s, c) => lines.push([y, s, c]), right: (y, s, c) => lines.push([y, s, c]), rows: 44, C: {}, slot: 0, now: 0 };
   const s = stage(g.v);
-  const shots = [[s.stop - 100, PHASE.MUSIC, 'MUSIC'], [s.stop + 60, PHASE.SCRAMBLE, 'GET ON A PAD'], [s.claim + 20, PHASE.PAUSE, 'LEFT'], [s.next + 200, PHASE.MUSIC, 'MUSIC']];
+  const shots = [[s.stop - 100, PHASE.MUSIC, 'MUSIC'], [s.stop + 60, PHASE.SCRAMBLE, 'GET ON A PAD'], [s.claim + 20, PHASE.PAUSE, 'OUT'], [s.next + 200, PHASE.MUSIC, 'MUSIC']];
   for (const [t, ph, word] of shots) {
     stepTo(g, Math.min(t, s.claim));
     if (playT(g) === s.claim) { const list = ends(g); for (let p = 0; p < 4; p++) put(g, p, ...list[p]); }

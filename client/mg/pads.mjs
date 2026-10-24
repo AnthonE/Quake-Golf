@@ -111,7 +111,7 @@ function record(out, st, tp, now) {
   const rim = tp < 0 ? st.r0 : rimAt(st, tp);
   const warn = tp >= 0 && st.rimB < st.rimA && tp >= st.rimT - L.MP_SHRINK0 && rim > st.rimB + 0.01;
   const inner = warn ? st.rimB : rim;
-  sc.cyl(cx, PLAT_Y - HH, cx, inner, HH, 0.035, 0.035, 0.045, LOOK.PLASTIC);
+  sc.cyl(cx, PLAT_Y - HH, cx, inner, HH, 0.035, 0.035, 0.045, LOOK.RUBBER);
   if (warn) sc.cyl(cx, PLAT_Y - HH - 0.01, cx, rim, HH, 0.9, 0.22, 0.12, LOOK.HAZARD, 0.9);
   // the grooves, faintly lit, pulsing with the music
   const beat = look.w > 0.3 ? 0.5 + 0.5 * Math.sin(now / 1000 * Math.PI * 4) : 0;
@@ -125,8 +125,8 @@ function record(out, st, tp, now) {
   const a = look.spin;
   for (let k = 0; k < 2; k++) {
     const b = a + k * Math.PI, d = lab * 0.55;
-    sc.box(cx + Math.cos(b) * d, PLAT_Y + 0.03, cx + Math.sin(b) * d, lab * 0.28, 0.01, lab * 0.07, -b, 0.98, 0.94, 0.82, LOOK.MATTE, 0, 0, 1, 7 + k);
-    sc.box(cx + Math.cos(b + 0.5) * d * 0.7, PLAT_Y + 0.03, cx + Math.sin(b + 0.5) * d * 0.7, lab * 0.16, 0.01, lab * 0.04, -b - 0.5, 0.98, 0.94, 0.82, LOOK.MATTE, 0, 0, 1, 9 + k);
+    sc.box(cx + Math.cos(b) * d, PLAT_Y + 0.03, cx + Math.sin(b) * d, lab * 0.28, 0.01, lab * 0.07, b, 0.98, 0.94, 0.82, LOOK.MATTE, 0, 0, 1, 7 + k);
+    sc.box(cx + Math.cos(b + 0.5) * d * 0.7, PLAT_Y + 0.03, cx + Math.sin(b + 0.5) * d * 0.7, lab * 0.16, 0.01, lab * 0.04, b + 0.5, 0.98, 0.94, 0.82, LOOK.MATTE, 0, 0, 1, 9 + k);
   }
   sc.cyl(cx, PLAT_Y + 0.02, cx, 0.45, 0.03, 0.6, 0.62, 0.66, LOOK.METAL);
   // what the rim lost: pieces dropping from where it passed, tumbling, for a second
@@ -140,34 +140,33 @@ function record(out, st, tp, now) {
       const y = PLAT_Y - HH - 0.5 * 22 * age * age;
       for (let j = 0; j < m; j++) {
         const b = (j + 0.5) / m * 2 * Math.PI + r;
-        sc.box(cx + Math.cos(b) * r, y, cx + Math.sin(b) * r, 0.7, HH, Math.PI * r / m * 0.92, -b + age * ((j & 3) - 1.5), 0.9, 0.22, 0.12, LOOK.HAZARD, 0.9, 0, 1 - age / 1.1, j);
+        sc.box(cx + Math.cos(b) * r, y, cx + Math.sin(b) * r, 0.7, HH, Math.PI * r / m * 0.92, b + age * ((j & 3) - 1.5), 0.9, 0.22, 0.12, LOOK.HAZARD, 0.9, 0, 1 - age / 1.1, j);
       }
     }
   }
   return rim;
 }
 
-// The tonearm, off the rim: its needle down on the outer groove while the music plays, lifted when it stops.
+// The tonearm on its post off the rim: level, its needle down on the outer
+// groove while the music plays, lifted clear when it stops.
 function tonearm(out, st, rim, lift) {
   const sc = out.scene, cx = st.cx, R = st.r0;
-  const bx = cx + R * 0.8 + 6, bz = cx - R * 0.8 - 6;
-  sc.cyl(bx, PLAT_Y - 0.5, bz, 3, 1.5, 0.55, 0.57, 0.62, LOOK.METAL);
-  const ang = -Math.PI * 0.75 + 0.18 * lift;
-  const tx = cx + Math.cos(ang + Math.PI) * (rim - 2.5), tz = cx + Math.sin(ang + Math.PI) * (rim - 2.5);
-  const ty = PLAT_Y + 4.5 + 3 * lift, by = PLAT_Y + 3.4;
-  const dx = tx - bx, dz = tz - bz, len = Math.hypot(dx, dz);
-  const yaw = -Math.atan2(dz, dx);
-  const segs = 6;
-  for (let k = 0; k < segs; k++) {
-    const u0 = (k + 0.5) / segs;
-    sc.box(bx + dx * u0, by + (ty - by) * u0, bz + dz * u0, len / segs / 2 + 0.05, 0.35, 0.35, yaw, 0.78, 0.8, 0.85, LOOK.METAL, 0, 0, 1, 40 + k);
-  }
-  sc.box(tx, ty - 0.4, tz, 1.2, 0.5, 0.7, yaw, 0.15, 0.15, 0.18, LOOK.PLASTIC, 0, 0, 1, 47);
+  const ab = -Math.PI / 4; // the post's bearing from the middle
+  const bx = cx + Math.cos(ab) * (R + 7), bz = cx + Math.sin(ab) * (R + 7);
+  const top = PLAT_Y + 4 + 2.5 * lift;
+  sc.cyl(bx, (top + PLAT_Y - 3) / 2, bz, 2.2, (top - PLAT_Y + 3) / 2, 0.55, 0.57, 0.62, LOOK.METAL);
+  const at = ab + 0.32 - 0.06 * lift, rr = rim - 1.2 + 1.5 * lift;
+  const tx = cx + Math.cos(at) * rr, tz = cx + Math.sin(at) * rr;
+  const dx = tx - bx, dz = tz - bz, yaw = Math.atan2(dz, dx);
+  sc.box((bx + tx) / 2, top, (bz + tz) / 2, Math.hypot(dx, dz) / 2, 0.3, 0.3, yaw, 0.8, 0.82, 0.86, LOOK.METAL, 0, 0, 1, 40);
+  sc.box(tx, top - 0.2, tz, 0.9, 0.45, 0.6, yaw, 0.12, 0.12, 0.14, LOOK.PLASTIC, 0, 0, 1, 41);
+  sc.box(tx, top - 2.3, tz, 0.08, 1.7, 0.08, yaw, 0.8, 0.82, 0.86, LOOK.METAL, 0, 0, 1, 42);
 }
 
 // The pads as they stand on tick tp, each lit in its holder's colour (the claim if it were now), or free.
 function pads(view, ctx, out, st, tp, ph) {
   const list = padsOf(view, st);
+  const cam = ctx.cam;
   if (!list.length) return;
   const centres = list.map((p) => padAt(st, p, Math.min(tp, st.claim)));
   let hold;
@@ -199,8 +198,12 @@ function pads(view, ctx, out, st, tp, ph) {
     const glow = h !== 255 ? 0.85 + 0.25 * pulse : 0.55 + 0.55 * pulse;
     out.scene.cyl(x, PLAT_Y + 0.03 + 0.12 * (1 - born), z, PAD_R * 0.98 * (0.4 + 0.6 * born), 0.05, rgb[0], rgb[1], rgb[2], LOOK.GLOW, glow, 0.35);
     out.decals.push({ pos: [x, PLAT_Y + 0.09, z], radius: PAD_R + 0.45, width: 0.22 + 0.12 * urgency, color: [...rgb, (0.55 + 0.45 * pulse) * fade], kind: DECAL.RING });
-    if (h === 255 && ph === SCRAMBLE) out.beams.push({ a: [x, PLAT_Y + 34, z], b: [x, PLAT_Y + 0.15, z], width: 1.5, color: [...rgb, 0.16 + 0.1 * pulse] });
-    if (p.gold) out.glow.push({ pos: [x, PLAT_Y + 4.4 + 0.25 * Math.sin(tp * TICK * 3), z], size: 0.7, color: [1, 0.85, 0.3, 1], kind: SPRITE.COIN, roll: tp * TICK * 4, minpx: 2 });
+    if (h === 255 && ph === SCRAMBLE) {
+      // a spotlight on a free pad, faint, and gone near the eye
+      const near = cam ? Math.max(0, Math.min(1, (Math.hypot(x - cam[0], z - cam[2]) - 5) / 15)) : 1;
+      if (near > 0) out.beams.push({ a: [x, PLAT_Y + 34, z], b: [x, PLAT_Y + 0.15, z], width: 0.9, color: [...rgb, (0.1 + 0.06 * pulse) * near] });
+    }
+    if (p.gold) out.solid.push({ pos: [x, PLAT_Y + 4.4 + 0.25 * Math.sin(tp * TICK * 3), z], size: 0.8, color: [1, 0.82, 0.25, 1], kind: SPRITE.COIN, roll: tp * TICK * 4, minpx: 2 });
   }
 }
 // Has the confirmed world made this cycle's claim (so MP_HOLD is its)? It makes it on the step that plays tick claim.
@@ -363,7 +366,7 @@ function plan(view, me, bot, tick) {
   const pvel = st.glides && t < st.claim ? [(p.x1 - p.x0) / (T * TICK), (p.z1 - p.z0) / (T * TICK)] : [0, 0];
   // someone else is on it: wait a few metres off, and charge through it at the last moment, as a player would
   const rival = w.s1[i] !== slot && w.n1[i] < PAD_R && w.n1[i] < d0 - 1;
-  const charge = 0.35 + 0.3 * luck(slot, st.cycle, 7, seed);
+  const charge = 0.9 + 0.5 * luck(slot, st.cycle, 7, seed);
   if (rival && remain > charge + d0 / 9) {
     const k = Math.min(1, 4 / Math.max(d0, 1e-3));
     return { goal: [goal[0] + (pos[0] - goal[0]) * k, goal[1] + (pos[1] - goal[1]) * k], vmax: 6, pvel, pos, vel, slot };
@@ -441,12 +444,13 @@ export default {
       ctx.sound?.count?.(0);
     } else if (fx.kind === L.MP_FX_CLAIM) {
       if (fx.shot === 0) { ctx.banner?.('NOBODY MADE IT  AGAIN', C.ORANGE, 1800); return; }
+      if (fx.owner !== 255) { ctx.banner?.(`A POINT TO ${ctx.name?.(fx.owner) ?? `P${fx.owner + 1}`}`, C.YELLOW, 1600); ctx.sound?.pickup?.(); return; }
       ctx.sound?.land?.(24);
       if (fx.size) ctx.feed?.(`${fx.size} OUT AT THE CLAIM`, C.GREY);
       const me = ctx.slot >= 0 ? ctx.view?.u8?.[L.PG_S + L.MP_PADOF + ctx.slot] : 255;
       if (me !== undefined && me !== 255) { ctx.banner?.('SAFE!', C.GREEN, 1200); ctx.sound?.pickup?.(); }
     } else if (fx.kind === L.MP_FX_CLOSE) {
-      ctx.banner?.('THE FLOOR CLOSES IN', C.ORANGE, 1600);
+      // the HUD says so while it closes
       ctx.sound?.tick?.();
     } else if (fx.kind === L.MP_FX_MUSIC && fx.shot > 0) {
       ctx.sound?.tick?.();
@@ -462,19 +466,27 @@ export default {
     const fresh = look.tp >= 0 && Math.abs((ctx.now ?? look.at) - look.at) < 200;
     const tp = fresh ? look.tp : ctx.t ? ctx.t / TICK : g.t;
     const ph = phaseOf(st, tp);
-    const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
+    const row = 4;
     const me = fresh && look.me ? look.me : ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     const playing = me && me.live && !me.out;
+    const name = (p) => (p === ctx.slot ? 'YOU' : `P${p + 1}`);
     const bar = (y, u, c, n = 30) => {
       const lit = Math.max(0, Math.min(n, Math.round(u * n))), x = Math.floor((COLS - n) / 2);
       if (lit) ctx.put(x, y, '='.repeat(lit), c);
       if (lit < n) ctx.put(x + lit, y, '-'.repeat(n - lit), C.GREY);
     };
-    const n = ph === MUSIC && tp >= st.next ? g.left : st.npad;
+    // the final: the two left, their claims of it
+    let final = null;
+    if (g.left === 2 && st.npad === 1) {
+      const two = [];
+      for (let p = 0; p < L.NPLAYER && two.length < 2; p++) { const b = L.PLAYERS + p * L.PSIZE; if ((view.u8[b + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === L.PF_LIVE) two.push(p); }
+      if (two.length === 2) final = `${name(two[0])} ${view.u8[L.PG_S + L.MP_FINAL + two[0]]} - ${view.u8[L.PG_S + L.MP_FINAL + two[1]]} ${name(two[1])}`;
+    }
     if (ph === MUSIC) {
       const k = Math.floor(tp / 30) % 4;
       ctx.centre(row, `${' '.repeat(k)}~ MUSIC ~${' '.repeat(3 - k)}`, C.PURPLE);
-      if (tp < st.next) ctx.centre(row + 1, st.npad === 1 ? 'ONE PAD WHEN IT STOPS' : `${st.npad} PADS WHEN IT STOPS`, C.GREY);
+      if (final) ctx.centre(row + 1, `FINAL  ${final}  FIRST TO ${L.MP_FINALS}`, C.YELLOW);
+      else if (tp < st.next) ctx.centre(row + 1, st.npad === 1 ? 'ONE PAD WHEN IT STOPS' : `${st.npad} PADS WHEN IT STOPS`, C.GREY);
     } else if (ph === SCRAMBLE) {
       const left = (st.claim - tp) * TICK;
       ctx.centre(row, `GET ON A PAD!  ${Math.max(0, left).toFixed(1)}`, C.YELLOW);
@@ -499,12 +511,12 @@ export default {
           ctx.centre(row + 2, !mine ? 'SOMEONE IS NEARER ITS MIDDLE' : list[on].gold ? 'ON THE GOLD PAD: A POWER-UP' : 'ON A PAD', !mine ? C.ORANGE : list[on].gold ? C.YELLOW : C.GREEN);
         }
       }
-    } else {
-      ctx.centre(row, st.held === 0 && tpDone(view, st) ? 'NOBODY MADE IT  AGAIN' : `${g.left} LEFT`, st.held === 0 ? C.ORANGE : C.WHITE);
-      if (st.rimB < st.rimA && tp >= st.rimT - L.MP_SHRINK0) ctx.centre(row + 1, 'THE FLOOR CLOSES IN', C.ORANGE);
+    } else if (tpDone(view, st)) {
+      if (final && st.lost === 0 && st.held === 1) ctx.centre(row, `FINAL  ${final}`, C.YELLOW);
+      else if (st.held) ctx.centre(row, st.lost === 1 ? '1 OUT' : `${st.lost} OUT`, C.WHITE);
     }
-    const final = n === 1 && g.left === 2;
-    ctx.right(3, `${final ? 'FINAL  ' : ''}SONG ${st.cycle + 1}  PADS ${st.npad}` + (playing ? `  CLAIMS ${survived(view, ctx.slot)}` : ''), C.GREY);
+    if (st.rimB < st.rimA && tp >= st.rimT - L.MP_SHRINK0 && tp < st.rimT + L.MP_SHRINKT) ctx.centre(row + 3, 'THE FLOOR CLOSES IN', C.ORANGE);
+    ctx.right(3, `SONG ${st.cycle + 1}  PADS ${st.npad}` + (playing ? `  CLAIMS ${survived(view, ctx.slot)}` : ''), C.GREY);
   },
 
   brain: {

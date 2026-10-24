@@ -244,6 +244,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     if (external) yaw = get(L.CL_YAW);
     // the bot drives the slots as the keys and mouse would
     if (bot && me?.live && st === 2) {
+      bot.slot = slot; // made before the room gave us a slot: it steers our own ball
       const word = bot.think(view, g.tick, Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE)));
       yaw = word & (TURN - 1);
       aim();
