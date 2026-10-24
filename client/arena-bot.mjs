@@ -63,7 +63,7 @@ export class Fighter {
     this.wantUse = false; this.wantReload = false;
     this.lag = 0;
     this.stuck = 0; this.detour = 0; this.detourUntil = 0; this.was = null;
-    this.prey = -1;
+    this.prey = -1; this.buddy = -1;
   }
 
   rand() { let x = this.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.rng = x >>> 0; return this.rng / 4294967296; }
@@ -90,6 +90,7 @@ export class Fighter {
     const chest = (q) => { const b = L.PLAYERS + q * L.PSIZE; return [view.dv.getFloat32(b + L.P_PX, true), view.dv.getFloat32(b + L.P_PY, true) + 1.2, view.dv.getFloat32(b + L.P_PZ, true)]; };
     // a sword with legs (a zombie, the juggernaut) hunts; so does everyone after the juggernaut
     const hunter = me.zombie || me.jugg;
+    const human = (q) => (view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_ZOMBIE)) === L.PF_LIVE;
     const hunts = hunter || mode === L.M_JUGGERNAUT;
     let best = this.target;
     if (((t + this.slot) & 15) === 0 || !alive(best)) {
@@ -103,6 +104,16 @@ export class Fighter {
       }
       near.sort((a, b) => a[0] - b[0]);
       if (hunts && near.length) this.prey = near[0][1];
+      // Infection's humans keep together: the nearest other one
+      this.buddy = -1;
+      if (mode === L.M_INFECTION && !hunter) {
+        let bd = 1e9;
+        for (let q = 0; q < L.NPLAYER; q++) {
+          if (q === this.slot || !human(q)) continue;
+          const c = chest(q), d = Math.hypot(c[0] - me.pos[0], c[2] - me.pos[2]);
+          if (d < bd) { bd = d; this.buddy = q; }
+        }
+      }
       best = -1;
       for (const [, q] of near.slice(0, 6)) if (sees(view, eye, chest(q))) { best = q; break; }
     } else if (((t + this.slot) & 3) === 0 && !sees(view, eye, chest(best))) best = -1;
@@ -163,6 +174,12 @@ export class Fighter {
       this.turnTo(aim.yaw, 512, 0.2);
       move = 1;
       if (this.rand() < (hunter ? 0.02 : 0.004)) jump = 1;
+    } else if (mode === L.M_INFECTION && !hunter && this.buddy >= 0 && human(this.buddy)) {
+      // no zombie in sight: to the nearest other human, then stand by them looking round
+      const c = chest(this.buddy);
+      if (Math.hypot(c[0] - me.pos[0], c[2] - me.pos[2]) > 6) { this.turnTo(aimAt(eye, [c[0], eye[1], c[2]]).yaw, 512, 0.15); move = 1; }
+      else this.turnTo(this.yaw + 400, 512, 0.25);
+      if (me.mag[this.slotOut] < (L.ARMS[me.weapon]?.mag || 0) / 2 && me.res[this.slotOut] > 0 && !me.reload) this.wantReload = true;
     } else {
       // nobody in sight: a pad with something better, else a spawn point, and on
       if (!this.goal || t >= this.goalUntil || Math.hypot(this.goal[0] - me.pos[0], this.goal[2] - me.pos[2]) < 1.2) {

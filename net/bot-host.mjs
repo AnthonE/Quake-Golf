@@ -407,7 +407,7 @@ const cpu = process.cpuUsage(cpu0);
 const wall = (performance.now() - t0) / 1000;
 const v = world.view;
 const players = sessions.filter((s) => s.joined && !s.watch).map((s) => {
-  if (arena) { const f = v.fighter(s.slot); return { slot: s.slot, kills: f.kills, deaths: f.deaths }; }
+  if (arena) { const f = v.fighter(s.slot); return { slot: s.slot, kills: f.kills, deaths: f.deaths, zombie: f.zombie, rung: f.rung, points: f.points }; }
   if (bumper) { const b = v.bumper(s.slot); return { slot: s.slot, wins: b.wins, kos: b.kos, bumps: b.bumps, rounds: b.rounds }; }
   if (fireplace) return { slot: s.slot, mallows: v.dv.getUint16(L.FP_MALLOWS + 2 * s.slot, true) };
   const p = v.player(s.slot);

@@ -162,6 +162,16 @@ test('Infection: a human the sword kills comes back a zombie, an infection for i
   assert.ok(g.v.fighter(z).shots >= 12);
   assert.deepEqual(g.v.fighter(z).mag, [10, 10]);
   assert.equal(g.v.fighter(b).zombie, false);
+  // with no shields to lose, a zombie takes a magnum's head shot as a hit; a sniper's still kills
+  put(g, b, 500, 510); put(g, z, 515, 510);
+  for (let i = 0; i < L.SWAP_TICKS; i++) g.step([[L.EV_INPUT, b, at(g, b, z, 1.62, { slot: 1 })]]);
+  fire(g, b, z, { h: 1.62, max: 1, rest: { slot: 1 } });
+  assert.deepEqual([g.v.fighter(z).dead, g.v.fighter(z).hp], [false, 100 - L.ARMS[L.W_MAGNUM].dmg]);
+  assert.equal(fxs(g.v, L.FX_HIT).at(-1).size, 2, 'a hit, not a head shot');
+  loadout(g, b, L.W_SNIPER);
+  for (let i = 0; i < 30; i++) g.step([[L.EV_INPUT, b, at(g, b, z, 1.62, { slot: 1, shot: g.v.fighter(b).fired })]]);
+  fire(g, b, z, { h: 1.62, max: 1, rest: { slot: 1 } });
+  assert.ok(g.v.fighter(z).dead, 'the sniper');
 });
 
 test('Infection: neither side hurts its own: shotgun, magnum, frag, needles, sword', async () => {
@@ -374,6 +384,20 @@ test('Juggernaut: one drawn at the start, with the sword and an overshield; its 
   assert.ok(g.v.fighter(b).dead);
   assert.equal(g.v.hole().state, L.H_OVER);
   assert.deepEqual([g.v.fighter(a).points, g.v.mode().winner, g.v.fighter(a).place], [L.JUGG_POINTS, a, 1]);
+  // a juggernaut that dies by its own hand: another is drawn from the living
+  const r = await room(L.M_JUGGERNAUT, 3, 4);
+  const [rj] = [0, 1, 2].filter((p) => r.v.fighter(p).jugg);
+  const pos = r.v.fighter(rj).pos;
+  const jb = L.PROJ;
+  r.dv.setFloat32(jb + L.J_PX, pos[0], true); r.dv.setFloat32(jb + L.J_PY, pos[1] + 0.3, true); r.dv.setFloat32(jb + L.J_PZ, pos[2], true);
+  r.dv.setUint16(jb + L.J_AGE, L.A_FUSE - 1, true); r.sim.u8[jb + L.J_KIND] = L.K_GRENADE; r.sim.u8[jb + L.J_OWNER] = rj;
+  r.dv.setUint8(rec(rj) + L.A_SH, 0); r.dv.setUint8(rec(rj) + L.A_HP, 10);
+  r.step();
+  assert.ok(r.v.fighter(rj).dead && !r.v.fighter(rj).jugg, 'its own frag');
+  const next = [0, 1, 2].filter((p) => r.v.fighter(p).jugg);
+  assert.equal(next.length, 1);
+  assert.notEqual(next[0], rj);
+  assert.equal(r.v.mode().leader, next[0]);
 });
 
 test('a match of eight AI fighters in each mode: no trap on the debug build, the same hash on every tick on 1 and 4 threads', async () => {

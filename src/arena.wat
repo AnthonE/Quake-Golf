@@ -667,6 +667,9 @@
   (if (i32.ne (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $qb)) (i32.const @(PF_LIVE | PF_DEAD))) (i32.const @PF_LIVE)) (then (return)))
   (if (i32.ne (i32.load (i32.const @HDR_STATE)) (i32.const @H_PLAY)) (then (return)))
   (if (call $a_ally (local.get $q) (local.get $a)) (then (return)))
+  ;; a zombie, with no shields to lose, isn't killed by a head shot that only kills through them
+  (if (i32.and (i32.eq (local.get $head) (i32.const 1)) (i32.ne (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $qb)) (i32.const @PF_ZOMBIE)) (i32.const 0)))
+    (then (local.set $head (i32.const 0))))
   (!put u16 @(PLAYERS + A_SHT) (local.get $qb) (i32.const @SHIELD_DELAY))
   (!put u8 @(PLAYERS + A_HITBY) (local.get $qb) (local.get $a))
   (local.set $sh (!at u8 @(PLAYERS + A_SH) (local.get $qb)))
@@ -1258,9 +1261,11 @@
   (if (i32.eq (local.get $m) (i32.const @M_JUGGERNAUT))
     (then
       (local.set $lead (i32.load (i32.const @AH_LEADER)))
-      (if (i32.or (i32.eqz (local.get $lead))
-                  (i32.eqz (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (i32.sub (local.get $lead) (i32.const 1)) (i32.const 6))) (i32.const @PF_JUGG))))
-        (then (i32.store (i32.const @AH_LEADER) (i32.const 0)) (call $a_draw (i32.const 1))))
+      (if (local.get $lead)
+        (then
+          (if (i32.eqz (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (i32.sub (local.get $lead) (i32.const 1)) (i32.const 6))) (i32.const @PF_JUGG)))
+            (then (local.set $lead (i32.const 0))))))
+      (if (i32.eqz (local.get $lead)) (then (i32.store (i32.const @AH_LEADER) (i32.const 0)) (call $a_draw (i32.const 1))))
       (return (i32.ne (i32.load (i32.const @AH_WINNER)) (i32.const 0)))))
   (call $a_sides)
   (local.set $last) (local.set $z) (local.set $h)

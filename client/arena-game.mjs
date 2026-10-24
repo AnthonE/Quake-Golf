@@ -3,8 +3,8 @@
 // and keys into the input slots; a frame per display refresh drawn from
 // shared memory by client/arena-render.mjs, with tracers, sparks, the gun in
 // your hands, shields and health, ammo, a motion tracker, a kill feed and
-// the scoreboard. arena.html mounts it alone; Fireplace mounts it while the
-// room plays the arena.
+// the scoreboard, each as the match's mode has them (layout.mjs, M_*).
+// arena.html mounts it alone; Fireplace mounts it while the room plays the arena.
 //   opts: { canvas, lockTarget, bot, skill, sens, fixed (a spectator's held camera: x, y, z, yaw, pitch in degrees), present, showGraph,
 //           external (the slots are driven from outside, as Fireplace's guest does: the camera follows them) }
 import * as L from '../src/layout.mjs';
@@ -26,7 +26,14 @@ const SHORT = { [L.W_AR]: 'AR', [L.W_BR]: 'BR', [L.W_MAGNUM]: 'MAGNUM', [L.W_SNI
   [L.W_PLASMA]: 'PLASMA', [L.W_NEEDLER]: 'NEEDLER', [L.W_SWORD]: 'SWORD', [L.KILL_GREN]: 'FRAG', [L.KILL_MELEE]: 'MELEE', [L.KILL_BEHIND]: 'ASSASSINATION',
   [L.KILL_SUPER]: 'SUPERCOMBINE', [L.KILL_FALL]: 'FALL' };
 const CROSS = { [L.W_AR]: 0, [L.W_BR]: 1, [L.W_MAGNUM]: 1, [L.W_SNIPER]: 1, [L.W_SHOTGUN]: 2, [L.W_ROCKET]: 3, [L.W_PLASMA]: 4, [L.W_NEEDLER]: 4, [L.W_SWORD]: 5 };
-const MODE = L.FIESTA ? 'FIESTA' : 'SLAYER';
+const RUNGS = L.LADDER.length;
+// How a fighter stands under the match's mode, higher is better: the sim's $a_key, for the board while play goes on.
+function standing(m, o) {
+  if (m === L.M_INFECTION) return o.zombie ? Math.min(o.human, 0x7fff) * 65536 + o.points : 2 ** 31;
+  if (m === L.M_GUNGAME) return o.rung * 65536 + o.kills;
+  if (m === L.M_JUGGERNAUT) return o.points * 65536 + o.kills;
+  return o.kills * 65536 - o.deaths;
+}
 const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'OVERKILL', 'KILLTACULAR', 'KILLTROCITY', 'KILLAMANJARO'];
 const SPREES = { 5: 'KILLING SPREE', 10: 'KILLING FRENZY', 15: 'RUNNING RIOT', 20: 'RAMPAGE' };
 
@@ -153,6 +160,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
   let me = null, pme = null;
   const muzzle = (cam, cy, sy, cp, sp) => [cam[0] + cy * cp * 0.7 - sy * 0.22, cam[1] + sp * 0.7 - 0.22, cam[2] + sy * cp * 0.7 + cy * 0.22];
 
+  const say = (text, color, now) => { feed.push({ text, color, born: now }); if (feed.length > 5) feed.shift(); };
   function show(f, slot, cam, now, mine, eyeOf) {
     const d = Math.hypot(f.pos[0] - cam[0], f.pos[1] - cam[1], f.pos[2] - cam[2]);
     switch (f.kind) {
@@ -179,8 +187,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       case L.FX_KILL: {
         const name = (p) => (p === slot ? 'YOU' : `P${p + 1}`);
         const cause = SHORT[f.size] || '?';
-        feed.push({ text: f.owner === f.shot ? `${name(f.shot)} DIED` : `${name(f.owner)} [${cause}] ${name(f.shot)}`, color: f.owner === slot ? C.GREEN : f.shot === slot ? C.RED : C.WHITE, born: now });
-        if (feed.length > 5) feed.shift();
+        const infected = view.mode().mode === L.M_INFECTION && f.owner !== f.shot && view.fighter(f.owner).zombie;
+        if (!infected) say(f.owner === f.shot ? `${name(f.shot)} DIED` : `${name(f.owner)} [${cause}] ${name(f.shot)}`, f.owner === slot ? C.GREEN : f.shot === slot ? C.RED : C.WHITE, now);
         glows.push({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.4, color: [1, 0.3, 0.2, 0.8], kind: 3, born: now, life: 400 });
         if (f.owner === slot && f.shot !== slot) {
           multi = now - lastKill < 4500 ? multi + 1 : 1;
@@ -189,9 +197,29 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
           sound.kill();
           const m = SPREES[spree] || MEDALS[Math.min(multi, MEDALS.length - 1)] || (f.size === L.KILL_BEHIND ? 'ASSASSINATION' : f.size === L.KILL_SUPER ? 'NEEDLER SUPERCOMBINE' : '');
           if (m) medal = { text: m, until: now + 2500 };
-          banner = { text: `YOU KILLED P${f.shot + 1}`, until: now + 1800, color: C.GREEN };
+          banner = { text: `YOU ${infected ? 'INFECTED' : 'KILLED'} P${f.shot + 1}`, until: now + 1800, color: C.GREEN };
         }
-        if (f.shot === slot) { spree = 0; multi = 0; banner = { text: f.owner === slot ? 'YOU DIED' : `KILLED BY P${f.owner + 1}`, until: now + 3000, color: C.RED }; }
+        if (f.shot === slot) { spree = 0; multi = 0; banner = { text: f.owner === slot ? 'YOU DIED' : `${infected ? 'INFECTED' : 'KILLED'} BY P${f.owner + 1}`, until: now + 3000, color: C.RED }; }
+        break;
+      }
+      case L.FX_MODE: {
+        // the mode's news: sides changed, rungs climbed, a winner
+        const name = (p) => (p === slot ? 'YOU' : `P${p + 1}`);
+        const own = f.owner === slot;
+        const big = (text, color) => { if (own) banner = { text, until: now + 2500, color }; };
+        switch (f.size) {
+          case L.MX_INFECT: say(f.owner === f.shot ? `${name(f.shot)} TURNED` : `${name(f.owner)} INFECTED ${name(f.shot)}`, C.GREEN, now); break;
+          case L.MX_ZOMBIE: say(`${name(f.owner)} ${own ? 'ARE' : 'IS'} A ZOMBIE`, C.GREEN, now); big('YOU ARE A ZOMBIE', C.GREEN); break;
+          case L.MX_LAST: say(`${name(f.owner)} ${own ? 'ARE' : 'IS'} THE LAST HUMAN`, C.YELLOW, now); big('LAST HUMAN STANDING', C.YELLOW); break;
+          case L.MX_RUNG:
+            if (f.shot === RUNGS - 1) say(`${name(f.owner)} ${own ? 'ARE' : 'IS'} ON THE SWORD`, C.ORANGE, now);
+            big(f.shot === RUNGS - 1 ? 'ON THE SWORD: ONE KILL TO WIN' : `RUNG ${f.shot + 1} OF ${RUNGS}: ${ARMS[L.LADDER[f.shot]].name}`, C.CYAN);
+            break;
+          case L.MX_DEMOTE: say(`${name(f.owner)} DOWN TO ${SHORT[L.LADDER[f.shot]]}`, C.RED, now); big(`DOWN TO RUNG ${f.shot + 1}`, C.RED); break;
+          case L.MX_WIN: say(`${name(f.owner)} ${own ? 'WIN' : 'WINS'}`, C.YELLOW, now); break;
+          case L.MX_JUGG: say(`${name(f.owner)} ${own ? 'ARE' : 'IS'} THE JUGGERNAUT`, C.ORANGE, now); big('YOU ARE THE JUGGERNAUT', C.ORANGE); break;
+          default:
+        }
         break;
       }
       case L.FX_BLAST:
@@ -200,7 +228,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
         break;
       case L.FX_SPAWN:
         glows.push({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.2, color: [0.4, 0.7, 1, 0.8], kind: 6, born: now, life: 500 });
-        if (f.owner === slot) { spawnedAt = now; spree = 0; if (L.FIESTA) dealt = true; }
+        if (f.owner === slot) { spawnedAt = now; spree = 0; if (L.FIESTA || view.mode().mode) dealt = true; }
         break;
       case L.FX_PICKUP:
         if (f.owner === slot) { sound.pickup(); banner = { text: ARMS[f.size].name, until: now + 1500, color: C.CYAN }; }
@@ -295,10 +323,12 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const s = W / 320;
     const r = (x0, y0, x1, y1, c, a = 1) => out.push([x0 * s, y0 * s, x1 * s, y1 * s, c[0], c[1], c[2], a]);
     // shields over health, top centre under the clock
-    const low = f.sh < 25 && Math.floor(now / 150) % 2;
+    const low = f.sh < 25 && !f.zombie && Math.floor(now / 150) % 2;
+    const sh = Math.min(100, f.sh);
     r(109, 8, 211, 15, [0.05, 0.08, 0.12], 0.7);
-    r(110, 9, 110 + f.sh, 14, low ? [1, 0.3, 0.2] : [0.35, 0.7, 1]);
-    if (f.shieldIn === 0 && f.sh < 100) r(110 + f.sh, 9, 111 + f.sh, 14, [1, 1, 1]);
+    r(110, 9, 110 + sh, 14, low ? [1, 0.3, 0.2] : [0.35, 0.7, 1]);
+    if (f.sh > 100) r(110, 9, 110 + Math.min(100, f.sh - 100), 14, [1, 0.72, 0.15]);
+    if (f.shieldIn === 0 && f.sh < 100 && !f.zombie) r(110 + sh, 9, 111 + sh, 14, [1, 1, 1]);
     for (let k = 0; k < 8; k++) {
       const filled = f.hp > k * 12.5;
       r(110 + k * 12.6, 17, 110 + k * 12.6 + 11, 20, filled ? (f.hp < 35 ? [1, 0.3, 0.2] : [0.4, 0.9, 0.4]) : [0.15, 0.15, 0.15], 0.85);
@@ -307,7 +337,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const R = 26, cx = 32 * s, cy = (H / s - 32) * s;
     const fy = Math.cos(camYaw), fz = Math.sin(camYaw);
     for (let p = 0; p < L.NPLAYER; p++) {
-      if (p === f.slot) continue;
+      if (p === f.slot || view.ally(f.slot, p)) continue;
       const o = view.fighter(p);
       if (!o.live || o.dead) continue;
       const dx = o.pos[0] - f.pos[0], dz = o.pos[2] - f.pos[2];
@@ -330,7 +360,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const range = arm.type === 0 ? arm.range : arm.type === 2 ? 5 : 60;
     const d = [Math.cos(camPitch) * Math.cos(camYaw), Math.sin(camPitch), Math.cos(camPitch) * Math.sin(camYaw)];
     for (let p = 0; p < L.NPLAYER; p++) {
-      if (p === f.slot) continue;
+      if (p === f.slot || view.ally(f.slot, p)) continue;
       const o = view.player(p);
       if (!o.live || u8[L.PLAYERS + p * L.PSIZE + L.P_FL] & L.PF_DEAD) continue;
       const c = [o.pos[0] - cam[0], o.pos[1] + 1 - cam[1], o.pos[2] - cam[2]];
@@ -395,7 +425,13 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     // a new life or a new match: look down the gulch
     if (me?.live && h.hole !== matchSeen) { matchSeen = h.hole; if (!BOT) { yaw = me.pos[0] < 512 ? 0 : TURN / 2; pitch = 512; aim(); } }
     const f = tgt || pme || me;
-    if (dealt && me?.live && !me.dead) { dealt = false; banner = { text: `${ARMS[me.gun[0]].name} + ${ARMS[me.gun[1]].name}`, until: now + 2500, color: C.CYAN }; }
+    if (dealt && me?.live && !me.dead) {
+      dealt = false;
+      const m = view.mode().mode;
+      const text = me.zombie ? 'ZOMBIE: THE SWORD' : me.jugg ? 'JUGGERNAUT: THE SWORD' : m === L.M_GUNGAME ? `RUNG ${Math.min(me.rung + 1, RUNGS)} OF ${RUNGS}: ${ARMS[me.gun[0]].name}`
+        : `${ARMS[me.gun[0]].name} + ${ARMS[me.gun[1]].name}`;
+      if (banner.until < now + 500) banner = { text, until: now + 2500, color: me.zombie ? C.GREEN : C.CYAN };
+    }
     if (pme && (pme.hand !== lastSlot || pme.weapon !== lastWeapon)) { swapAt = now; lastSlot = pme.hand; lastWeapon = pme.weapon; }
     let cam;
     if (pme) cam = [0, 1, 2].map((k) => pme.pos[k] + pme.vel[k] * dtPred + corr.off[k] + (k === 1 ? 1.6 : 0));
@@ -496,18 +532,38 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const right = (y, s, c) => put(t, COLS, COLS - 1 - String(s).length, y, s, c);
     const centre = (y, s, c) => put(t, COLS, Math.floor((COLS - String(s).length) / 2), y, s, c);
     if (st !== 2 || (!f?.live && !WATCH)) centre(Math.floor(rows / 2) - 3, host.error ? 'ERROR: ' + host.error.slice(0, 64) : ['CONNECTING', 'CATCHING UP', '', 'DISCONNECTED'][st] || 'JOINING', host.error ? C.RED : C.YELLOW);
+    const md = view.mode();
+    const m = md.mode;
     const list = [];
     for (let p = 0; p < L.NPLAYER; p++) { const o = view.fighter(p); if (o.live) list.push(o); }
-    list.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || a.slot - b.slot);
+    // the board's order: Fiesta's kills, a mode's standing in play, its places once it's over
+    if (m && h.state === L.H_OVER) list.sort((a, b) => (a.place || 999) - (b.place || 999) || a.slot - b.slot);
+    else list.sort((a, b) => standing(m, b) - standing(m, a) || a.slot - b.slot);
     const clock = (n) => `${Math.floor(n / 125 / 60)}:${String(Math.floor(n / 125) % 60).padStart(2, '0')}`;
     const left = Math.max(0, h.until - h.tick);
-    if (h.state === L.H_COUNT) centre(4, `${L.FIESTA ? 'FIESTA  RANDOM GUNS  MOST KILLS IN 10 MIN' : `SLAYER  ${L.FRAG_LIMIT} KILLS`}  STARTS IN ${Math.ceil(left / 125)}`, C.YELLOW);
+    if (h.state === L.H_COUNT) { centre(4, `${md.name}  STARTS IN ${Math.ceil(left / 125)}`, C.YELLOW); centre(5, md.rules, C.WHITE); }
     if (h.state === L.H_PLAY) centre(0, clock(left), left < 30 * 125 ? C.RED : C.WHITE);
-    if (f?.live) {
+    const who = WATCH ? 'P' + (slot + 1) : 'YOU';
+    if (f?.live && m === L.M_INFECTION) {
+      put(t, COLS, 1, 0, f.zombie ? `${who}: ZOMBIE  ${f.points} INFECTED` : `${who}: HUMAN`, f.zombie ? C.GREEN : C.YELLOW);
+      if (h.state !== L.H_COUNT) put(t, COLS, 1, 1, `${md.humans} HUMAN${md.humans === 1 ? '' : 'S'} LEFT  ${md.zombies} ZOMBIE${md.zombies === 1 ? '' : 'S'}`, C.GREY);
+    } else if (f?.live && m === L.M_GUNGAME) {
+      const r = Math.min(f.rung, RUNGS - 1);
+      put(t, COLS, 1, 0, `${who}: RUNG ${r + 1} OF ${RUNGS}  ${SHORT[L.LADDER[r]]}`, C.YELLOW);
+      put(t, COLS, 1, 1, r + 1 < RUNGS ? `NEXT ${SHORT[L.LADDER[r + 1]]}` : 'A SWORD KILL WINS', C.GREY);
+      const lead = md.leader >= 0 ? view.fighter(md.leader) : null;
+      if (lead) put(t, COLS, 1, 2, lead.slot === f.slot ? 'IN THE LEAD' : `P${lead.slot + 1} LEADS ON ${Math.min(lead.rung + 1, RUNGS)}`, C.GREY);
+    } else if (f?.live && m === L.M_JUGGERNAUT) {
+      put(t, COLS, 1, 0, `${who} ${f.points} POINT${f.points === 1 ? '' : 'S'}${f.jugg ? '  JUGGERNAUT' : ''}`, f.jugg ? C.ORANGE : C.YELLOW);
+      const j = md.leader >= 0 ? view.fighter(md.leader) : null;
+      if (j && j.slot !== f.slot) put(t, COLS, 1, 1, `JUGGERNAUT P${j.slot + 1}  ${j.points} OF ${L.JUGG_POINTS}`, C.ORANGE);
+    } else if (f?.live) {
       const leader = list[0];
-      put(t, COLS, 1, 0, `${WATCH ? 'P' + (slot + 1) : 'YOU'} ${f.kills}`, C.YELLOW);
+      put(t, COLS, 1, 0, `${who} ${f.kills}`, C.YELLOW);
       if (leader && leader.slot !== f.slot) put(t, COLS, 1, 1, `P${leader.slot + 1} ${leader.kills}`, C.GREY);
       else if (list[1]) put(t, COLS, 1, 1, `P${list[1].slot + 1} ${list[1].kills}`, C.GREY);
+    }
+    if (f?.live) {
       if (f.dead) centre(Math.floor(rows / 2) + 2, `RESPAWN IN ${Math.ceil(f.respawn / 125)}`, C.YELLOW);
       else {
         const arm = ARMS[f.weapon];
@@ -515,10 +571,11 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
           const ammo = arm.reload ? `${f.mag[f.hand]} / ${f.res[f.hand]}` : f.weapon === L.W_SWORD ? `${f.mag[f.hand] * 10}%` : `${f.mag[f.hand]}%`;
           right(rows - 3, arm.name, C.WHITE);
           right(rows - 2, f.reload ? 'RELOADING' : f.mag[f.hand] === 0 && f.res[f.hand] === 0 ? 'EMPTY' : ammo, f.mag[f.hand] === 0 ? C.RED : C.CYAN);
-          const other = ARMS[f.gun[f.hand ^ 1]];
+          // the other hand's gun, unless the mode put the same one in both
+          const other = f.gun[f.hand ^ 1] !== f.weapon ? ARMS[f.gun[f.hand ^ 1]] : null;
           right(rows - 4, other ? `${f.hand ? 1 : 2} ${other.name}` : '', C.GREY);
         }
-        right(rows - 5, `FRAGS ${f.grens}`, C.ORANGE);
+        if (!f.zombie && !f.jugg) right(rows - 5, `FRAGS ${f.grens}`, C.ORANGE);
         // a gun on the pad underfoot
         const pad = view.pads().find((p) => !p.wait && Math.hypot(p.pos[0] - f.pos[0], p.pos[2] - f.pos[2]) < 1.5);
         if (pad && !WATCH && !f.gun.includes(pad.weapon)) centre(Math.floor(rows / 2) + 5, `E: PICK UP ${ARMS[pad.weapon].name}`, C.WHITE);
@@ -536,15 +593,29 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     if (board) {
       const y0 = 6;
       const top = list[0];
-      centre(y0, h.state === L.H_OVER ? `GAME OVER  ${top ? (top.slot === slot ? 'YOU WIN' : `P${top.slot + 1} WINS`) : ''}` : `${MODE}  ${list.length} PLAYERS`, C.YELLOW);
-      centre(y0 + 2, 'RANK  PLAYER    KILLS  DEATHS', C.GREY);
+      const over = h.state === L.H_OVER;
+      let title = `${md.name}  ${list.length} PLAYERS`;
+      if (over) {
+        const won = top ? (top.slot === slot ? 'YOU WIN' : `P${top.slot + 1} WINS`) : '';
+        const alive = list.filter((o) => !o.zombie).length;
+        title = m === L.M_INFECTION ? `GAME OVER  ${alive ? `${alive} HUMAN${alive === 1 ? '' : 'S'} SURVIVED` : 'THE ZOMBIES WIN'}` : `GAME OVER  ${won}`;
+      }
+      centre(y0, title, C.YELLOW);
+      // a mode's columns: what places it
+      const cols = m === L.M_INFECTION ? ['HUMAN FOR', 'INFECTED', 'SIDE'] : m === L.M_GUNGAME ? ['RUNG', 'GUN', 'KILLS'] : m === L.M_JUGGERNAUT ? ['POINTS', 'KILLS', 'DEATHS'] : ['KILLS', 'DEATHS'];
+      const cells = (o) => m === L.M_INFECTION ? [o.zombie || over ? clock(o.human) : 'ALIVE', o.points, o.zombie ? 'ZOMBIE' : 'HUMAN']
+        : m === L.M_GUNGAME ? [Math.min(o.rung + 1, RUNGS), o.rung >= RUNGS ? 'WON' : SHORT[L.LADDER[o.rung]], o.kills]
+        : m === L.M_JUGGERNAUT ? [o.points, o.kills, o.deaths] : [o.kills, o.deaths];
+      const row = (rank, name, xs) => `${String(rank).padStart(4)}  ${String(name).padEnd(8)}${xs.map((x, k) => '  ' + String(x).padStart(Math.max(6, cols[k].length))).join('')}`;
+      centre(y0 + 2, row('RANK', 'PLAYER', cols), C.GREY);
       const fit = rows - y0 - 6;
       const mine = list.findIndex((o) => o.slot === slot);
       const shown = mine >= fit ? [...list.slice(0, fit - 1), list[mine]] : list.slice(0, fit);
       shown.forEach((o, k) => {
-        const rank = list.indexOf(o) + 1;
+        // ties share a place: the sim's once it's over, else the first with that standing
+        const rank = m && over && o.place ? o.place : list.findIndex((x) => standing(m, x) === standing(m, o)) + 1;
         const name = (o.slot === slot && !WATCH ? 'YOU ' : 'P') + String(o.slot + 1);
-        centre(y0 + 3 + k, `${String(rank).padStart(4)}  ${name.padEnd(8)}  ${String(o.kills).padStart(5)}  ${String(o.deaths).padStart(6)}`, o.slot === slot ? C.YELLOW : C.WHITE);
+        centre(y0 + 3 + k, row(rank, name, cells(o)), o.slot === slot ? C.YELLOW : m === L.M_INFECTION && o.zombie ? C.GREEN : C.WHITE);
       });
     }
   }
@@ -554,7 +625,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     frame,
     unmount() { off(); held.clear(); set(L.CL_MOVE, 0); set(L.CL_AUTO, 0); if (document.pointerLockElement === lockTarget && lockTarget === canvas) document.exitPointerLock(); },
     capture: (scale = 2) => (last ? capturePng(renderer, u8, last, scale) : null),
-    state: () => ({ slot: get(L.CL_SLOT), clState: get(L.CL_STATE), me, error: host.error, welcome: host.welcome, match: view.hole(), feed: feed.map((f) => f.text) }),
+    state: () => ({ slot: get(L.CL_SLOT), clState: get(L.CL_STATE), me, error: host.error, welcome: host.welcome, match: view.hole(), mode: view.mode(), feed: feed.map((f) => f.text) }),
     get locked() { return locked; },
   };
 }

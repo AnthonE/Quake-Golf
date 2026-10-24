@@ -282,6 +282,9 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
     center = vec3f(pf(b, ${L.P_PX}u), pf(b, ${L.P_PY}u) + 0.92, pf(b, ${L.P_PZ}u)) + vel * dt;
     half = vec2f(0.5, 0.92);
     color = vec4f(slotColor(i), 1.0);
+    // the match's sides: Infection's zombies green, the juggernaut gold
+    if ((fl & ${L.PF_ZOMBIE}u) != 0u) { color = vec4f(0.35, 0.95, 0.25, 1.0); }
+    if ((fl & ${L.PF_JUGG}u) != 0u) { color = vec4f(1.0, 0.72, 0.15, 1.0); }
     kind = 1u;
     minpx = 1.0;
   } else if (i < ${L.NPLAYER + L.NPROJ}u) {
