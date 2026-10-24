@@ -244,6 +244,8 @@
 (func $mp_start
   (call $mp_cycle (call $p_t (i32.const 0)) (i32.const 0)))
 
+(func $mp_begin (param $p i32) (param $d i32))
+
 ;; The floor's top under (x, z) if it's inside the rim on bank d's tick.
 (func $mp_ground (param $d i32) (param $x f32) (param $y f32) (param $z f32) (result f32)
   (local $r f32) (local $dx f32) (local $dz f32)

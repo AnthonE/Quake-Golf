@@ -295,6 +295,7 @@
 
 ;; The first zone opens with play.
 (func $kh_start (call $kh_mark (i32.const @KH_FX_MOVE) (i32.const 0) (f32.const 1)))
+(func $kh_begin (param $p i32) (param $d i32))
 
 ;; The floor and the hills (a heightfield: a ball can't be under one), none
 ;; under the floor's top, where a ball that rolled off the rim falls past.

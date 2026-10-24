@@ -174,6 +174,8 @@
     (then (call $wl_fx (i32.const @WL_FX_SHOW) (i32.const 0) (i32.shl (i32.load offset=@WL_SIDE (call $wl_rec (i32.const 0))) (i32.const 8))
                        (f32.load offset=@WL_V (call $wl_rec (i32.const 0))) (i32.const 0)))))
 
+(func $wl_begin (param $p i32) (param $d i32))
+
 ;; The floor's top over the square, nothing past its edge.
 (func $wl_ground (param $d i32) (param $x f32) (param $y f32) (param $z f32) (result f32)
   (local $h f32) (local $cx f32)

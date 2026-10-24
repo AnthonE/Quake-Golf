@@ -124,13 +124,13 @@
         (local.set $z (!madd (f32.div (local.get $dz) (local.get $d)) (f32.const @(TG_PR + 1.5)) (!ld f32 @(PG_S + TG_PILL + 4) (i32.shl (local.get $k) (i32.const 1))))))))
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
 
-;; Play starts: every ball in is marked in the round, it or free as dealt.
-(func $tg_start
-  (local $p i32) (local $pb i32)
-  (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
-    (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE))
-      (then (!put i32 @(PLAYERS + PG_M) (local.get $pb) (i32.or (i32.const @TG_M_IN) (!ld u8 @(PG_S + TG_ROLE) (local.get $p))))))))
+(func $tg_start)
+
+;; Play starts for ball p on bank d (every ball in, and the prediction's own
+;; across the countdown's end): marked in the round, it or free as setup dealt.
+(func $tg_begin (param $p i32) (param $d i32)
+  (!put i32 @(PLAYERS + PG_M) (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d))
+    (i32.or (i32.const @TG_M_IN) (!ld u8 @(PG_S + TG_ROLE) (local.get $p)))))
 
 ;; A floor without end: the rim (in push) is what keeps a ball on the arena.
 (func $tg_ground (param $d i32) (param $x f32) (param $y f32) (param $z f32) (result f32)
@@ -306,6 +306,8 @@
                   (call $tg_make (local.get $p) (i32.const 254) (local.get $t) (local.get $free))
                   (br $dealt)))
               (local.set $r (i32.sub (local.get $r) (i32.const 1)))))))))
+  ;; the clock's tick tags nobody: whoever is free at it shares first
+  (if (i32.ge_u (local.get $t) (i32.load (i32.const @PG_LEN))) (then (return)))
   ;; the its in that can tag, as this tick's tags begin (in B_SCR, rebuilt every tick)
   (local.set $its (i32.const 0))
   (!for $p (i32.const 0) (i32.const @NPLAYER)

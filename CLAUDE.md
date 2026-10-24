@@ -63,15 +63,17 @@ shell whose own command line contains the name: it kills that shell.
   too). Changing a mode must leave the other builds bit-identical: compare the
   sha256s `npm run build` prints before and after.
 - Party (`src/party.wat`) is bumper's ball with bumper.wat's cheese and round
-  behind `#if !PARTY`. Each minigame is `src/mg/<key>.wat` (eight hooks under
+  behind `#if !PARTY`. Each minigame is `src/mg/<key>.wat` (nine hooks under
   its prefix, called through `(!mg)`), its constants in `src/mg/<key>.mjs`
   (re-exported by layout.mjs; literal numbers, no imports), its client module
   `client/mg/<key>.mjs`, its tests `test/mg-<key>.test.mjs`. State only in
   `PG_H` (header, in the prediction's copy), `PG_S`, `PG_BIG` and the record's
-  party fields. `ground` and `push` run on the prediction's bank too: they
-  read bank d's header and only confirmed state fixed long enough ahead (a
-  tile cracked at c drops at c + 80), and write only that ball's record. A
-  seed whose top byte is 0xA7 forces a minigame (`--mg k`).
+  party fields. `begin` (a ball's own start), `ground` and `push` run on the
+  prediction's bank too: they read bank d's header, confirmed state fixed at
+  least as far ahead as the prediction runs (the host's 201 ticks), and bank
+  d's FX ring (what its own ball did this run: Thin Ice's own cracks), and
+  write only that ball's record and that ring. A seed whose top byte is 0xA7
+  forces a minigame (`--mg k`).
 - The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut)
   are picked per match at run time, not built: `AH_MODE` at `REGION + 0x48`,
   a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`), per-fighter state at `MODE_REC`.

@@ -34,7 +34,9 @@
 #else
 #if BUMPER
 #if PARTY
-        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.load (i32.const @(PG_LEN + PRED_D)))))))
+        (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.load (i32.const @(PG_LEN + PRED_D)))))
+        ;; the ball's own start, as the confirmed world's begins every ball
+        (!mg none begin (local.get $p) (i32.const @PRED_D))))
 #else
         (i32.store (i32.const @(HDR_UNTIL + PRED_D)) (i32.add (local.get $t) (i32.const @ROUND_TICKS)))))
 #endif

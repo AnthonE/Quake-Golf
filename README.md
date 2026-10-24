@@ -691,12 +691,13 @@ the rotation, joins, the ball's roll over any stage, outs, places and points.
 bumper.wat's ball, power-ups, bumps and blasts stay; its cheese and its round
 are behind `#if !PARTY`, so bumper balls' own build is bit for bit what it was.
 Each minigame is its own file, `src/mg/<key>.wat` (its constants in
-`src/mg/<key>.mjs`, re-exported by `src/layout.mjs`), and supplies eight
+`src/mg/<key>.mjs`, re-exported by `src/layout.mjs`), and supplies nine
 hooks under its prefix: `setup` lays the stage out for the balls in,
 `spawn` places them, `start` and `tick` run its world, `over` ends it early,
-`out` hears of a ball going out, and `ground` (the top of what's solid under a
-point) and `push` (kinematic hazards on one ball) run on either bank, the
-confirmed world or the prediction. The `(!mg)` macro calls the one on now.
+`out` hears of a ball going out, and `begin` (one ball's own start as play
+starts), `ground` (the top of what's solid under a point) and `push`
+(kinematic hazards on one ball) run on either bank, the confirmed world or
+the prediction. The `(!mg)` macro calls the one on now.
 State lives in 112 bytes of the header (in the prediction's copy), 7.75 KiB
 past the projectiles and the 448 KiB golf keeps its balls in, all hashed and
 in every keyframe.
@@ -705,7 +706,9 @@ Every stage moves on a schedule: what a ball meets (a falling tile, a bar,
 a wall, a fruit, a bomb's blast, a hill) is a function of the tick, the round's
 seed and state the confirmed world fixed at least a second before, so the
 prediction rolls your ball through it exactly as the confirmed world will,
-and you dodge on the next frame at any latency. Only ball against ball (a
+and you dodge on the next frame at any latency. Thin Ice's tile drops 0.64 s
+after your ball cracks it, so the prediction cracks your ball's ice itself
+(marked in its own FX ring), and is exact as far ahead as it runs. Only ball against ball (a
 bump, a pass, a tag, a claim) is the confirmed world's and comes a round trip
 later, eased in like any correction. The minigames' tests check the
 prediction bit for bit against the confirmed ball through each hazard.

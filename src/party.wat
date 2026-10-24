@@ -5,11 +5,14 @@
 ;; the minigame says is solid, outs and downs, places and points.
 ;;
 ;; A minigame is a file of hooks, $<prefix>_<hook> (src/mg/<key>.wat), called
-;; through (!mg type hook args...) on PG_GAME: setup, spawn, start, ground,
-;; push, tick, over and out. ground and push run in the ball's move on either
-;; bank; the rest are the confirmed world's, serial, in slot order. Its state
-;; is PG_H (the header, in the prediction's copy), PG_S and PG_BIG (hashed, in
-;; every keyframe, not copied), PG_M and PG_SCORE in each ball's record.
+;; through (!mg type hook args...) on PG_GAME: setup, spawn, start, begin,
+;; ground, push, tick, over and out. begin is a ball's own start, writing only
+;; its record: for every ball in as play starts, and in the prediction for its
+;; own ball across the countdown's end. ground and push run in the ball's move
+;; on either bank; the rest are the confirmed world's, serial, in slot order.
+;; Its state is PG_H (the header, in the prediction's copy), PG_S and PG_BIG
+;; (hashed, in every keyframe, not copied), PG_M and PG_SCORE in each ball's
+;; record.
 
 #include "mg/thinice.wat"
 #include "mg/color.wat"
@@ -353,10 +356,24 @@
 ;; keep where they went out; PK_SCORE, one more than the balls that scored
 ;; more. Points to every ball placed, 10 for 1st down to 1 for last; a round
 ;; played for each, a win for each 1st (still in, for PK_OUT); the result.
+;; PK_OUT's balls going out (PF_FALL) go out first, at the place BH_LEFT
+;; gives this tick, when a ball is still in or the round began with one;
+;; else they're the last up of two or more and share 1st (as an over hook
+;; ends a round whose balls all went off at once).
 (func $p_end (param $t i32)
   (local $p i32) (local $q i32) (local $pb i32) (local $fl i32) (local $kind i32) (local $m i32) (local $pl i32) (local $s i32)
-  (local $win i32) (local $nwin i32)
+  (local $win i32) (local $nwin i32) (local $out i32)
   (local.set $kind (i32.load (i32.const @PG_KIND)))
+  (if (i32.eq (local.get $kind) (i32.const @PK_OUT))
+    (then
+      (local.set $out (i32.lt_u (i32.load (i32.const @BH_N0)) (i32.const 2)))
+      (!for $p (i32.const 0) (i32.const @NPLAYER)
+        (if (call $p_in (i32.shl (local.get $p) (i32.const 6))) (then (local.set $out (i32.const 1)))))
+      (if (local.get $out)
+        (then
+          (!for $p (i32.const 0) (i32.const @NPLAYER)
+            (if (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @PF_FALL))
+              (then (call $p_out (local.get $p)))))))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
     (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
@@ -449,6 +466,10 @@
           (i32.store (i32.const @HDR_STATE) (i32.const @H_PLAY))
           (i32.store (i32.const @HDR_START) (local.get $t))
           (i32.store (i32.const @HDR_UNTIL) (i32.add (local.get $t) (i32.load (i32.const @PG_LEN))))
+          ;; every ball's own start, as the prediction begins its own; then the world's
+          (!for $p (i32.const 0) (i32.const @NPLAYER)
+            (if (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @PF_LIVE))
+              (then (!mg none begin (local.get $p) (i32.const 0)))))
           (!mg none start)))
       (return)))
   (if (i32.eq (local.get $state) (i32.const @H_PLAY))

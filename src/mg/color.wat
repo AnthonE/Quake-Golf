@@ -135,6 +135,7 @@
   (local.get $x) (f32.const @PLAT_Y) (local.get $z))
 
 (func $cc_start)
+(func $cc_begin (param $p i32) (param $d i32))
 
 ;; The floor's top if the tile under (x, z) holds on bank d's tick: on the
 ;; board the last drop left, and through a drop of the colour called and
