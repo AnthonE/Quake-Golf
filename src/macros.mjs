@@ -1,7 +1,7 @@
 // Macros for the hand-written WAT. Each takes raw s-expression strings and
 // returns WAT text; the assembler re-scans the output, so macros may nest.
 // Layout constants stay as @NAME here and are folded after expansion.
-import { ARMS, PLAYLIST, FP_MATCHES, GAMES } from './layout.mjs';
+import { ARMS, PLAYLIST, FP_MATCHES, GAMES, MINIGAMES } from './layout.mjs';
 
 const SHIFT = { f32: 2, i32: 2, i64: 3, u16: 1, u8: 0, v128: 2 };
 const LOAD = { f32: 'f32.load', i32: 'i32.load', i64: 'i64.load', u16: 'i32.load16_u', u8: 'i32.load8_u', v128: 'v128.load' };
@@ -93,6 +93,22 @@ export function makeMacros({ DEBUG }) {
     // (!fpnext g): the game after g in the playlist; (!fpmatches g): how many matches g plays
     fpnext: (g) => PLAYLIST.reduceRight((out, k, i) => `(select (i32.const ${PLAYLIST[(i + 1) % PLAYLIST.length]}) ${out} (i32.eq ${g} (i32.const ${k})))`, `(i32.const ${PLAYLIST[0]})`),
     fpmatches: (g) => GAMES.reduceRight((out, _, k) => `(select (i32.const ${FP_MATCHES[k]}) ${out} (i32.eq ${g} (i32.const ${k})))`, '(i32.const 1)'),
+
+    // Party: (!mg type hook args...), the minigame on now (PG_GAME) running its
+    // hook, $<prefix>_<hook> args: an if-chain over MINIGAMES. type is the
+    // hook's result, none, or several (f32 f32 f32).
+    mg: (...words) => {
+      const types = [];
+      while (['none', 'i32', 'f32', 'i64', 'f64'].includes(words[0])) types.push(words.shift());
+      const [hook, ...args] = words;
+      if (!hook) throw new Error('(!mg) without a hook');
+      const vals = types.filter((t) => t !== 'none');
+      const r = vals.length ? ` (result ${vals.join(' ')})` : '';
+      const call = (k) => `(call $${MINIGAMES[k].prefix}_${hook}${args.map((a) => ` ${a}`).join('')})`;
+      let out = call(MINIGAMES.length - 1);
+      for (let k = MINIGAMES.length - 2; k >= 0; k--) out = `(if${r} (i32.eq (i32.load (i32.const @PG_GAME)) (i32.const ${k})) (then ${call(k)}) (else ${out}))`;
+      return out;
+    },
 
     // Debug-only: trap with a code if a value is NaN or infinite.
     chk: (v, code, idx) => (DEBUG ? `(call $assert_finite ${v} (i32.const ${code}) ${idx})` : ''),

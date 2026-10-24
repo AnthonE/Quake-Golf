@@ -9,9 +9,14 @@
 ;; $b_move and $b_use run on either bank d (0 the confirmed world, PRED_D the
 ;; prediction) and touch only the ball's own record and its bank's FX ring;
 ;; bumps, blasts, rockets, orbs and the round are the confirmed world's.
+;;
+;; Party (PARTY set too) keeps the ball's power-ups, bumps, blasts and
+;; rockets and leaves out the cheese and its round (#if !PARTY): party.wat
+;; has its own $bumper_gen, $b_join, $b_move and $bumper.
 
 ;; ---- the cheese
 
+#if !PARTY
 ;; How far the round has squeezed the cheese, 0 to 1: the rim in to B_RMIN,
 ;; the holes half as wide again. Nothing before the round starts.
 (func $b_squeeze (param $d i32) (result f32)
@@ -49,6 +54,7 @@
     (if (f32.lt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz))) (f32.mul (local.get $r) (local.get $r)))
       (then (return (local.get $k)))))
   (i32.const -1))
+#endif
 
 ;; A ball's radius and weight, MEGA or not.
 (func $b_rad (param $pb i32) (result f32)
@@ -60,6 +66,7 @@
 (func $b_unit (result f32)
   (f32.mul (f32.convert_i32_u (i32.shr_u (call $rand) (i32.const 8))) (f32.const 0x1p-24)))
 
+#if !PARTY
 ;; Spawn candidate i of m: a sunflower spiral over most of the wheel.
 (func $b_spot (param $i i32) (param $m i32) (param $r0 f32) (result f32 f32)
   (local $rr f32) (local $s f32) (local $c f32)
@@ -329,6 +336,7 @@
   (!put f32 @(PLAYERS + P_VY) (local.get $pb) (local.get $vy))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz))
   (!put u8 @(PLAYERS + P_FL) (local.get $pb) (local.get $fl)))
+#endif
 
 ;; Slot p uses the power-up it holds, facing (c, s). What it does to itself
 ;; runs on either bank; what it does to others only on the confirmed world.
@@ -523,6 +531,7 @@
                             (!madd (local.get $nz) (local.get $ri) (!at f32 @(PLAYERS + P_PZ) (local.get $ib)))
                             (f32.neg (local.get $vrel))))))))))))))
 
+#if !PARTY
 ;; An orb in a free slot, high over a random spot of cheese (eight tries).
 (func $b_drop
   (local $k i32) (local $o i32) (local $tries i32) (local $rad f32) (local $s f32) (local $c f32) (local $x f32) (local $z f32)
@@ -687,3 +696,4 @@
       (call $b_round)
       (i32.store (i32.const @HDR_STATE) (i32.const @H_COUNT))
       (i32.store (i32.const @HDR_UNTIL) (i32.add (local.get $t) (i32.const @B_COUNT))))))
+#endif
