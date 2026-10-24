@@ -240,6 +240,21 @@ test('the fuse runs out: every holder out where it stands, sharing the place, a 
   assert.ok(held(g, picks[0]));
 });
 
+test('a lit fuse\'s last three seconds are ticked off, 3, 2, 1, and none in the rest', async () => {
+  const g = await clear(4);
+  const boom = hdr(g, L.HP_BOOM);
+  at(g, boom - 400);
+  const from = g.v.fxCount();
+  while (playT(g) < boom) g.step();
+  assert.deepEqual(fxs(g.v, from, L.HP_FX_TICK).map((x) => [x.shot, x.size, (x.tick - g.v.party().start) | 0]),
+    [[3, 375, boom - 375], [2, 250, boom - 250], [1, 125, boom - 125]]);
+  g.step();
+  const s = sched(g.v);
+  const mark = g.v.fxCount();
+  while (playT(g) < s.deal) g.step();
+  assert.equal(fxs(g.v, mark, L.HP_FX_TICK).length, 0);
+});
+
 test('the edge: as the boom left it for HP_SHRINK0, then in a straight line to the next radius by the deal; a ball past it falls, rimAt as the sim has it', async () => {
   const g = await clear(8);
   for (const p of [4, 5, 6, 7]) { give(g, p, 300); put(g, p, C - 8 + 2.5 * (p - 4), C + 6); }

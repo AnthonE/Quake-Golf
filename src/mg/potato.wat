@@ -204,7 +204,7 @@
 
 ;; The deal's FX; every holder in, its bomb stuck no more, that touches a ball
 ;; in without one passes it on (in slot order, one pass a holder a tick, the
-;; one that took it stuck now); then the fuse.
+;; one that took it stuck now); the fuse's last seconds; then the boom.
 (func $hp_tick
   (local $t i32) (local $p i32) (local $q i32) (local $pb i32) (local $qb i32)
   (local $rp f32) (local $rs f32) (local $px f32) (local $py f32) (local $pz f32) (local $dx f32) (local $dy f32) (local $dz f32)
@@ -244,6 +244,12 @@
                                   (!at f32 @(PLAYERS + P_PZ) (local.get $qb))
                                   (f32.convert_i32_s (i32.sub (i32.load (i32.const @(PG_H + HP_BOOM))) (local.get $t))))
                         (br $passed))))))))))))
+  ;; the last three seconds of a lit fuse, ticked off
+  (local.set $q (i32.sub (i32.load (i32.const @(PG_H + HP_BOOM))) (local.get $t)))
+  (if (i32.and (i32.ge_s (local.get $t) (i32.load (i32.const @(PG_H + HP_DEAL))))
+               (i32.and (i32.eqz (i32.rem_u (local.get $q) (i32.const 125))) (i32.and (i32.gt_s (local.get $q) (i32.const 0)) (i32.le_s (local.get $q) (i32.const 375)))))
+    (then (call $fx (i32.const 0) (i32.const @HP_FX_TICK) (i32.const 255) (i32.div_u (local.get $q) (i32.const 125))
+                    (f32.load (i32.const @PG_CX)) (f32.const @PLAT_Y) (f32.load (i32.const @PG_CX)) (f32.convert_i32_s (local.get $q)))))
   (if (i32.ge_s (local.get $t) (i32.load (i32.const @(PG_H + HP_BOOM))))
     (then (call $hp_boom (local.get $t)))))
 

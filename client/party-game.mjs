@@ -246,6 +246,9 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     if (external) yaw = get(L.CL_YAW);
     // the bot drives the slots as the keys and mouse would
     if (bot && me?.live && st === 2) {
+      // it steers the page's own slot, and thinks every 4th tick however the frames fall on the ticks
+      if (bot.slot !== slot) { bot.slot = slot; bot.round = -1; }
+      if (g.tick - bot.at >= 4) bot.at = -1;
       const word = bot.think(view, g.tick, Math.round(readClock(i32, f64, L.CL_PRED, nowE) - readClock(i32, f64, L.CL_PLAY, nowE)));
       yaw = word & (TURN - 1);
       aim();

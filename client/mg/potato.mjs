@@ -198,19 +198,27 @@ export default {
     const last = tp >= 0 && tt < s.boom && s.boom - tt < 250;
     const pulse = 0.5 + 0.5 * Math.sin(now * (6 + 18 * heat));
     const dt = ctx?.dt || 0;
+    // the fireballs dimmer the more went off at once, so a crowd's boom doesn't white the screen out
+    const boomAt = (g.start + s.last) | 0, age = (tt - s.last) * TICK;
+    let blown = 0;
+    if (tp >= 0 && s.wave > 0 && age < 0.9) {
+      for (let p = 0; p < L.NPLAYER; p++) {
+        const a = L.PLAYERS + p * L.PSIZE;
+        if ((u8[a + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === (L.PF_LIVE | L.PF_DEAD) && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) blown++;
+      }
+    }
+    const fire = Math.min(1, 6 / Math.max(1, blown));
     for (let p = 0; p < L.NPLAYER; p++) {
       const a = L.PLAYERS + p * L.PSIZE;
       const fl = u8[a + L.P_FL];
       if ((fl & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE) {
         // where a holder went off at the last boom: a fireball, then a scorch
-        if ((fl & L.PF_LIVE) && tp >= 0 && s.wave > 0 && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === ((g.start + s.last) | 0)) {
+        if ((fl & L.PF_LIVE) && tp >= 0 && s.wave > 0 && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) {
           const x = dvb.getFloat32(a + L.P_PX, true), y = dvb.getFloat32(a + L.P_PY, true), z = dvb.getFloat32(a + L.P_PZ, true);
-          const age = (tt - s.last) * TICK;
-          if (y > PLAT_Y - 0.5 && Math.hypot(x - cx, z - cx) < R - 0.5) sc.cyl(x, PLAT_Y + 0.012, z, 1.9, 0.01, 0.07, 0.05, 0.05, LOOK.MATTE, 0, 0, 0.55);
-          if (age < 0.9) {
-            const k = clamp01(age / 0.25);
-            out.glow.push({ pos: [x, y + 1.2 + age * 2.5, z], size: 2 + 4.5 * k, color: [1, 0.55, 0.15, 1 - age / 0.9], kind: SPRITE.FLASH, minpx: 2 });
-            out.glow.push({ pos: [x, y + 1, z], size: L.HP_BLAST_R * k, color: [1, 0.8, 0.4, 0.6 * (1 - age / 0.9)], kind: SPRITE.RING, minpx: 2 });
+          if (y > PLAT_Y - 0.5 && Math.hypot(x - cx, z - cx) < R - 0.5) sc.cyl(x, PLAT_Y + 0.012, z, 1.3, 0.01, 0.07, 0.05, 0.05, LOOK.MATTE, 0, 0, 0.45);
+          if (age < 0.8) {
+            const k = clamp01(age / 0.2);
+            out.glow.push({ pos: [x, y + 1.2 + age * 2.5, z], size: 1.5 + 3 * k, color: [1, 0.5, 0.12, (1 - age / 0.8) * fire], kind: SPRITE.FLASH, minpx: 2 });
           }
         }
         continue;
@@ -273,10 +281,12 @@ export default {
       ctx.banner?.(fx.shot ? `BOOM!  ${fx.shot} OUT` : 'BOOM!', C.ORANGE, 1600);
       ctx.glow?.({ pos: [fx.pos[0], fx.pos[1] + SIGN, fx.pos[2]], size: 14, color: [1, 0.6, 0.2, 0.9], kind: SPRITE.FLASH, life: 500, grow: true });
       ctx.sound?.blast?.(0, 6);
+    } else if (fx.kind === L.HP_FX_TICK) {
+      ctx.sound?.count?.(fx.shot);
+      ctx.glow?.({ pos: [fx.pos[0], fx.pos[1] + SIGN, fx.pos[2]], size: 6, color: [1, 0.4, 0.15, 0.7], kind: SPRITE.FLASH, life: 300 });
     } else if (fx.kind === L.HP_FX_DEAL) {
-      const me = ctx.slot >= 0 && ctx.view && holds(ctx.view, ctx.slot);
-      if (me) ctx.banner?.('YOU HAVE THE BOMB!  BUMP SOMEONE', C.RED, 2000);
-      else ctx.banner?.(`${fx.shot} ${fx.shot === 1 ? 'BOMB' : 'BOMBS'}  ${Math.round(fx.size * TICK)} S FUSE`, C.YELLOW, 1500);
+      // (a holder's own line is the HUD's)
+      ctx.banner?.(`${fx.shot} ${fx.shot === 1 ? 'BOMB' : 'BOMBS'} LIT  ${Math.round(fx.size * TICK)} S`, C.YELLOW, 1500);
       ctx.sound?.count?.(0);
     }
   },

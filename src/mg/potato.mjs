@@ -4,8 +4,8 @@
 // up (out, with a blast round it), the edge falls in for the balls left, and
 // after a rest the next bombs are dealt, on a shorter fuse.
 export const HP_R0 = 10; // the disc: 10 m plus HP_RK times the root of the balls in, at most HP_RMAX
-export const HP_RK = 2.6;
-export const HP_RMAX = 48;
+export const HP_RK = 3;
+export const HP_RMAX = 56;
 export const HP_SPAWN = 0.8; // balls start on a spiral over this much of the disc
 export const HP_LEN = 18750; // 150 s
 // The waves, in ticks into play: the first deal; then a wave's fuse runs out
@@ -45,3 +45,4 @@ export const HP_BLOWN = 2; // went off this tick (the boom's own mark, between i
 export const HP_FX_PASS = 64; // a bomb passed: owner the one who has it now, shot the one who had it, at its centre, size the fuse's ticks left
 export const HP_FX_BOOM = 65; // a wave goes off: owner 255, shot the holders blown, the stage's centre, size the wave
 export const HP_FX_DEAL = 66; // a wave's bombs lit: owner 255, shot the bombs, the stage's centre, size the fuse in ticks
+export const HP_FX_TICK = 67; // 3, 2 and 1 s before a lit fuse runs out: owner 255, shot the seconds, the stage's centre, size the ticks left
