@@ -24,6 +24,7 @@
 //     ctx { slot, glow({ pos, size, color, kind, life (ms), grow }), sound, banner(text, color, ms), feed(text, color),
 //       name(p) ('YOU' or 'P12'), dist (m from the camera), C, now, view }
 //   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
+//   sink(f, name, view) -> the feed's line for an FX_SINK (f; name(p) as fx's), optional: null for the usual FELL / KNOCKED OUT
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
 //     The frontend keeps rows 0 and 1 (the clock, who's left or the scores, the round's name), the middle band
@@ -178,7 +179,9 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       case L.FX_SINK: {
         const score = g.kind === L.PK_SCORE;
         const by = f.shot === 255 ? '' : ` BY ${name(f.shot, slot)}`;
-        pushFeed(f.shot === 255 ? `${name(f.owner, slot)} FELL` : `${name(f.owner, slot)} KNOCKED ${score ? 'OFF' : 'OUT'}${by}`, f.owner === slot ? C.RED : f.shot === slot ? C.GREEN : C.WHITE);
+        // the minigame may say how a ball went out (a bomb, a zap) where falling isn't the word
+        const said = MG[g.game]?.sink?.(f, (p) => name(p, slot), view);
+        pushFeed(said || (f.shot === 255 ? `${name(f.owner, slot)} FELL` : `${name(f.owner, slot)} KNOCKED ${score ? 'OFF' : 'OUT'}${by}`), f.owner === slot ? C.RED : f.shot === slot ? C.GREEN : C.WHITE);
         glows.push({ pos: [f.pos[0], f.pos[1] + 0.5, f.pos[2]], size: 3, color: [0.6, 0.85, 1, 0.9], kind: SPRITE.RING, born: now, life: 600, grow: true });
         sound.sink(f.owner === slot ? 0 : d);
         if (f.owner === slot) {
