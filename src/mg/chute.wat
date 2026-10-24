@@ -58,7 +58,7 @@
 ;; schedule's clock (FC_PRE ahead of play's, so the belt is busy by GO): each
 ;; lane's next fruit after a gap that shortens as the round goes, a kind drawn
 ;; (melons more often later), and a wave every FC_WAVEI, all lanes but a gap
-;; at once.
+;; at once, with nothing else in any lane half a second either side.
 (func $fc_schedule
   (local $nl i32) (local $l i32) (local $best i32) (local $tmin i32) (local $tw i32) (local $wv i32) (local $gap i32) (local $gl i32)
   (local $kind i32) (local $b i32) (local $k f32)
@@ -84,13 +84,20 @@
           (!for $l (i32.const 0) (local.get $nl)
             (if (i32.or (i32.lt_u (local.get $l) (local.get $gap)) (i32.ge_u (local.get $l) (i32.add (local.get $gap) (local.get $gl))))
               (then (call $fc_emit (local.get $l) (local.get $tw) (local.get $kind) (i32.add (local.get $wv) (i32.const 1)))))
-            ;; nothing else in any lane for half a second either side
+            ;; nothing else in any lane for half a second after (and before: below)
             (if (i32.lt_u (!ld i32 @(PG_S + FC_NEXT) (local.get $l)) (i32.add (local.get $tw) (i32.const 60)))
               (then (!st i32 @(PG_S + FC_NEXT) (local.get $l) (i32.add (local.get $tw) (i32.const 60))))))
           (!inc $wv)
           (local.set $tw (i32.add (local.get $tw) (i32.const @FC_WAVEI)))
           (br $more)))
       (br_if $done (i32.ge_u (local.get $tmin) (i32.const @(FC_LEN + FC_PRE))))
+      ;; a lane due within half a second before the next wave drops nothing
+      ;; till half a second after it, so the gap it opens is clear to roll into
+      (if (i32.and (i32.lt_u (local.get $tw) (i32.const @(FC_LEN + FC_PRE)))
+                   (i32.gt_u (i32.add (local.get $tmin) (i32.const 60)) (local.get $tw)))
+        (then
+          (!st i32 @(PG_S + FC_NEXT) (local.get $best) (i32.add (local.get $tw) (i32.const 60)))
+          (br $more)))
       ;; a fruit in the lane due: melons a rising share, then grapes, oranges, apples
       (local.set $k (f32.min (f32.div (f32.convert_i32_s (i32.sub (local.get $tmin) (i32.const @FC_PRE))) (f32.const @FC_T1)) (f32.const 1)))
       (local.set $k (f32.max (local.get $k) (f32.const 0)))
