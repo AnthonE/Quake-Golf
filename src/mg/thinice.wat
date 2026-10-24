@@ -75,12 +75,16 @@
 
 (func $ti_push (param $p i32) (param $d i32))
 
-;; Every ball on the ice, in slot order, cracks the tile under its centre;
-;; then the tiles that stop holding next tick go (their FX, in crack order).
+;; Every ball on the ice, in slot order, cracks the tile under its centre
+;; (from TI_GRACE into play: from a standstill a ball rolls about 1.8 m in
+;; TI_HOLD, just the 1.7 from a tile's centre to its side, so the round gives
+;; everyone a second to get rolling); then the tiles that stop holding next
+;; tick go (their FX, in crack order).
 (func $ti_tick
   (local $p i32) (local $pb i32) (local $k i32) (local $q i32) (local $r i32) (local $c i32) (local $a i32) (local $t i32)
   (local $head i32) (local $tail i32) (local $top f32) (local $x f32) (local $z f32)
   (local.set $t (i32.load (i32.const @HDR_TICK)))
+  (if (i32.lt_u (call $p_t (i32.const 0)) (i32.const @TI_GRACE)) (then (return)))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
     (if (i32.and (call $p_in (local.get $pb)) (i32.ne (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_GROUND)) (i32.const 0)))
