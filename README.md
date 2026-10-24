@@ -10,7 +10,7 @@ Target: the newest Chrome; the server is Deno. The same sim also runs as
 Pentium III code on the original Xbox: see [X1](#x1-the-original-xbox).
 
 **[Fireplace](#fireplace)** is all of it as one party game: the room plays
-bumper balls, party, the arena and golf in turn, Mario Party style, and people
+bumper balls, [Party](#party)'s minigames, the arena and golf in turn, Mario Party style, and people
 come and go as they like, from a living room with a fire going and the game on
 the TV.
 
@@ -18,6 +18,7 @@ the TV.
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
+| P1 · Party | bumper balls' ball and a minigame a round, fourteen of them (Thin Ice, Color Call, Sweeper, Red Light, Bomb Rain, The Wall, Musical Pads, King of the Hill, Hot Potato, Coin Rush, Paint Party, Downhill, Fruit Chute, Tag), every stage on a schedule so the prediction is exact through it; a renderer for any stage in bumper balls' look; each minigame's AI rounds equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal | **passed** · [Party](#party) |
 | F1 · Fireplace | every game in one module, each bit for bit its own build; a playlist the room plays through, everyone moved into the next game on one tick, marshmallows for the top three; keyframes from any game restored into another's world; the playlist equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal across a switch; a page that is a living room, the TV closing in to fill the screen | **passed** · [Fireplace](#fireplace) |
 | B1 · bumper balls | every player a ball on a wheel of Swiss cheese whose holes are the golf cup made big: bump the others in, keep out yourself, the last ball rolling wins; the rim crumbling and the holes widening, power-ups dropping from the sky; rounds of AI balls equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [bumper balls](#bumper-balls) |
 | A3 · Blood Gulch | a map with structures in the game rules, not just the picture: two bases you walk into (doors, a room, stairs to a hatch, a roof, a bridge), a cave through a ridge, teleporters; walls stop bodies, bullets, rockets, frags and blasts; the map built from images and a JSON file at build time; a match of fighters on it equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [Blood Gulch](#blood-gulch-structures-and-maps) |
@@ -644,6 +645,108 @@ node net/run-bumper.mjs [--bots 15] [--chrome 1] [--seconds 100] [--impair delay
 ```
 
 Not done yet: teams, a lobby between rounds, and the cheese tilting.
+
+## Party
+
+![Fruit Chute with 128 balls: the belt carrying everyone down, fruit rolling down the lanes](docs/p1-chute-128.png)
+
+Bumper balls' ball, and every round a different minigame: fourteen of them,
+after Mario Party, Fall Guys, Squid Game and Roblox, up to 256 in a room.
+`src/` built with `BUMPER` and `PARTY` set (`build/party/game.wasm`), with the
+same lockstep, relays, keyframes, prediction, spectators and replays.
+
+```sh
+node net/play.mjs --party               # the relay on Party's sim, 15 AI balls, the page; open the URL it prints
+node net/play.mjs --party --mg 3        # every round Red Light (a minigame's number, below)
+node net/play.mjs --party --bots 255    # a full room
+```
+
+The controls are bumper balls': the mouse turns you, WASD rolls, Space hops,
+a click uses what you hold, Tab shows the standings. A round is a 6 s title
+card (the minigame's name, how it plays, how it's won), the round, and 5 s of
+its result; the next minigame is drawn from the room's PRNG, never one of the
+last two. A win is 10 party points and last place 1, in even steps between;
+the standings are party points, then wins. `?bot=1` hands your ball to an AI;
+`?watch=1` spectates.
+
+| # | Minigame | Won by | How it plays |
+| --- | --- | --- | --- |
+| 0 | THIN ICE | last one in | three floors of hex ice; a tile cracks under your ball and drops 0.64 s later; fall through all three and you're out |
+| 1 | COLOR CALL | last one in | hex tiles in 4 or 5 colours; a colour is called, 2.6 s shrinking to 1.2 s, then every other colour drops for 1.5 s; from the 5th call the outer ring goes for good, from the 18th only the one called tile holds |
+| 2 | SWEEPER | last one in | bars sweep round from a post at ball height, faster every second; hop them; a second bar at 16 s, a third at 36, a fourth at 56, each one reversing them; the outer rings drop from 66 s |
+| 3 | RED LIGHT | finishing order | 170 m to the line past a giant doll; roll while she sings, and 0.35 s after she turns, anything faster than 1.2 m/s is caught; bumps are on until she looks |
+| 4 | BOMB RAIN | last one in | bombs fall where a ring on the floor says, half of them aimed at a ball; big ones blow craters in the tiles; the rim crumbles in to 10 m |
+| 5 | THE WALL | last one in | walls with gaps sweep across a square stage and carry off what they meet; faster, fewer gaps, and from 40 s every other wall sways |
+| 6 | MUSICAL PADS | last one in | the music stops, pads light up, half as many as balls left; 4 s later everyone not on a pad is out; a gold pad pays a power-up |
+| 7 | KING OF THE HILL | points | a hill swells out of the floor every 15 s, its top zone shrinking; a point a tick on it, two on the crown; two hills from 48 balls, three from 128 |
+| 8 | HOT POTATO | last one in | a bomb for every three balls; touch someone to pass it; a holder rolls 15% faster; the fuse is 12 s, a second shorter each wave |
+| 9 | COIN RUSH | points | coins rain on a pinball disc; take one by touching it; a hard bump knocks up to 3 of yours loose, a fall spills half; jackpots called 3 s ahead; a frenzy for the last 15 s |
+| 10 | PAINT PARTY | points | a 256 x 256 grid of cells; every cell you roll over is yours until someone rolls over it; paint bombs burst 4 m round; the last 10 s paint wider |
+| 11 | DOWNHILL | finishing order | 450 to 600 m of track from 100 m up: drops, banked bends, a jump over a gap, a funnel, bumpers, spinners and sweepers, boost pads and power-up boxes |
+| 12 | FRUIT CHUTE | finishing order | a 100 m conveyor rising 20 m carries everyone down at 3 m/s while grapes, apples, oranges and melons roll down its lanes |
+| 13 | TAG | points | one it for every 16 balls; an it that touches you makes you it; a point a second free; springs for the free, dashes for the its |
+
+**How it fits on the engine.** `src/party.wat` is the framework: the rounds,
+the rotation, joins, the ball's roll over any stage, outs, places and points.
+bumper.wat's ball, power-ups, bumps and blasts stay; its cheese and its round
+are behind `#if !PARTY`, so bumper balls' own build is bit for bit what it was.
+Each minigame is its own file, `src/mg/<key>.wat` (its constants in
+`src/mg/<key>.mjs`, re-exported by `src/layout.mjs`), and supplies eight
+hooks under its prefix: `setup` lays the stage out for the balls in,
+`spawn` places them, `start` and `tick` run its world, `over` ends it early,
+`out` hears of a ball going out, and `ground` (the top of what's solid under a
+point) and `push` (kinematic hazards on one ball) run on either bank, the
+confirmed world or the prediction. The `(!mg)` macro calls the one on now.
+State lives in 112 bytes of the header (in the prediction's copy), 7.75 KiB
+past the projectiles and the 448 KiB golf keeps its balls in, all hashed and
+in every keyframe.
+
+Every stage moves on a schedule: what a ball meets (a falling tile, a bar,
+a wall, a fruit, a bomb's blast, a hill) is a function of the tick, the round's
+seed and state the confirmed world fixed at least a second before, so the
+prediction rolls your ball through it exactly as the confirmed world will,
+and you dodge on the next frame at any latency. Only ball against ball (a
+bump, a pass, a tag, a claim) is the confirmed world's and comes a round trip
+later, eased in like any correction. The minigames' tests check the
+prediction bit for bit against the confirmed ball through each hazard.
+
+`client/party.html` is the page (`client/party-game.mjs`), and
+`client/party-render.mjs` its renderer: bumper balls' look made general. The
+stage is instanced solids (boxes, cylinders, hex prisms, spheres) in ten
+looks (matte, plastic, ice that cracks, metal, hazard stripes, glow, paint,
+checker, wood, rubber), lit by the sun and the sky with a shadow map, tone
+mapped, at the window's resolution with 4x multisampling; flat decals for
+rings, zones and pads; a paint layer for Paint Party's grid; four skies
+(day, sunset, night, snow). Each minigame's client module
+(`client/mg/<key>.mjs`) draws its stage into a scene, turns its FX into
+flashes and sounds, writes its HUD lines and gives the AI ball its sense of
+the stage. `client/party-bot.mjs` is the AI ball: it rolls its own ball ahead
+0.45 to 0.85 s for 16 headings and coasting, scores each by the minigame's
+danger, its goal and the room from rivals, and lets a minigame steer outright
+(Red Light's brakes). 255 of them take 1.2 to 2.1 ms a tick.
+
+**Results.** `test/party.test.mjs` (16 tests) covers the framework: the other
+builds' bytes unchanged, rounds laid out for 1 to 256 balls, the rotation, a
+forced minigame, both kinds of end, places and points, late joiners, the
+prediction, and rounds of AI balls equal on every tick on 1 and 4 threads.
+Each minigame has its own file (`test/mg-<key>.test.mjs`, 157 tests in all):
+its stage for 1, 8, 64 and 256 balls, each rule, the prediction through its
+hazards, and rounds of 8 and 64 AI balls on the debug build, equal on 1 and 4
+threads. Every minigame's recorded log, 20,000 ticks of 16 AI balls, replays
+equal on every tick in all 27 configurations of the determinism matrix.
+Online, a relay on Party's sim with Chrome and 31 AI balls through the
+rotation for 420 s: 32 sessions, 13,151 interval hashes checked, all equal;
+and each minigame forced, most with 16 and with 128 balls, every hash equal. Party's
+wasm is 69 KB, 29 KB gzipped; a tick of 256 balls is 0.2 ms.
+
+```sh
+node --test test/party.test.mjs test/mg-*.test.mjs
+node tools/genparty.mjs --bots 16 --ticks 20000 --out logs/party.qgl [--mg k]
+node harness/matrix.mjs --ticks 20000 --log logs/party.qgl --wasm build/party/game.wasm
+node net/run-party.mjs [--mg k] [--bots 15] [--chrome 1] [--seconds 60] [--res 1280x800]
+```
+
+Not done yet: teams, and power-ups in more of the minigames.
 
 ## Play it
 

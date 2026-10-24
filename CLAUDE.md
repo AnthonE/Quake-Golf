@@ -16,15 +16,15 @@ read the section for whatever you touch.
 ```sh
 npm ci && sh tools/install-deno.sh   # once: wabt, binaryen, Deno 2.9.7 in .tools/
 npm run build                        # every sim; prints each wasm's sha256
-npm test                             # node --test test/*.test.mjs, about 40 s
+npm test                             # node --test test/*.test.mjs, a few minutes
 node --test test/bumper.test.mjs     # one file
 node harness/matrix.mjs --ticks 20000 --log logs/x.qgl --wasm build/<sim>/game.wasm   # Node, Deno, Chrome x JIT tiers x 1/2/4 threads
-node net/play.mjs [--arena | --bumper | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
-node net/run-arena.mjs / run-bumper.mjs / run-fireplace.mjs / run-n1.mjs ...   # online gates: relay, bot host, headless Chrome, every hash checked
+node net/play.mjs [--arena [--mode k] | --bumper | --party [--mg k] | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
+node net/run-arena.mjs / run-bumper.mjs / run-party.mjs / run-fireplace.mjs / run-n1.mjs ...   # online gates: relay, bot host, headless Chrome, every hash checked
 ```
 
 Logs for the matrix come from `tools/genlog.mjs`, `gengame.mjs`,
-`genarena.mjs`, `genbumper.mjs`, `genfireplace.mjs`. Gates write `traces/`
+`genarena.mjs`, `genbumper.mjs`, `genparty.mjs`, `genfireplace.mjs`. Gates write `traces/`
 (screenshots included). Headless Chrome is Playwright's preinstalled Chromium
 on SwiftShader: pictures are right, frame rates mean nothing, and drawing to an
 on-screen canvas destroys the GPU device, so gate pages run with `?present=0`
@@ -53,7 +53,7 @@ shell whose own command line contains the name: it kills that shell.
   steering only, never fed back. Mirror the sim's integer semantics, e.g. i32
   subtraction wraps (`(a - b) | 0`).
 
-## Layout and the three games
+## Layout and the games
 
 - `src/layout.mjs` is the one memory map for the WAT (`@NAME`, `@(expr)`),
   the harness, the net code and the clients. Physics literals sit in `PHYS`
@@ -62,6 +62,16 @@ shell whose own command line contains the name: it kills that shell.
   their differences behind `#if ARENA` / `#if BUMPER` (nesting works, `#if !X`
   too). Changing a mode must leave the other builds bit-identical: compare the
   sha256s `npm run build` prints before and after.
+- Party (`src/party.wat`) is bumper's ball with bumper.wat's cheese and round
+  behind `#if !PARTY`. Each minigame is `src/mg/<key>.wat` (eight hooks under
+  its prefix, called through `(!mg)`), its constants in `src/mg/<key>.mjs`
+  (re-exported by layout.mjs; literal numbers, no imports), its client module
+  `client/mg/<key>.mjs`, its tests `test/mg-<key>.test.mjs`. State only in
+  `PG_H` (header, in the prediction's copy), `PG_S`, `PG_BIG` and the record's
+  party fields. `ground` and `push` run on the prediction's bank too: they
+  read bank d's header and only confirmed state fixed long enough ahead (a
+  tile cracked at c drops at c + 80), and write only that ball's record. A
+  seed whose top byte is 0xA7 forces a minigame (`--mg k`).
 - The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut)
   are picked per match at run time, not built: `AH_MODE` at `REGION + 0x48`,
   a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`), per-fighter state at `MODE_REC`.
@@ -80,7 +90,7 @@ shell whose own command line contains the name: it kills that shell.
   A game's static world (terrain, map) is rebuilt by `regrid` when a keyframe
   from another game arrives (`FP_WORLD`, `FP_STASH` at `0x360000`).
 - Inputs are one u32 word per player per tick (golf's layout in
-  `src/view.mjs`; the arena's in `arena-view.mjs`; bumper reuses golf's).
+  `src/view.mjs`; the arena's in `arena-view.mjs`; bumper and party reuse golf's).
   Keep fields that rarely change still: wire v4 codes deltas.
 
 ## Clients
