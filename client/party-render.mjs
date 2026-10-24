@@ -26,6 +26,9 @@ export const MAX_BEAM = 256;
 export const MAX_RECT = 64;
 export const MAX_DECAL = 1024;
 export const MAX_CASTER = 1024;
+export const MAX_BIG = 4; // lines of big text (s.big)
+export const BIG_CHARS = 32; // characters a big line
+const BIG_WORDS = 4 + BIG_CHARS / 4;
 const MSAA = 4;
 const NEAR = 0.05; // reversed depth, the far plane at infinity: depth = NEAR / view z
 const SHADOW_N = 2048;
@@ -1116,6 +1119,26 @@ fn graphPx(p: vec2i) -> vec4f {
   return vec4f(0.0, 0.0, 0.0, 0.5);
 }
 
+// Big text (s.big): up to ${MAX_BIG} lines of the same font, each pixel of it scale HUD pixels a side, kept in the
+// hud buffer after the cells: x, y (HUD px, the line's top left), scale, colour | length << 8, then four characters
+// a word. The palette colour of the line lit at p, or -1; shadow 1 asks for its drop shadow instead.
+fn bigAt(p: vec2i, shadow: i32) -> i32 {
+  let base = u32(u.hud.x) * ${COLS}u;
+  for (var k = 0u; k < ${MAX_BIG}u; k++) {
+    let o = base + k * ${BIG_WORDS}u;
+    let s = bitcast<i32>(hud[o + 2u]);
+    if (s <= 0) { continue; }
+    let l = p - vec2i(bitcast<i32>(hud[o]), bitcast<i32>(hud[o + 1u])) - vec2i(shadow * max(1, s / 3));
+    let n = i32(hud[o + 3u] >> 8u);
+    if (l.x < 0 || l.y < 0 || l.x >= n * 4 * s || l.y >= 6 * s) { continue; }
+    let g = l / s;
+    let i = g.x / 4;
+    let ch = (hud[o + 4u + u32(i) / 4u] >> (8u * (u32(i) & 3u))) & 255u;
+    if (ch >= 32u && ch <= 95u && glyphBit(ch, vec2i(g.x - i * 4, g.y))) { return i32(hud[o + 3u] & 7u); }
+  }
+  return -1;
+}
+
 // The minimap: the stage from above (drawn this frame into its texture), a disc turned the way you face, or a
 // square with north up; in screen pixels.
 fn miniPx(q: vec2f) -> vec4f {
@@ -1142,7 +1165,10 @@ fn miniPx(q: vec2f) -> vec4f {
     let k = (hud[u32(cell.y) * ${COLS}u + u32(cell.x)] >> 8u) & 7u;
     return vec4f(PALETTE[k], 1.0);
   }
+  let b = bigAt(p, 0);
+  if (b >= 0) { return vec4f(PALETTE[b], 1.0); }
   if (lit(p - vec2i(1, 1))) { return vec4f(0.0, 0.0, 0.0, 0.75); }
+  if (bigAt(p, 1) >= 0) { return vec4f(0.0, 0.0, 0.0, 0.75); }
   let g = graphPx(p);
   if (g.a > 0.0) { return g; }
   for (var k = i32(u.counts.w) - 1; k >= 0; k--) {
@@ -1193,7 +1219,7 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
   const spriteBuf = storage(MAX_SPRITE * 64);
   const beamBuf = storage(MAX_BEAM * 48);
   const rectBuf = storage(MAX_RECT * 32);
-  const hudBuf = storage(COLS * rows * 4);
+  const hudBuf = storage((COLS * rows + MAX_BIG * BIG_WORDS) * 4);
   const fontBuf = storage(FONT.length * 4);
   const graphBuf = storage(GRAPH_PANELS * GRAPH_N * 16);
   const decalBuf = storage(MAX_DECAL * 48);
@@ -1317,7 +1343,8 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
   });
 
   const uf = new Float32Array(UF);
-  const hud = new Uint32Array(COLS * rows);
+  const hud = new Uint32Array(COLS * rows + MAX_BIG * BIG_WORDS);
+  const cells = COLS * rows;
   let order = new Uint32Array(cap * 2), vis = new Uint8Array(cap), keyZ = new Float32Array(cap);
   const casterData = new Float32Array(MAX_CASTER * 4);
   const spriteData = new Float32Array(MAX_SPRITE * 16);
@@ -1361,6 +1388,8 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
     //               n, origin: [x0, z0], size (the grid's side, m), palette: Float32Array(1024) (rgba 0..1, index 0..255;
     //               alpha 0 leaves the solid's own colour), version (uploaded when it or cells changes) },
     //      rects: [[x0, y0, x1, y1, r, g, b, a]] (screen px), text: Uint32Array(COLS * rows), graph (client/netgraph.mjs), flash 0..1,
+    //      big: [{ text, x, y, scale, color }] (up to MAX_BIG lines of BIG_CHARS: the HUD font scale times over, its top
+    //               left at x, y in HUD pixels from the text block's corner (a cell is 4 x 6), a palette colour C.*),
     //      mini: [cx, cy, radius px, world radius] | null, miniShape: 'disc' (turns the way you face) | 'square' (north up),
     //      miniCentre: [x, z] (the focus) }
     frame(u8, s, target) {
@@ -1539,7 +1568,13 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
       if (nb) q.writeBuffer(beamBuf, 0, beamData, 0, nb * 12);
       if (nr) q.writeBuffer(rectBuf, 0, rectData, 0, nr * 8);
       if (s.graph) q.writeBuffer(graphBuf, 0, s.graph);
-      if (s.text) hud.set(s.text.subarray(0, hud.length)); else hud.fill(0);
+      if (s.text) hud.set(s.text.subarray(0, cells)); else hud.fill(0, 0, cells);
+      hud.fill(0, cells);
+      for (let k = 0; k < Math.min(MAX_BIG, s.big?.length || 0); k++) {
+        const b = s.big[k], o = cells + k * BIG_WORDS, t = String(b.text).toUpperCase().slice(0, BIG_CHARS);
+        hud[o] = b.x | 0; hud[o + 1] = b.y | 0; hud[o + 2] = Math.max(0, b.scale | 0); hud[o + 3] = ((b.color ?? 0) & 7) | (t.length << 8);
+        for (let i = 0; i < t.length; i++) hud[o + 4 + (i >> 2)] |= (t.charCodeAt(i) & 255) << (8 * (i & 3));
+      }
       q.writeBuffer(hudBuf, 0, hud);
 
       const enc = device.createCommandEncoder();

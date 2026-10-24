@@ -5,9 +5,10 @@ export const TI_S = 2; // a tile's circumradius, m (pointy-top hexes, axial q, r
 export const TI_LAYERS = 3;
 export const TI_GAP = 12; // m from one layer's top down to the next's: PLAT_Y, PLAT_Y - 12, PLAT_Y - 24
 export const TI_R0 = 12; // the disc: 12 m plus TI_RK times the root of the balls in, at most TI_RMAX
-export const TI_RK = 3.2;
+export const TI_RK = 4.5;
 export const TI_RMAX = 64;
-export const TI_HOLD = 56; // ticks a cracked tile still holds: 0.45 s
+export const TI_HOLD = 80; // ticks a cracked tile still holds: 0.64 s, time to cross one at 5.4 m/s
+export const TI_GRACE = 125; // ticks into play before anything cracks: everyone rolling before the ice gives
 export const TI_LEN = 15000; // 120 s
 // The tiles, in PG_BIG: u32 per cell, layer by layer, (r + TI_N) * TI_W + (q + TI_N)
 // within a layer. 0 no tile, 1 intact, else the tick it stops holding.

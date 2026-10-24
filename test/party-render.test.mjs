@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Scene, SHAPE, LOOK, SPRITE, DECAL, ENVS, MESH, COLS } from '../client/party-render.mjs';
+import { Scene, SHAPE, LOOK, SPRITE, DECAL, ENVS, MESH, COLS, MAX_BIG, BIG_CHARS } from '../client/party-render.mjs';
 
 // What the minigames' draw() code builds against: the names, and a solid's 16 floats where they are documented.
 test('party renderer: the names the minigames draw with', () => {
@@ -9,6 +9,8 @@ test('party renderer: the names the minigames draw with', () => {
   assert.deepEqual(LOOK, { MATTE: 0, PLASTIC: 1, ICE: 2, METAL: 3, HAZARD: 4, GLOW: 5, PAINT: 6, CHECKER: 7, WOOD: 8, RUBBER: 9 });
   assert.deepEqual(SPRITE, { BALL: 0, BODY: 1, ORB: 2, FLASH: 3, RING: 4, SPARK: 5, ARROW: 6, ROCKET: 7, HEAD: 8, CRUMB: 9, COIN: 10, BOMB: 11 });
   assert.deepEqual(DECAL, { RING: 0, DISC: 1, ZONE: 2, TARGET: 3 });
+  // big text (s.big, the title card's): four lines of up to 32 characters, four packed a word
+  assert.ok(MAX_BIG >= 4 && BIG_CHARS >= 32 && BIG_CHARS % 4 === 0);
   for (const k of ['day', 'sunset', 'night', 'snow']) {
     const e = ENVS[k];
     assert.ok(Math.abs(Math.hypot(...e.sun) - 1) < 1e-9 && e.sun[1] > 0.2, `${k}: the sun is a unit vector well over the horizon`);

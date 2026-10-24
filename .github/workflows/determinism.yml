@@ -59,6 +59,10 @@ jobs:
         run: |
           node tools/genbumper.mjs --bots 16 --ticks 20000 --out logs/bumper.qgl
           node harness/matrix.mjs --ticks 20000 --log logs/bumper.qgl --wasm build/bumper/game.wasm --runtimes node,deno,chromium
+      - name: Party (build/party/), sixteen AI balls through the rotation of minigames
+        run: |
+          node tools/genparty.mjs --bots 16 --ticks 20000 --out logs/party.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/party.qgl --wasm build/party/game.wasm --runtimes node,deno,chromium
       - name: Fireplace (build/fireplace/), the playlist through bumper balls, the arena and golf, guests coming and going
         run: |
           node tools/genfireplace.mjs --bots 12 --ticks 60000 --out logs/fireplace.qgl
@@ -76,6 +80,8 @@ jobs:
         run: node net/run-arena.mjs --chrome 0 --bots 64 --seconds 60 --mode 1
       - name: Bumper balls online, full (a relay on bumper balls' sim, 256 AI balls through its native door, a round won, every hash checked)
         run: node net/run-bumper.mjs --chrome 0 --bots 256 --seconds 100
+      - name: Party online, full (a relay on Party's sim, 256 AI balls through its native door, the rotation, a round placed, every hash checked)
+        run: node net/run-party.mjs --chrome 0 --bots 256 --seconds 100
       - name: Fireplace online (a relay on Fireplace's sim, 64 guests, the room moved from bumper balls into the arena, every hash checked)
         run: node net/run-fireplace.mjs --chrome 0 --bots 64 --seconds 240
       - name: 256 players in one room (the bot host's golfers, impaired, the 257th refused)

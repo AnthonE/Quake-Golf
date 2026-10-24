@@ -8,7 +8,8 @@ import * as L from '../src/layout.mjs';
 
 const C = L.B_CX;
 
-// A room of n balls on Thin Ice, on the debug build (a NaN traps).
+// A room of n balls on Thin Ice, on the debug build (a NaN traps), stepped
+// into play and through its grace (nothing cracks for TI_GRACE) unless asked not to.
 async function room(n = 2, { play = true, seed = 7 } = {}) {
   const sim = await newParty(true);
   sim.init(seed);
@@ -17,7 +18,7 @@ async function room(n = 2, { play = true, seed = 7 } = {}) {
   dv.setUint32(L.PG_FORCE, L.MG_THINICE + 1, true);
   const step = (recs = []) => { sim.feedPlayers(recs); sim.x.step(); };
   step(Array.from({ length: n }, (_, p) => [L.EV_JOIN, p]));
-  while (play && v.hole().state !== L.H_PLAY) step();
+  while (play && (v.hole().state !== L.H_PLAY || v.party().t < L.TI_GRACE)) step();
   return { sim, v, dv, step };
 }
 const rec = (p) => L.PLAYERS + p * L.PSIZE;
@@ -78,7 +79,7 @@ test('nothing cracks in the countdown, nor under a ball in the air: it cracks wh
     const [q, r] = hexAt(b.pos[0], b.pos[2], L.TI_S);
     assert.equal(cell(g, q, r, 0), 1, `P${p + 1}'s tile whole`);
   }
-  while (g.v.hole().state !== L.H_PLAY) g.step();
+  while (g.v.hole().state !== L.H_PLAY || g.v.party().t < L.TI_GRACE) g.step();
   const [x, z] = hexCentre(3, -2, L.TI_S);
   put(g, 0, x, z, { y: PLAT_Y + 2, ground: false });
   let k = 0;
@@ -90,7 +91,21 @@ test('nothing cracks in the countdown, nor under a ball in the air: it cracks wh
   assert.equal(cell(g, 3, -2, 0), g.v.tick - 1 + L.TI_HOLD, 'cracked on the tick it landed');
 });
 
-test('a ball on the ice cracks the tile under its centre; it holds 0.45 s more, then drops, and the ball falls to the layer below and stays in', async () => {
+test('the ice holds for the first second of play: a ball at rest cracks nothing till TI_GRACE, then its tile', async () => {
+  const g = await room(2, { play: false });
+  while (g.v.hole().state !== L.H_PLAY) g.step();
+  const tiles = (p) => { const b = g.v.partier(p); const [q, r] = hexAt(b.pos[0], b.pos[2], L.TI_S); return cell(g, q, r, 0); };
+  // the round's tick hook sees the tick before the step's end: TI_GRACE of them pass whole
+  while (g.v.party().t < L.TI_GRACE) {
+    g.step();
+    assert.deepEqual([tiles(0), tiles(1)], [1, 1], `whole ${g.v.party().t} ticks in`);
+  }
+  g.step();
+  assert.ok(tiles(0) > 1 && tiles(1) > 1, 'cracked on the next');
+  assert.equal(tiles(0), g.v.tick - 1 + L.TI_HOLD);
+});
+
+test('a ball on the ice cracks the tile under its centre; it holds TI_HOLD (0.64 s) more, then drops, and the ball falls to the layer below and stays in', async () => {
   const g = await room(2);
   const [x, z] = hexCentre(2, 1, L.TI_S);
   put(g, 0, x, z);
@@ -145,8 +160,8 @@ test('through all three layers and you\'re out: the other ball is the last one u
 
 test('the prediction matches the confirmed ball bit for bit as it rolls onto ice another ball cracked and drops through', async () => {
   const g = await room(2);
-  // P2 rolls along z = C at 10 m/s; P1 follows 6 m (0.6 s) behind, where the ice P2 cracked has gone
-  put(g, 1, C - 10, C, { vx: 10 });
+  // P2 rolls along z = C at 10 m/s; P1 follows 8 m (0.8 s) behind, where the ice P2 cracked has gone
+  put(g, 1, C - 8, C, { vx: 10 });
   put(g, 0, C - 16, C, { vx: 10 });
   g.step([[L.EV_INPUT, 1, partyWord({ yaw: 0, move: 1 })]]);
   assert.ok(predicted(g, Array.from({ length: 150 }, () => partyWord({ yaw: 0, move: 1 }))) >= 150);

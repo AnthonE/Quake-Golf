@@ -6,6 +6,8 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { expandMacros } from '../tools/asm.mjs';
 import { makeMacros } from '../src/macros.mjs';
+import { playParty, partySeed } from '../tools/genparty.mjs';
+import { MG } from '../client/mg/index.mjs';
 import * as L from '../src/layout.mjs';
 
 const TURN = 16384;
@@ -291,7 +293,7 @@ test('the prediction matches the confirmed ball bit for bit: into play off the c
   b = g.v.partier(0);
   assert.ok(b.ground && b.pos[1] === PLAT_Y - 2 * L.TI_GAP, `the last layer at ${b.pos[1]}`);
   // and through the last one, going out (not yet counted out)
-  assert.ok(predicted(g, Array.from({ length: 56 + 110 }, () => partyWord({ yaw: 0 }))) >= 166);
+  assert.ok(predicted(g, Array.from({ length: L.TI_HOLD + 110 }, () => partyWord({ yaw: 0 }))) >= L.TI_HOLD + 110);
   b = g.v.partier(0);
   assert.ok(b.falling && !b.out, `going out, at ${b.pos[1]}`);
 });
@@ -340,4 +342,49 @@ test('a room of scripted balls into the rotation replays to the same hash on eve
   const a = await replay({ bytes, log: parsed, ticks: 6000, threads: 1, tag: 'p1' });
   const b = await replay({ bytes, log: parsed, ticks: 6000, threads: 4, tag: 'p4', startWorkers });
   assert.deepEqual([...decodeTrace(a.trace).tickHashes], [...decodeTrace(b.trace).tickHashes]);
+});
+
+test('every minigame has a client module: its id, key and name as the layout has them, a backdrop, a hint the HUD can show, a brain', () => {
+  assert.equal(MG.length, L.NMG);
+  MG.forEach((m, k) => {
+    assert.deepEqual([m.id, m.key, m.name], [k, L.MINIGAMES[k].key, L.MINIGAMES[k].name]);
+    assert.ok(['day', 'sunset', 'night', 'snow'].includes(m.env), `${m.key}: env ${m.env}`);
+    assert.ok(typeof m.hint === 'string' && m.hint.length <= 70 && /^[ -_]*$/.test(m.hint), `${m.key}: the hint in the 3x5 font's characters`);
+    for (const f of ['draw', 'frame', 'fx', 'hud']) assert.equal(typeof m[f], 'function', `${m.key}.${f}`);
+    for (const f of ['danger', 'goal', 'hop']) assert.equal(typeof m.brain[f], 'function', `${m.key}.brain.${f}`);
+  });
+});
+
+test('Partier: AI balls on Thin Ice keep rolling, none out in the first 8 s; the same seed and world, the same words', async () => {
+  const bytes = partyBytes();
+  const a = await playParty({ bytes, mg: L.MG_THINICE, bots: 8, ticks: 4500 });
+  const b = await playParty({ bytes, mg: L.MG_THINICE, bots: 8, ticks: 4500 });
+  assert.deepEqual(a.log, b.log, 'deterministic');
+  assert.ok(a.rounds >= 1, `${a.rounds} rounds`);
+  assert.ok(a.scores.some((s) => s.wins > 0));
+  // a round of eight lasts: no ball falls through all three layers in its first 8 s
+  let start = -1, first = Infinity;
+  await playParty({ bytes, mg: L.MG_THINICE, bots: 8, ticks: 4000, onTick: (t, sim, v) => {
+    const h = v.hole();
+    if (h.state === L.H_PLAY && start < 0) start = h.start;
+    for (let p = 0; p < 8 && start >= 0; p++) if (v.partier(p).out && v.partier(p).place) first = Math.min(first, v.partier(p).outAt - start);
+  } });
+  assert.ok(first > 8 * 125, `the first out ${(first / 125).toFixed(1)} s in`);
+});
+
+test('rounds of AI balls on the debug build, no trap: Thin Ice, then the rotation; equal on every tick on 1 and 4 threads', async () => {
+  const bytes = partyBytes(true);
+  // Thin Ice forced (through the seed), a ball leaving and coming back
+  const ti = await playParty({ bytes, mg: L.MG_THINICE, bots: 12, ticks: 5000, leaveAt: 1200 });
+  assert.ok(ti.rounds >= 1 && ti.games.every((g) => g === L.MG_THINICE), `${ti.rounds} rounds of ${ti.games}`);
+  // seed 2's rotation opens on Thin Ice, then whatever the PRNG picks next
+  const rot = await playParty({ bytes, seed: 2, bots: 12, ticks: 6500, leaveAt: 1500 });
+  assert.ok(rot.games.length >= 2 && rot.games[0] === L.MG_THINICE && rot.games[1] !== L.MG_THINICE, `minigames ${rot.games}`);
+  assert.equal(partySeed(5, 3), (0xa7030005) >>> 0);
+  for (const [tag, r, ticks] of [['ti', ti, 5000], ['rot', rot, 6500]]) {
+    const parsed = parseLog(r.log);
+    const a = await replay({ bytes, log: parsed, ticks, threads: 1, tag: `pp-${tag}1` });
+    const b = await replay({ bytes, log: parsed, ticks, threads: 4, tag: `pp-${tag}4`, startWorkers });
+    assert.deepEqual([...decodeTrace(a.trace).tickHashes], [...decodeTrace(b.trace).tickHashes], tag);
+  }
 });

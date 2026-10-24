@@ -12,13 +12,15 @@
 // With --arena the room is the arena's (build/arena/game.wasm) and every bot
 // an AI fighter (client/arena-bot.mjs), saying how old its view is in its frames.
 // With --bumper it is bumper balls' (build/bumper/game.wasm) and every bot an
-// AI ball (client/bumper-bot.mjs). With --fireplace it is Fireplace's
+// AI ball (client/bumper-bot.mjs). With --party it is Party's
+// (build/party/game.wasm), a minigame a round, and every bot an AI ball that
+// asks the minigame what is safe (client/party-bot.mjs). With --fireplace it is Fireplace's
 // (build/fireplace/game.wasm), every game in turn, and every bot a guest who
 // plays whatever is on (client/fireplace-bot.mjs).
 // Given several relays, a session whose relay goes away tries the next, a few
 // times a second for up to 10 s, asking for its slot back (a resume): a
 // standby relay that has taken the room over holds it (net/relay.ts --standby).
-//   node net/bot-host.mjs [--relay 127.0.0.1:4434[,host:port...]] [--bots 250] [--seconds 0] [--rate 50] [--genome qg2:...] [--arena | --bumper | --fireplace [--skill 0.6]]
+//   node net/bot-host.mjs [--relay 127.0.0.1:4434[,host:port...]] [--bots 250] [--seconds 0] [--rate 50] [--genome qg2:...] [--arena | --bumper | --party | --fireplace [--skill 0.6]]
 //                         [--impair delay=60,jitter=10,loss=0.02] [--out traces/bot-host.json] [--watch]
 // --seconds 0 plays until Ctrl-C; --rate: sessions opened a second. The summary
 // (--out, else stdout) holds every session's delivery and inputs, and the
@@ -37,7 +39,9 @@ import { View } from '../src/arena-view.mjs';
 import { BrainBot } from '../client/brain.mjs';
 import { Fighter } from '../client/arena-bot.mjs';
 import { Roller } from '../client/bumper-bot.mjs';
+import { Partier } from '../client/party-bot.mjs';
 import '../src/bumper-view.mjs';
+import '../src/party-view.mjs';
 import { Guest } from '../client/fireplace-bot.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,15 +59,17 @@ const watch = argv.includes('--watch');
 const arena = argv.includes('--arena');
 const bumper = argv.includes('--bumper');
 const fireplace = argv.includes('--fireplace');
+const party = argv.includes('--party');
 const skill = Number(opt('skill', 0.6));
 const genome = opt('genome', readFileSync(join(ROOT, 'xbox/golfer.h'), 'utf8').match(/GOLFER_DEFAULT "(qg2:[A-Za-z0-9_-]+)"/)[1]);
 const HOLE_TICKS = 56; // client/sim.mjs: a repair can come until a hole is 64 ticks old
 const TARGET_SLACK = (W.SEND_EVERY + 1) * W.TICK_MS; // net/bot.mjs: a lost input's repeat must still land
 
-const bytes = readFileSync(join(ROOT, arena ? 'build/arena/game.wasm' : bumper ? 'build/bumper/game.wasm' : fireplace ? 'build/fireplace/game.wasm' : 'build/game.wasm'));
-// a golfer, or in the arena a fighter (in bumper balls a ball) of a skill about --skill
+const bytes = readFileSync(join(ROOT, arena ? 'build/arena/game.wasm' : bumper ? 'build/bumper/game.wasm' : party ? 'build/party/game.wasm' : fireplace ? 'build/fireplace/game.wasm' : 'build/game.wasm'));
+// a golfer, or in the arena a fighter (in bumper balls and party a ball) of a skill about --skill
 const skilled = () => Math.max(0.1, Math.min(1, skill + (Math.random() - 0.5) * 0.4));
 const makeBot = (slot) => (arena ? new Fighter(slot, (Math.random() * 1e9) | 0, skilled()) : bumper ? new Roller(slot, (Math.random() * 1e9) | 0, skilled())
+  : party ? new Partier(slot, (Math.random() * 1e9) | 0, skilled())
   : fireplace ? new Guest(slot, (Math.random() * 1e9) | 0, skilled(), genome) : new BrainBot(slot, genome, { lag: 8 }));
 const prefix = await W.wasmPrefix(bytes);
 const t0 = performance.now();
@@ -124,6 +130,18 @@ function step() {
     world.stepped++;
     // Fireplace: each game the room moved into, and when
     if (fireplace) { const g = world.view.dv.getUint32(L.FP_GAME, true); if (world.games.at(-1)?.game !== g) world.games.push({ game: g, name: L.GAMES[g], simTick: sim.tick }); }
+    // Party: each round's minigame, as play starts, and when it ended (once a
+    // round, though a keyframe from the seed has the world play it again)
+    if (party) {
+      const dv = world.view.dv;
+      const st = dv.getUint32(L.HDR_STATE, true), round = dv.getUint32(L.HDR_HOLE, true);
+      if (st === L.H_PLAY && !world.games.some((g) => g.round === round)) {
+        const g = dv.getUint32(L.PG_GAME, true);
+        world.games.push({ game: g, name: L.MINIGAMES[g]?.name, round, simTick: sim.tick, len: dv.getUint32(L.PG_LEN, true), n0: dv.getUint32(L.BH_N0, true) });
+      }
+      const now = world.games.find((g) => g.round === round);
+      if (st === L.H_OVER && now && now.over === undefined) now.over = sim.tick;
+    }
     // inputs applied as sent: each session's word for t against the tick's own
     for (const s of sessions) {
       if (!s.joined || s.watch || t < s.joinTick0) continue;
@@ -357,7 +375,7 @@ class Session {
     // ticks between deciding an input and seeing what it did, in the shared world
     this.bot.lag = Math.max(2, this.nextTick - at());
     while (this.nextTick <= predicted) {
-      const word = !world.started ? 0 : arena || bumper || fireplace ? this.bot.think(world.view, this.nextTick - world.roomStart, this.nextTick - at() + 1) : this.bot.think(world.view);
+      const word = !world.started ? 0 : arena || bumper || party || fireplace ? this.bot.think(world.view, this.nextTick - world.roomStart, this.nextTick - at() + 1) : this.bot.think(world.view);
       this.words.set(this.nextTick, word);
       this.nextTick++;
     }
@@ -409,6 +427,7 @@ const v = world.view;
 const players = sessions.filter((s) => s.joined && !s.watch).map((s) => {
   if (arena) { const f = v.fighter(s.slot); return { slot: s.slot, kills: f.kills, deaths: f.deaths, zombie: f.zombie, rung: f.rung, points: f.points }; }
   if (bumper) { const b = v.bumper(s.slot); return { slot: s.slot, wins: b.wins, kos: b.kos, bumps: b.bumps, rounds: b.rounds }; }
+  if (party) { const b = v.partier(s.slot); return { slot: s.slot, pts: b.pts, wins: b.wins, kos: b.kos, rounds: b.rounds }; }
   if (fireplace) return { slot: s.slot, mallows: v.dv.getUint16(L.FP_MALLOWS + 2 * s.slot, true) };
   const p = v.player(s.slot);
   return { slot: s.slot, strokes: p.strokes, holes: p.holes, total: p.total, done: p.done };
@@ -423,8 +442,8 @@ const per = sessions.map((s) => {
   };
 });
 const summary = {
-  bots: nBots, seconds, impair, genome: arena || bumper ? null : genome, arena, bumper, fireplace,
-  games: fireplace ? world.games : undefined,
+  bots: nBots, seconds, impair, genome: arena || bumper || party ? null : genome, arena, bumper, party, fireplace,
+  games: fireplace || party ? world.games : undefined,
   watch, joined: per.filter((p) => p.joined).length, rejected: per.filter((p) => p.reject !== null).length,
   errors: per.filter((p) => p.error).map((p) => ({ k: p.k, error: p.error })),
   cpuPctOfOneCore: Number((100 * (cpu.user + cpu.system) / 1e6 / wall).toFixed(1)),
