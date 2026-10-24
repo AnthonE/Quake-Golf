@@ -19,9 +19,18 @@ import { Roller } from './bumper-bot.mjs';
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('screen');
 const note = document.getElementById('note');
-const [W, H] = (q.get('res') || '320x200').split('x').map(Number);
+// drawn at the window's own resolution (up to about 1600 x 1000), or ?res=WxH
+const [W, H] = q.has('res') ? q.get('res').split('x').map(Number) : (() => {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = innerWidth * dpr, h = innerHeight * dpr;
+  const k = Math.min(1, 1600 / w, 1000 / h);
+  return [Math.max(320, Math.round(w * k)), Math.max(200, Math.round(h * k))];
+})();
 canvas.width = W;
 canvas.height = H;
+if (W > 640) canvas.style.imageRendering = 'auto';
+// the HUD's 3x5 font in pixels this many screen pixels a side
+const HS = Number(q.get('hud') || Math.max(1, Math.round(H / 240)));
 const SENS = Number(q.get('sens') || 3);
 const BOT = q.get('bot') === '1';
 const WATCH = q.get('watch') === '1';
@@ -59,7 +68,7 @@ async function main() {
   set(L.CL_WEAPON, 0);
   const { exports: px } = await WebAssembly.instantiate(module, { env: { mem: memory } });
 
-  const renderer = await createRenderer(canvas, { present: q.get('present') !== '0' });
+  const renderer = await createRenderer(canvas, { present: q.get('present') !== '0', hudScale: HS });
   const sound = createSound({ music: q.get('music') !== '0' });
   const ch = new MessageChannel();
   const net = new Worker(new URL('./net.mjs', import.meta.url), { type: 'module' });
@@ -194,6 +203,7 @@ async function main() {
   let flash = 0;
   let fxSeen = 0, seenRound = -1, lastState = -1, lastSecs = -1, lastDrop = -1;
   const roll = new Map(); // slot -> the angle its stripes have turned through
+  const crumbs = []; // { pos, vel, size, born }: cheese falling off the rim as it crumbles, for the look of it
   let frames = 0, fpsAt = performance.now(), fps = 0, lastFrame = performance.now();
   let me = null, pme = null;
   let last = null;
@@ -353,10 +363,15 @@ async function main() {
       const ang = (roll.get(p) || 0) + speed * ms / 1000 / r;
       roll.set(p, ang % (2 * Math.PI * 64));
       const col = slotColor(p);
+      // the rider faces where the ball does (you: where you look), bobbing a little as it rolls
+      const face = own ? yaw / TURN * 2 * Math.PI : src.yaw;
+      const fv = [Math.cos(face), 0, Math.sin(face)];
+      const bob = Math.abs(Math.sin(ang * 2)) * Math.min(1, speed / 6) * 0.06;
       solid.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r, color: [...col, 1], kind: SPRITE.BALL, minpx: 1, vel: src.vel, roll: ang, seed: p });
-      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.4, pos[2]], size: 0.42, aspect: 1.25, color: [...col, 1], kind: SPRITE.RIDER, minpx: 1 });
-      if (src.item) solid.push({ pos: [pos[0], pos[1] + 2 * r + 1.3, pos[2]], size: 0.28, color: [...PU_COLOR[src.item], 1], kind: SPRITE.ORB, minpx: 1 });
-      if (own) solid.push({ pos: [pos[0], pos[1] + 2 * r + (src.item ? 1.9 : 1.4) + 0.1 * Math.sin(now / 200), pos[2]], size: 0.3, color: [1, 1, 0.4, 1], kind: SPRITE.ARROW, minpx: 2 });
+      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.22 + bob, pos[2]], size: 0.34, color: [...col, 1], kind: SPRITE.BODY, minpx: 1 });
+      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.78 + bob, pos[2]], size: 0.3, color: [...col, 1], kind: SPRITE.HEAD, minpx: 1, vel: fv });
+      if (src.item) solid.push({ pos: [pos[0], pos[1] + 2 * r + 1.55, pos[2]], size: 0.26, color: [...PU_COLOR[src.item], 1], kind: SPRITE.ORB, minpx: 1 });
+      if (own) solid.push({ pos: [pos[0], pos[1] + 2 * r + (src.item ? 2.15 : 1.65) + 0.1 * Math.sin(now / 200), pos[2]], size: 0.3, color: [1, 1, 0.4, 1], kind: SPRITE.ARROW, minpx: 2 });
       if (src.dash) glow.push({ pos: [pos[0] - src.vel[0] * 0.05, pos[1] + r, pos[2] - src.vel[2] * 0.05], size: r * 1.3, color: [0.4, 0.85, 1, 0.5], kind: SPRITE.FLASH, minpx: 1 });
       if (src.mega) glow.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r * 1.25, color: [1, 0.35, 0.3, 0.35 + 0.15 * Math.sin(now / 120)], kind: SPRITE.RING, minpx: 1 });
     }
@@ -373,6 +388,22 @@ async function main() {
       solid.push({ pos, size: 0.3, color: [1, 0.7, 0.3, 1], kind: SPRITE.ROCKET, minpx: 1.5 });
       glow.push({ pos: [pos[0] - j.vel[0] * 0.03, pos[1], pos[2] - j.vel[2] * 0.03], size: 0.7, color: [1, 0.6, 0.2, 0.8], kind: SPRITE.FLASH, minpx: 1 });
     }
+    // crumbs off the rim while it crumbles, near enough to see
+    if (w.state === L.H_PLAY && w.squeeze > 0 && w.squeeze < 1) {
+      for (let k = 0; k < ms / 8 && crumbs.length < 300; k++) {
+        const a = Math.random() * 2 * Math.PI;
+        const x = L.B_CX + Math.cos(a) * w.rim, z = L.B_CX + Math.sin(a) * w.rim;
+        if (Math.hypot(x - cam[0], z - cam[2]) > 120) continue;
+        crumbs.push({ pos: [x, PLAT_Y - Math.random() * 5, z], vel: [Math.cos(a) * Math.random(), Math.random() * 1.5, Math.sin(a) * Math.random()], size: 0.08 + 0.25 * Math.random() ** 2, born: now });
+      }
+    }
+    for (let k = crumbs.length - 1; k >= 0; k--) {
+      const c = crumbs[k];
+      c.vel[1] -= 20 * ms / 1000;
+      for (let i = 0; i < 3; i++) c.pos[i] += c.vel[i] * ms / 1000;
+      if (now - c.born > 2500) { crumbs.splice(k, 1); continue; }
+      solid.push({ pos: c.pos, size: c.size, color: [1, 0.8, 0.3, 1], kind: SPRITE.CRUMB, minpx: 1 });
+    }
     for (let k = glows.length - 1; k >= 0; k--) {
       const g = glows[k];
       const a = (now - g.born) / g.life;
@@ -382,14 +413,16 @@ async function main() {
     }
 
     // the HUD: the power-up you hold, in a box at the bottom
+    // (in HUD pixels, the text block's: x from its left, y from the top, 4 x 6 a character)
     const rects = [];
-    const s = W / 320;
+    const hx = (x) => renderer.hudX + x * HS, hy = (y) => y * HS;
     const playing = st === 2 && me?.live;
     const item = (mine || me)?.item || 0;
     if (playing && !me.out && item) {
       const c = PU_COLOR[item];
-      rects.push([132 * s, (H / s - 22) * s, 188 * s, (H / s - 6) * s, 0.05, 0.06, 0.1, 0.75]);
-      rects.push([134 * s, (H / s - 20) * s, 138 * s, (H / s - 8) * s, c[0], c[1], c[2], 1]);
+      const y = (renderer.rows - 3) * 6;
+      rects.push([hx(47 * 4 - 14), hy(y - 4), hx(47 * 4 + 13 * 4), hy(y + 9), 0.05, 0.06, 0.1, 0.7]);
+      rects.push([hx(47 * 4 - 11), hy(y - 1), hx(47 * 4 - 4), hy(y + 6), c[0], c[1], c[2], 1]);
     }
     hudText(text, { w, slot, st, now, fps, f: tgt, item });
     netGraph.sample(now, hashes, keys);
@@ -397,12 +430,12 @@ async function main() {
     last = {
       cam, yaw: camYaw, pitch: camPitch, time: now / 1000, slot: slot >= 0 ? slot : -1, wheel: w,
       casters, solid, glow, beams, rects, text, graph, flash,
-      mini: st === 2 ? [34 * s, H - 34 * s, 28 * s, w.r0 * 1.04] : null,
+      mini: st === 2 ? [36 * HS, H - 36 * HS, 30 * HS, Math.max(12, w.rim * 1.06)] : null,
     };
     renderer.frame(u8, last);
   }
 
-  window.__qa.capture = async (scale = 2) => {
+  window.__qa.capture = async (scale = W > 640 ? 1 : 2) => {
     if (!last) return null;
     const { width, height, rgba } = await renderer.capture(u8, last);
     const small = new OffscreenCanvas(width, height);

@@ -5,7 +5,7 @@
 // network if asked. Passes when the referee checked interval hashes from
 // every session and none differed, balls were knocked out, a round was won,
 // and Chrome kept up. Screenshots go to traces/.
-//   node net/run-bumper.mjs [--bots 15] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05] [--shots 1]
+//   node net/run-bumper.mjs [--bots 15] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05] [--shots 1] [--res 1280x800]
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -45,13 +45,14 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--autoplay-policy=no-user-gesture-required'],
 });
 const pages = [];
-const q = new URLSearchParams({ bot: '1', present: '0', url: `https://127.0.0.1:${port}/`, hash, impair, net: opt('net', '0'), skill: '0.9' });
+// software WebGPU here, so the page draws at golf's 320 x 200 unless asked for more (--res 1280x800)
+const q = new URLSearchParams({ bot: '1', present: '0', url: `https://127.0.0.1:${port}/`, hash, impair, net: opt('net', '0'), skill: '0.9', res: opt('res', '320x200') });
 const report = { bots: nbots, chrome, seconds, impair: impair || 'none', screenshots: [], errors: [] };
 const t0 = Date.now();
 const secs = () => ((Date.now() - t0) / 1000).toFixed(0);
 try {
   for (let k = 0; k < chrome; k++) {
-    const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
+    const page = await browser.newPage({ viewport: { width: Math.max(640, Number(opt('res', '320x200').split('x')[0])), height: Math.max(400, Number(opt('res', '320x200').split('x')[1])) } });
     page.on('console', (m) => { if (m.type() === 'error') { report.errors.push(m.text()); process.stderr.write(`[chrome ${k}] ${m.text()}\n`); } });
     page.on('pageerror', (e) => { report.errors.push(e.message); process.stderr.write(`[chrome ${k}] ${e.message}\n`); });
     await page.goto(`http://127.0.0.1:${webPort}/client/bumper.html?${q}`);

@@ -282,7 +282,7 @@ are the golf cup made big and many. A ball whose centre rolls over one, or
 off the rim, drops through and is out. Balls bump, and the last one rolling
 wins the round.
 
-![256 in one room: the start of a round, your ball under the arrow](docs/b1-bumper-256.png)
+![256 in one room: your ball, under the arrow, going down a hole](docs/b1-bumper-256.png)
 
 ```sh
 npm ci && sh tools/install-deno.sh   # once
@@ -347,14 +347,23 @@ the confirmed world will. Bumps, blasts, rockets and orbs are the confirmed
 world's, and arrive a round trip later, eased in like any correction.
 
 `client/bumper.html` is the page: the same net and sim workers, and its
-own renderer (`client/bumper-render.mjs`). A heightfield can't overhang, so
-nothing here is ray-marched: the cheese is a disc with holes, solved exactly
-per pixel. That gives the top face with its little eyes, the rind with
-bigger ones, the wall of each shaft a ray falls into (holes that overlap open
-into each other), the sea far below with the wheel's shadow on it, and the
-sky. Balls cast round shadows on the cheese. They are sphere impostors with
-depth, their beach-ball stripes turning as they roll, each with a rider on top
-and the power-up it holds over its head. A minimap of the wheel sits in the corner.
+own renderer (`client/bumper-render.mjs`), drawn for the web, unlike golf's
+and the arena's 320x200. It renders at the window's own resolution (up to about
+1600 x 1000; `?res=320x200` for the old look) with 4x multisampling, lit by a
+sun and the sky and tone-mapped. A heightfield can't overhang, so nothing here
+is ray-marched: the cheese is a disc with holes, solved exactly per pixel. The
+top face has little eyes and the rounded lip of every hole. The rind has bigger
+eyes. Each hole's wall falls into the sun's shadow under its lip, darker the
+deeper. Holes that overlap open into each other, leaving blades of cheese
+between them. The sea far below has the wheel's shadow and the sun's glint on
+it, and the sky has clouds. The balls' soft shadows, and the ring where a
+falling orb will land, come from a small mask drawn on the CPU each frame, so
+a pixel of cheese reads one texel instead of walking 256 balls. The balls are
+glossy beach-ball impostors with depth and a soft ink outline, their stripes
+turning as they roll. Each carries a rider (a body, and a head with a cap and
+eyes that look where the ball faces) and the power-up it holds over its head.
+Crumbs fall off the rim as it crumbles. A minimap of the wheel, following the
+rim in, sits in the corner.
 `client/bumper-bot.mjs` is the AI ball. It scores 16 ways to steer by
 where it would be 0.5 to 0.85 s on (the better the bot, the further it
 looks), so it brakes before an edge rather than
@@ -364,7 +373,7 @@ a drop, from the side away from it. It uses what it holds when it pays, a
 SPRING to save itself included, and thinks every fourth tick, so 255 of
 them take 1.2 ms a tick.
 
-![The last stand: eight balls on a wheel crumbled to 9 m, POW rings going off](docs/b1-last-stand.png)
+![The last stand: four of 252 left on a wheel crumbled to 9 m, an orb's landing ring](docs/b1-last-stand.png)
 
 **Results.** `test/bumper.test.mjs` (15 tests): the wheel laid out for 1,
 2, 8, 64 and 256 balls (growing with them, holes clear of the middle, every
@@ -407,7 +416,7 @@ ran its 90 s out with four still rolling to share the win.
 node --test test/bumper.test.mjs
 node tools/genbumper.mjs --bots 16 --ticks 20000 --out logs/bumper.qgl
 node harness/matrix.mjs --ticks 20000 --log logs/bumper.qgl --wasm build/bumper/game.wasm
-node net/run-bumper.mjs [--bots 15] [--chrome 1] [--seconds 100] [--impair delay=60,jitter=10,loss=0.05]
+node net/run-bumper.mjs [--bots 15] [--chrome 1] [--seconds 100] [--impair delay=60,jitter=10,loss=0.05] [--res 1280x800]
 ```
 
 Not done yet: teams, a lobby between rounds, and the cheese tilting.
