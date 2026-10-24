@@ -131,7 +131,8 @@ export class Partier {
 
   // t: the tick the word is for; lag: ticks between the world it sees and t
   think(view, t = view.tick, lag = 0) {
-    if ((t + this.slot) % THINK_EVERY && this.at >= 0) return this.word;
+    // (a page asks once a frame, two ticks or so apart: it thinks then too once its turn has gone by)
+    if ((t + this.slot) % THINK_EVERY && this.at >= 0 && t - this.at < THINK_EVERY) return this.word;
     this.at = t;
     this.lag = lag;
     const w = worldOf(view);

@@ -13,13 +13,13 @@ import { LOOK, SPRITE, DECAL, SHAPE } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
-const GRASS = [0.3, 0.56, 0.22];
-const LAWN = [0.44, 0.74, 0.3];
+const GRASS = [0.25, 0.5, 0.2];
+const LAWN = [0.56, 0.8, 0.3];
 const EARTH = [0.42, 0.3, 0.2];
 const ROCK = [0.36, 0.33, 0.31];
 const GOLD = [1, 0.78, 0.24];
 const NEXT = [0.35, 0.9, 1];
-const CROWN_UP = 4.6; // m over the hill's top the big crown turns, over the riders' heads
+const CROWN_UP = 7.5; // m over the hill's top the big crown turns: over the chase camera, seen from afar
 
 // ---- the stage, as the sim has it (PG_H, read once a world tick)
 
@@ -159,11 +159,11 @@ function crowds(view, st) {
 // Which of zone j's hills the ball makes for, from (x, z): the nearest in
 // seconds, less so the more crowded it is than the others, by its own luck a
 // little; kept a while (a second and a half) once chosen.
-function hillFor(st, mind, slot, j, x, z, crowd, t) {
+function hillFor(st, mind, slot, j, x, z, crowd, all, t) {
   if (st.nh === 1) return 0;
   const kept = mind.hills?.[j];
   if (kept && t - kept.at < 190) return kept.i;
-  const mean = Math.max(1, crowd.all / st.nh);
+  const mean = Math.max(1, all / st.nh);
   let best = Infinity, pick = 0;
   for (let i = 0; i < st.nh; i++) {
     const [sx, sz] = st.spots[j][i];
@@ -191,9 +191,9 @@ function plan(view, me, bot, tick) {
   const skill = bot?.skill ?? 0.6;
   const mind = mindOf(bot);
   const crowd = crowds(view, st);
-  let j = k, i = hillFor(st, mind, b.slot, k, pos[0], pos[1], crowd.k === k ? crowd.now : crowd.next, t);
+  let j = k, i = hillFor(st, mind, b.slot, k, pos[0], pos[1], crowd.k === k ? crowd.now : crowd.next, crowd.all, t);
   if (k + 1 < L.KH_ZONES) {
-    const n = hillFor(st, mind, b.slot, k + 1, pos[0], pos[1], crowd.k === k ? crowd.next : crowd.now, t);
+    const n = hillFor(st, mind, b.slot, k + 1, pos[0], pos[1], crowd.k === k ? crowd.next : crowd.now, crowd.all, t);
     const [nx, nz] = st.spots[k + 1][n];
     const trip = Math.hypot(nx - pos[0], nz - pos[1]) / 8 + 0.3 + 1.2 * (1 - skill) * luck(b.slot, k);
     if (((k + 1) * L.KH_PERIOD - t) * TICK < trip) { j = k + 1; i = n; }
@@ -246,7 +246,7 @@ export default {
       const h = st.H * u;
       const fade = j < k ? 1 - u : 0;
       const col = LAWN.map((c, i) => c + (GRASS[i] - c) * fade);
-      for (const [sx, sz] of st.spots[j]) sc.put(SHAPE.SPHERE, sx, PLAT_Y - h, sz, st.A, 2 * h, st.A, 0, ...col, LOOK.CHECKER, 1.6, 0.72, 1);
+      for (const [sx, sz] of st.spots[j]) sc.put(SHAPE.SPHERE, sx, PLAT_Y - h, sz, st.A, 2 * h, st.A, 0, ...col, LOOK.CHECKER, 1.6, 0.6, 1);
     }
     // a hill's top risen h, and its height r out from its centre
     const rim = (h, r) => PLAT_Y + h * (2 * Math.sqrt(Math.max(0.25, 1 - r * r * st.ia2)) - 1);
@@ -274,7 +274,7 @@ export default {
         cx1 = sx + (nx - sx) * fly; cz1 = sz + (nz - sz) * fly;
         cy1 = y0 + (PLAT_Y + hn - y0) * fly + 4 * Math.sin(Math.PI * fly);
       }
-      crown(sc, cx1, cy1 + CROWN_UP + 0.4 * Math.sin(now * 1.7 + i), cz1, 1, now * 0.8 + i);
+      crown(sc, cx1, cy1 + CROWN_UP + 0.4 * Math.sin(now * 1.7 + i), cz1, 0.9, now * 0.8 + i);
       out.glow?.push({ pos: [cx1, cy1 + CROWN_UP + 0.6, cz1], size: 4.5, color: [1, 0.85, 0.35, 0.35], kind: SPRITE.FLASH });
     }
     // the leader's crown, over its rider as the frontend draws it
@@ -287,6 +287,12 @@ export default {
         const x = b.pos[0] + b.vel[0] * dt, y = b.pos[1] + b.vel[1] * dt, z = b.pos[2] + b.vel[2] * dt;
         crown(sc, x, y + 2 * b.radius + 1.22, z, 0.3, now * 2);
       }
+    }
+    // under your own ball while it scores: a gold ring, brighter on a top
+    if (mine && mine.ground && g.state === L.H_PLAY) {
+      const w = worth(st, tp, mine.pos[0], mine.pos[2]);
+      const dt = Math.max(-0.02, Math.min(0.03, (ctx.ptick - (ctx.pview?.tick ?? ctx.ptick)) * TICK));
+      if (w) out.decals?.push({ pos: [mine.pos[0] + mine.vel[0] * dt, mine.pos[1] + 0.05, mine.pos[2] + mine.vel[2] * dt], radius: 1.6, width: 0.3, color: [1, 0.85, 0.3, w === 2 ? 0.95 : 0.55], kind: DECAL.RING });
     }
   },
 
