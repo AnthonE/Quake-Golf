@@ -24,6 +24,7 @@
 //     ctx { slot, glow({ pos, size, color, kind, life (ms), grow }), sound, banner(text, color, ms), feed(text, color),
 //       name(p) ('YOU' or 'P12'), dist (m from the camera), C, now, view }
 //   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
+//   rules: a string, optional: the title card's line on how the round is won (default: PK_OUT's or PK_SCORE's)
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
 //     The frontend keeps rows 0 and 1 (the clock, who's left or the scores, the round's name), the middle band
@@ -455,7 +456,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       centre(y0, `ROUND ${g.round + 1}   ${g.n0} ${g.n0 === 1 ? 'PLAYER' : 'PLAYERS'}`, C.GREY);
       bigLine(y0 + 2, mod.name || g.name, C.YELLOW, 4);
       centre(y0 + 7, mod.hint || '', C.WHITE);
-      centre(y0 + 9, score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS', C.CYAN);
+      centre(y0 + 9, mod.rules ?? (score ? `MOST POINTS WINS  A FALL KEEPS YOU OUT ${Math.round(g.respawn / 125)} S` : 'FALL AND YOU ARE OUT  THE LAST ONE IN WINS'), C.CYAN);
     }
     if (g.state === L.H_PLAY) {
       centre(0, clock(left), left < 10 * 125 ? C.RED : C.WHITE);

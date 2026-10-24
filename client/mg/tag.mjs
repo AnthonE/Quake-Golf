@@ -92,13 +92,20 @@ const playing = (view) => view.dv.getUint32(L.HDR_STATE + (view.bank || 0), true
 
 // ---- the AI ball
 
-// The its near a free ball, for its danger: once a think (the bot asks 90 times).
-const NEAR = { slot: -1, tick: -1, list: [] };
+// The its near a free ball, the nearest NEAR_MAX within 18 m, for its danger:
+// once a think (the bot asks 90 times).
+const NEAR_MAX = 8;
+const NEAR = { slot: -1, tick: -1, w: null, st: null, list: [] };
 function nearIts(view, me, w) {
-  if (NEAR.slot === me.slot && NEAR.tick === w.tick && NEAR.w === w) return NEAR.list;
-  NEAR.slot = me.slot; NEAR.tick = w.tick; NEAR.w = w;
-  within(w.itGrid, me.pos[0], me.pos[2], 24, me.slot, NEAR.list);
-  return NEAR.list;
+  if (NEAR.slot === me.slot && NEAR.w === w) return NEAR.list;
+  NEAR.slot = me.slot; NEAR.w = w; NEAR.st = stage(view);
+  const list = within(w.itGrid, me.pos[0], me.pos[2], 18, me.slot, NEAR.list);
+  if (list.length > NEAR_MAX) {
+    const d = (b) => (b.x - me.pos[0]) ** 2 + (b.z - me.pos[2]) ** 2;
+    list.sort((a, b) => d(a) - d(b) || a.slot - b.slot);
+    list.length = NEAR_MAX;
+  }
+  return list;
 }
 // The first pillar the way from (x, z) to (gx, gz) runs into, as a point to
 // steer round it by (on the side the goal is), or null.
@@ -150,36 +157,53 @@ function hunt(view, me, bot, w, st) {
   return { goal: [gx, gz], target: pick, d };
 }
 
-// A free ball: away from the its near it (the nearer, the more), and in off the rim.
+// A free ball: the best of FLEE points 9 m round it (and the middle): far
+// from where the its near it will be in 0.6 s, not past one on the way, in
+// off the rim and clear of the pillars, a little for keeping its heading
+// (a juke sideways beats running into the rim). With none near, it drifts
+// to open floor away from the nearest, kept in bot.mem for a second.
+const FLEE = 12;
+const DIRS = Array.from({ length: FLEE }, (_, k) => [Math.cos((2 * Math.PI * k) / FLEE), Math.sin((2 * Math.PI * k) / FLEE)]);
 function flee(view, me, bot, w, st) {
   const x = bot?.pos?.[0] ?? me.pos[0], z = bot?.pos?.[1] ?? me.pos[2];
-  let fx = 0, fz = 0, nearest = Infinity;
+  const vx = bot?.vel?.[0] ?? me.vel[0], vz = bot?.vel?.[1] ?? me.vel[2];
+  const sp = Math.hypot(vx, vz);
   const its = nearIts(view, me, w);
-  for (const b of its) {
-    const ex = b.x + b.vx * 0.3, ez = b.z + b.vz * 0.3;
-    const dx = x - ex, dz = z - ez, d = Math.max(0.5, Math.hypot(dx, dz));
-    nearest = Math.min(nearest, d);
-    const k = 1 / (d * d + 4);
-    fx += dx / d * k; fz += dz / d * k;
-  }
+  const mem = bot?.mem || {};
+  let near = its;
   if (!its.length) {
-    // none near: away from the nearest of them all, gently
-    let n = null, nd = Infinity;
-    for (const b of w.its) { const d = Math.hypot(b.x - x, b.z - z); if (d < nd) { nd = d; n = b; } }
-    if (n) { fx = (x - n.x) / nd * 0.002; fz = (z - n.z) / nd * 0.002; }
+    // none near: the open floor away from the nearest few, held for a second
+    if (mem.drift && w.tick - mem.drift.at < 125 && Math.hypot(mem.drift.x - x, mem.drift.z - z) > 3) return { goal: [mem.drift.x, mem.drift.z] };
+    near = within(w.itGrid, x, z, 60, me.slot, []).slice(0, 6);
+    if (!near.length) near = w.its.slice(0, 6);
   }
-  const rx = x - st.cx, rz = z - st.cx, rr = Math.hypot(rx, rz) || 1;
-  const edge = rr / st.r;
-  if (edge > 0.55) { const k = 0.012 * (edge - 0.55) / 0.45; fx -= rx / rr * k; fz -= rz / rr * k; }
-  const f = Math.hypot(fx, fz);
-  if (f < 1e-6) return { goal: null, nearest };
-  // slide along the rim rather than into it: what heads out from the middle turns to go round
-  let ux = fx / f, uz = fz / f;
-  if (edge > 0.75 && ux * rx + uz * rz > 0) {
-    const tx = -rz / rr, tz = rx / rr, s = ux * tx + uz * tz >= 0 ? 1 : -1;
-    ux = tx * s; uz = tz * s;
+  const lim = st.r - 2.5;
+  let best = null, score = -Infinity;
+  for (let k = 0; k <= FLEE; k++) {
+    let cx, cz;
+    if (k === FLEE) { cx = st.cx; cz = st.cx; } else { cx = x + DIRS[k][0] * 9; cz = z + DIRS[k][1] * 9; }
+    const rx = cx - st.cx, rz = cz - st.cx, rr = Math.hypot(rx, rz);
+    if (rr > lim) { cx = st.cx + rx / rr * lim; cz = st.cx + rz / rr * lim; }
+    const ux = cx - x, uz = cz - z, len = Math.hypot(ux, uz) || 1;
+    let s = 0;
+    for (const e of near) {
+      const ex = e.x + e.vx * 0.6, ez = e.z + e.vz * 0.6;
+      const d = Math.hypot(cx - ex, cz - ez);
+      s -= 6 / (d + 1);
+      // the way there passes by it
+      const along = ((ex - x) * ux + (ez - z) * uz) / len;
+      if (along > 0 && along < len) {
+        const off = Math.abs((ex - x) * uz - (ez - z) * ux) / len;
+        if (off < 3.5) s -= (3.5 - off) * 0.6;
+      }
+    }
+    s -= Math.max(0, rr - (st.r - 7)) * 0.25;
+    if (sp > 2 && k < FLEE) s += 0.35 * (ux * vx + uz * vz) / (len * sp);
+    for (let j = 0; j < st.np; j++) if ((st.px[j] - cx) ** 2 + (st.pz[j] - cz) ** 2 < (PR + 1.2) ** 2) { s -= 0.5; break; }
+    if (s > score) { score = s; best = [cx, cz]; }
   }
-  return { goal: [x + ux * 10, z + uz * 10], nearest };
+  if (!its.length && best) mem.drift = { x: best[0], z: best[1], at: w.tick };
+  return { goal: best };
 }
 
 // ---- drawing
@@ -201,6 +225,7 @@ function drawnAt(view, ctx, p) {
 export default {
   id: L.MG_TAG, key: 'tag', name: 'TAG',
   hint: 'RED IS IT  A POINT A SECOND WHILE FREE  CATCH THE LAST ONE TO WIN',
+  rules: 'TOUCHED BY RED YOU TURN RED  THE FREE GET A SPRING EVERY 10 S',
   env: 'night',
 
   draw(view, ctx, out) {
@@ -335,18 +360,18 @@ export default {
     // the rim corners it a little. An it fears nothing.
     danger(view, x, z, tick, me) {
       const b = ball(view, me);
-      if (!b || !playing(view)) return 0;
-      const st = stage(view), w = world(view);
+      if (!b || (b.m & (IN | IT)) !== IN || !playing(view)) return 0;
+      const w = world(view);
+      const list = nearIts(view, b, w), st = NEAR.st;
+      const tau = Math.max(0, Math.min(1, (tick - w.tick) * TICK));
       let v = 0;
-      if ((b.m & (IN | IT)) === IN) {
-        const tau = Math.max(0, Math.min(1, (tick - w.tick) * TICK));
-        for (const e of nearIts(view, b, w)) {
-          const d = Math.hypot(e.x + e.vx * tau - x, e.z + e.vz * tau - z);
-          if (d < 5) v = Math.max(v, Math.min(1, (5 - d) / 2.8));
-        }
-        const rr = Math.hypot(x - st.cx, z - st.cx);
-        if (rr > st.r - 3) v = Math.max(v, 0.25 * Math.min(1, (rr - st.r + 3) / 3));
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        const dx = e.x + e.vx * tau - x, dz = e.z + e.vz * tau - z, d2 = dx * dx + dz * dz;
+        if (d2 < 25) v = Math.max(v, Math.min(1, (5 - Math.sqrt(d2)) / 2.8));
       }
+      const rx = x - st.cx, rz = z - st.cx, lim = st.r - 3;
+      if (rx * rx + rz * rz > lim * lim) v = Math.max(v, 0.25 * Math.min(1, (Math.hypot(rx, rz) - lim) / 3));
       return v;
     },
     goal(view, me, bot) {
@@ -370,7 +395,11 @@ export default {
         if (bot) bot.goal = h.goal;
         return { yaw: Math.atan2(h.goal[1] - z, h.goal[0] - x), move: 1 };
       }
-      if (!(b.m & IN) || b.item !== L.PU_SPRING || !b.ground) return null;
+      if (!(b.m & IN) || b.item !== L.PU_SPRING) return null;
+      // the spring is the brain's to spend: the planner's own rule would jump in
+      // any crowd, so the record it reads holds none (a fresh one each think)
+      if (typeof me === 'object') me.item = 0;
+      if (!b.ground) return null;
       const skill = bot?.skill ?? 0.6;
       // an it within a skin or two in the next fifth of a second, coming on: jump
       for (const e of nearIts(view, b, w)) {

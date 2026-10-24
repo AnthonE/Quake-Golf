@@ -210,6 +210,12 @@ test('an it rolls 6% faster: the keys push it TG_BOOST more on the ground; in th
   assert.ok(Math.abs(a / b - (acc + L.TG_BOOST) / acc) < 1e-3, `${a.toFixed(3)} against ${b.toFixed(3)} m/s`);
   // flat out: v = push / (1 - drag)
   assert.ok(Math.abs(Math.fround(acc + Math.fround(L.TG_BOOST)) / (1 - N('B_DRAG')) - 10.6) < 0.05);
+  // the same two in the air, side by side: the same speed
+  put(g, 0, C - 15, C - 3, { y: PLAT_Y + 4, vx: 5, ground: false });
+  put(g, 1, C - 15, C + 3, { y: PLAT_Y + 4, vx: 5, ground: false });
+  for (let k = 0; k < 40; k++) g.step();
+  assert.ok(!g.v.partier(0).ground && !g.v.partier(1).ground);
+  assert.equal(g.v.partier(0).vel[0], g.v.partier(1).vel[0], 'no more in the air');
 });
 
 test('pillars: a ball is never in one; into one it bounces back at TG_PE of its speed and a kick; over one\'s top it passes', async () => {
@@ -345,25 +351,47 @@ test('a ball joining in play is it; when the its have all left, one of the free 
   assert.equal(g.v.party().state, L.H_PLAY);
 });
 
-test('the prediction matches the confirmed ball bit for bit: off pillars and the rim, its points and its spring, as an it pushing harder', async () => {
+test('the prediction matches the confirmed ball bit for bit: into a pillar and off it, off the rim, its points and its spring, as an it pushing harder', async () => {
   const g = await room(3, { seed: 31 });
   const R = g.v.party().size;
+  const ps = pillars(g);
   for (let p = 0; p < 3; p++) mark(g, p, FREE);
-  // the others still, far off; P1 free rolls round the pillars, springs, lands
+  // the others still, far off
   put(g, 1, C, C - R + 2);
   put(g, 2, C, C + R - 2);
-  put(g, 0, C, C);
-  at(g, L.TG_GIVE0 - 60);
-  const words = Array.from({ length: 700 }, (_, k) => partyWord({ yaw: (k * 53) & 16383, move: k % 90 < 70 ? 1 : 0, hop: k % 77 === 0 ? 1 : 0, use: k >= 200 ? 1 : 0 }));
-  assert.ok(predicted(g, words) >= words.length);
-  const b = g.v.partier(0);
-  assert.equal(b.score, Math.floor((playT(g) - 1) / L.TG_SEC));
-  assert.ok(fxs(g.v, L.FX_USE).length >= 1, 'it sprang');
-  // as an it
+  const yawTo = (x, z) => { const b = g.v.partier(0); return Math.round(Math.atan2(z - b.pos[2], x - b.pos[0]) / (2 * Math.PI) * 16384) & 16383; };
+  // in tens of ticks, the nearest a pillar's centre and the rim came
+  const run = (word, n) => {
+    let pill = Infinity, rim = 0;
+    for (let k = 0; k < n; k += 10) {
+      assert.ok(predicted(g, Array(10).fill(typeof word === 'function' ? word(k) : word)) >= 10);
+      const b = g.v.partier(0);
+      for (const [x, z] of ps) pill = Math.min(pill, Math.hypot(b.pos[0] - x, b.pos[2] - z));
+      rim = Math.max(rim, Math.hypot(b.pos[0] - C, b.pos[2] - C));
+    }
+    return { pill, rim };
+  };
+  // A: free, from 6 m off the pillar nearest the middle, at it flat out; off it; on into the warning of a spring
+  const [px, pz] = ps.reduce((a, b) => (Math.hypot(a[0] - C, a[1] - C) < Math.hypot(b[0] - C, b[1] - C) ? a : b));
+  put(g, 0, px - 6, pz);
+  at(g, L.TG_GIVE0 - 150);
+  const a = run(partyWord({ yaw: yawTo(px, pz), move: 1 }), 120);
+  assert.ok(a.pill < L.TG_PR + 1.6, `against the pillar (${a.pill.toFixed(2)} m)`);
+  // B: out to the rim and along it
+  const out = g.v.partier(0).pos, away = yawTo(C + (out[0] - C) * 10, C + (out[2] - C) * 10);
+  const b = run((k) => partyWord({ yaw: k < 300 ? away : (away + 4096) & 16383, move: 1 }), 450);
+  assert.ok(b.rim > R - 1.5, `against the rim (${b.rim.toFixed(2)} m)`);
+  assert.equal(g.v.partier(0).item, L.PU_SPRING, 'a spring came');
+  // C: up on it, down again, rolling on
+  const c = run((k) => partyWord({ yaw: 8192, move: 1, use: k >= 20 ? 1 : 0 }), 300);
+  assert.ok(fxs(g.v, L.FX_USE).length >= 1 && g.v.partier(0).item === 0, 'it sprang');
+  assert.ok(c.rim > 0);
+  assert.equal(g.v.partier(0).score, Math.floor((playT(g) - 1) / L.TG_SEC), 'its points, a second at a time');
+  // D: as an it, the push and the pillars
   mark(g, 0, IT, 0);
-  put(g, 0, C + 3, C + 3, { vx: -5 });
-  const run = Array.from({ length: 500 }, (_, k) => partyWord({ yaw: (k * 131) & 16383, move: 1 }));
-  assert.ok(predicted(g, run) >= run.length);
+  put(g, 0, px + 6, pz, { vx: -3 });
+  const d = run((k) => partyWord({ yaw: k < 150 ? yawTo(px, pz) : (k * 131) & 16383, move: 1 }), 400);
+  assert.ok(d.pill < L.TG_PR + 1.6, `an it against the pillar (${d.pill.toFixed(2)} m)`);
   assert.equal(g.v.partier(0).m & IT, IT);
 });
 
@@ -420,6 +448,7 @@ test('the client module: draws the countdown, play and the result, frames the di
   assert.equal(fr.shape, 'disc');
   assert.ok(Math.abs(fr.radius - g.v.party().size - 0.6) < 1e-3);
   assert.ok(tag.hint.length <= 70);
+  assert.ok(typeof tag.rules === 'string' && tag.rules.length <= 70 && /^[ -_]*$/.test(tag.rules), 'the title card\'s rules line in the 3x5 font');
   // the brain: an it makes for a free ball; a free ball fears an it near, not far
   const it = [0, 1, 2, 3].find((p) => isIt(g.v, p)), free = [0, 1, 2, 3].find((p) => !isIt(g.v, p));
   const bot = { slot: it, skill: 0.8, mem: {}, pos: [g.v.partier(it).pos[0], g.v.partier(it).pos[2]] };

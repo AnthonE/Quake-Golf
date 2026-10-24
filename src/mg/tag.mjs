@@ -5,8 +5,8 @@
 // the rim and the pillars bounce. Catch the last one free and you win with a
 // point over it; at the clock the free share the win.
 export const TG_R0 = 16; // the arena: 16 m plus TG_RK times the root of the balls in, at most TG_RMAX
-export const TG_RK = 3;
-export const TG_RMAX = 72;
+export const TG_RK = 3.5;
+export const TG_RMAX = 80;
 export const TG_LEN = 11250; // 90 s
 export const TG_PER = 16; // one it for every TG_PER balls, rounded, and at least one of two or more
 export const TG_ITR = 0.16; // the its start on a spiral over this much of the radius, in the middle
