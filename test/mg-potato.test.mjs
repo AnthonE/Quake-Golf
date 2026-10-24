@@ -240,6 +240,69 @@ test('the fuse runs out: every holder out where it stands, sharing the place, a 
   assert.ok(held(g, picks[0]));
 });
 
+test('a pass whose passer has left is forgotten: no KO for a newcomer in its slot; one knocked out but still in the room keeps it', async () => {
+  const g = await clear(5);
+  give(g, 0, 300, 2); // passed by P3, who leaves; a newcomer takes the slot
+  give(g, 1, 300, 3); // passed by P4, out already but watching
+  put(g, 0, C - 6, C);
+  put(g, 1, C + 6, C);
+  put(g, 3, C, C + 6);
+  put(g, 4, C, C - 6);
+  g.dv.setUint8(rec(3) + L.P_FL, L.PF_LIVE | L.PF_DEAD);
+  g.step([[L.EV_LEAVE, 2]]);
+  g.step([[L.EV_JOIN, 2]]);
+  assert.equal(g.v.partier(2).live, true, 'the newcomer in slot 3');
+  assert.deepEqual([g.dv.getUint8(rec(0) + L.HP_BY), g.dv.getUint8(rec(1) + L.HP_BY)], [255, 3]);
+  at(g, hdr(g, L.HP_BOOM));
+  const from = g.v.fxCount();
+  g.step();
+  assert.ok(g.v.partier(0).out && g.v.partier(1).out, 'both blown');
+  assert.deepEqual(fxs(g.v, from, L.FX_SINK).map((x) => [x.owner, x.shot]), [[0, 255], [1, 3]]);
+  assert.deepEqual([g.v.partier(2).kos, g.v.partier(3).kos], [0, 1]);
+  assert.equal(potato.sink(fxs(g.v, from, L.FX_SINK)[0], (p) => `P${p + 1}`, g.v), 'P1 BLEW UP');
+});
+
+test('a ball that falls out on the boom\'s tick didn\'t blow up: no feed line, no fireball; a later boom blasts only its own', async () => {
+  const { Scene } = await import('../client/party-render.mjs');
+  const g = await clear(6);
+  give(g, 1, 300);
+  give(g, 3, 300);
+  put(g, 0, C + 14, C + 14);
+  put(g, 1, C, C);
+  put(g, 2, C - 12, C, { y: g.v.party().floor - L.OUT_DEPTH - 0.5, ground: false }); // under the floor: out this tick
+  put(g, 3, C, C + 12);
+  put(g, 4, C, C - 12);
+  put(g, 5, C + 12, C - 12);
+  g.dv.setUint8(rec(2) + L.B_HITBY, 4); // bumped off by P5 a moment ago
+  g.dv.setUint16(rec(2) + L.B_HITT, 100, true);
+  const boom = hdr(g, L.HP_BOOM);
+  at(g, boom);
+  const from = g.v.fxCount();
+  g.step();
+  const sinks = fxs(g.v, from, L.FX_SINK);
+  assert.deepEqual(sinks.map((x) => [x.owner, x.shot]), [[1, 255], [3, 255], [2, 4]]);
+  assert.ok(sinks.every((x) => x.tick === sinks[0].tick && g.v.partier(x.owner).outAt === x.tick), 'all out on the boom\'s tick');
+  const blown = (p) => (g.dv.getUint8(rec(p) + L.HP_FL) & L.HP_BLOWN) !== 0;
+  assert.deepEqual([1, 2, 3].map(blown), [true, false, true]);
+  const said = sinks.map((x) => potato.sink(x, (p) => `P${p + 1}`, g.v));
+  assert.deepEqual(said, ['P2 BLEW UP', 'P4 BLEW UP', null]);
+  assert.equal(fxs(g.v, from, L.FX_BLAST).length, 2);
+  // fireballs where the two holders went off, none where P3 sank
+  const o = { scene: new Scene(24000), solid: [], glow: [], beams: [], decals: [], casters: [], paint: null };
+  potato.draw(g.v, { tick: g.v.tick, t: (boom + 2) * TICK, dt: 0, now: 0, slot: 0 }, o);
+  const near = (p) => o.glow.filter((x) => Math.hypot(x.pos[0] - g.v.partier(p).pos[0], x.pos[2] - g.v.partier(p).pos[2]) < 0.5).length;
+  assert.deepEqual([near(1), near(2), near(3)].map((n) => n > 0), [true, false, true]);
+  // the next boom: one holder, one blast; the marks from the last stay
+  give(g, 0, playT(g));
+  at(g, hdr(g, L.HP_BOOM));
+  const from2 = g.v.fxCount();
+  g.step();
+  assert.ok(g.v.partier(0).out);
+  assert.equal(fxs(g.v, from2, L.FX_BLAST).length, 1, 'only the holder blown now');
+  assert.deepEqual([0, 1, 2, 3].map(blown), [true, true, false, true]);
+  assert.equal(potato.sink(fxs(g.v, from2, L.FX_SINK)[0], (p) => `P${p + 1}`, g.v), 'P1 BLEW UP');
+});
+
 test('a lit fuse\'s last three seconds are ticked off, 3, 2, 1, and none in the rest', async () => {
   const g = await clear(4);
   const boom = hdr(g, L.HP_BOOM);

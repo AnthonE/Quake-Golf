@@ -205,7 +205,7 @@ export default {
     if (tp >= 0 && s.wave > 0 && age < 0.9) {
       for (let p = 0; p < L.NPLAYER; p++) {
         const a = L.PLAYERS + p * L.PSIZE;
-        if ((u8[a + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === (L.PF_LIVE | L.PF_DEAD) && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) blown++;
+        if ((u8[a + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === (L.PF_LIVE | L.PF_DEAD) && (u8[a + L.HP_FL] & L.HP_BLOWN) && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) blown++;
       }
     }
     const fire = Math.min(1, 6 / Math.max(1, blown));
@@ -213,8 +213,8 @@ export default {
       const a = L.PLAYERS + p * L.PSIZE;
       const fl = u8[a + L.P_FL];
       if ((fl & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE) {
-        // where a holder went off at the last boom: a fireball, then a scorch
-        if ((fl & L.PF_LIVE) && tp >= 0 && s.wave > 0 && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) {
+        // where a holder went off at the last boom (not a ball that fell on its tick): a fireball, then a scorch
+        if ((fl & L.PF_LIVE) && (u8[a + L.HP_FL] & L.HP_BLOWN) && tp >= 0 && s.wave > 0 && (dvb.getUint32(a + L.B_OUTAT, true) | 0) === boomAt) {
           const x = dvb.getFloat32(a + L.P_PX, true), y = dvb.getFloat32(a + L.P_PY, true), z = dvb.getFloat32(a + L.P_PZ, true);
           if (y > PLAT_Y - 0.5 && Math.hypot(x - cx, z - cx) < R - 0.5) sc.cyl(x, PLAT_Y + 0.012, z, 1.3, 0.01, 0.07, 0.05, 0.05, LOOK.MATTE, 0, 0, 0.45);
           if (age < 0.8) {
@@ -292,10 +292,12 @@ export default {
     }
   },
 
-  // the feed for a ball out: a holder out on the boom's tick blew up (the KO, if any, to whoever passed it the bomb)
+  // the feed for a ball out: a holder out on the boom's tick blew up (the KO, if any, to whoever passed it the bomb);
+  // a ball that fell on that tick isn't marked HP_BLOWN
   sink(f, name, view) {
     const g = view.party();
     if (f.tick !== ((g.start + sched(view).last) >>> 0) || sched(view).wave === 0) return null;
+    if (!(view.u8[rec(view, f.owner) + L.HP_FL] & L.HP_BLOWN)) return null;
     return `${name(f.owner)} BLEW UP` + (f.shot === 255 ? '' : `  ${name(f.shot)} PASSED IT`);
   },
 
