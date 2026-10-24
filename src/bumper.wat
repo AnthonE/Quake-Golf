@@ -457,7 +457,8 @@
 
 ;; Every pair of balls on the cheese, in slot order: out of each other's way
 ;; (the lighter one more) and, if they were closing, an elastic bump with a
-;; kick on top. Each remembers who hit it, for the KO.
+;; kick on top (in party, none while the round says PGF_NOKICK). Each
+;; remembers who hit it, for the KO.
 (func $b_bumps
   (local $n i32) (local $a i32) (local $b i32) (local $i i32) (local $j i32) (local $ib i32) (local $jb i32) (local $p i32)
   (local $ri f32) (local $rj f32) (local $rs f32) (local $dx f32) (local $dy f32) (local $dz f32) (local $d2 f32) (local $d f32)
@@ -509,7 +510,12 @@
                   ;; how fast each was going into the other, before the bump
                   (local.set $si (f32.add (f32.mul (!at f32 @(PLAYERS + P_VX) (local.get $ib)) (local.get $nx)) (f32.mul (!at f32 @(PLAYERS + P_VZ) (local.get $ib)) (local.get $nz))))
                   (local.set $sj (f32.neg (f32.add (f32.mul (!at f32 @(PLAYERS + P_VX) (local.get $jb)) (local.get $nx)) (f32.mul (!at f32 @(PLAYERS + P_VZ) (local.get $jb)) (local.get $nz)))))
+#if PARTY
+                  (local.set $jj (f32.div (f32.sub (select (f32.const 0) (f32.const @B_KICK) (i32.and (i32.load (i32.const @PG_FLAGS)) (i32.const @PGF_NOKICK)))
+                                                   (f32.mul (local.get $vrel) (f32.const @(1 + +B_E)))) (local.get $w)))
+#else
                   (local.set $jj (f32.div (f32.sub (f32.const @B_KICK) (f32.mul (local.get $vrel) (f32.const @(1 + +B_E)))) (local.get $w)))
+#endif
                   (!put f32 @(PLAYERS + P_VX) (local.get $ib) (f32.sub (!at f32 @(PLAYERS + P_VX) (local.get $ib)) (f32.mul (local.get $nx) (f32.mul (local.get $jj) (local.get $ui)))))
                   (!put f32 @(PLAYERS + P_VY) (local.get $ib) (f32.sub (!at f32 @(PLAYERS + P_VY) (local.get $ib)) (f32.mul (local.get $ny) (f32.mul (local.get $jj) (local.get $ui)))))
                   (!put f32 @(PLAYERS + P_VZ) (local.get $ib) (f32.sub (!at f32 @(PLAYERS + P_VZ) (local.get $ib)) (f32.mul (local.get $nz) (f32.mul (local.get $jj) (local.get $ui)))))

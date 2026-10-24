@@ -232,6 +232,29 @@ test('while she looks the balls don\'t bump: one creeping into another, both slo
   assert.ok(g.v.partier(1).pos[2] - g.v.partier(0).pos[2] >= 2 - 1e-3, 'and the two pushed apart');
 });
 
+test('on red a bump has no kick: two balls all but still that touch in the grace just trade their speeds, neither caught; a kick again with the green', async () => {
+  for (const k of [10, 20, 40]) {
+    const g = await room(3);
+    const st = stage(g.v);
+    const w = when(st, startOf(st, 1));
+    at(g, w.r0 + k - 1);
+    g.step();
+    assert.equal(g.v.party().flags, L.PGF_BUMPS | L.PGF_NOKICK, 'bumps, no kick');
+    // P1 braking ahead, P2 a little faster just behind it: they touch on the next tick or so
+    put(g, 0, C, C, { vz: -0.5 });
+    put(g, 1, C, C + 2.0005, { vz: -0.55 });
+    put(g, 2, C + 10, C);
+    while (playT(g) < w.j + 30) {
+      g.step();
+      assert.ok(!g.v.partier(0).out && !g.v.partier(1).out, `nobody caught, touching ${k} ticks into red`);
+    }
+    assert.equal(g.v.partier(0).hitBy, 1, 'they touched');
+    assert.deepEqual([0, 1].map((p) => g.v.partier(p).kos), [0, 0]);
+    while (playT(g) < w.e) g.step();
+    assert.equal(g.v.party().flags, L.PGF_BUMPS, 'the kick back with the green');
+  }
+});
+
 test('over the line: out of play into the pen, placed by the order they crossed in (balls over on one tick share it); the first leaves the rest RL_RUSH', async () => {
   const g = await room(4);
   const st = stage(g.v);

@@ -179,10 +179,12 @@
 ;; the pen (its order the balls over before this tick, so a tick's finishers
 ;; share it; the first over cuts the clock to RL_RUSH); else, on red once
 ;; RL_GRACE is up, caught if it rolls faster than RL_VMAX across the ground
-;; (credit to whoever bumped it lately). Bumps are off while she looks.
+;; (credit to whoever bumped it lately). On red a bump has no kick; while
+;; she looks there are none.
 (func $rl_tick
   (local $t i32) (local $tick i32) (local $c i32) (local $r0 i32) (local $e i32) (local $judge i32)
   (local $p i32) (local $pb i32) (local $fin0 i32) (local $fin i32) (local $x f32) (local $z f32) (local $vx f32) (local $vz f32)
+  (local $f i32)
   (local.set $t (call $p_t (i32.const 0)))
   (local.set $tick (i32.load (i32.const @HDR_TICK)))
   (call $rl_when (local.get $t))
@@ -234,14 +236,17 @@
                           (local.get $x) (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (local.get $z)
                           (f32.sub (local.get $z) (f32.load (i32.const @(PG_H + RL_ZF))))))))))))
   (i32.store (i32.const @(PG_H + RL_FIN)) (local.get $fin))
-  ;; while she looks the balls don't bump (two all but still that touch
-  ;; would kick each other into being caught): off for the next tick if it's
-  ;; in the look, on again with the green
+  ;; on red a bump has no kick (PGF_NOKICK), only what the balls bring: a ram
+  ;; still shoves its momentum on, but two all but still that touch don't kick
+  ;; each other into being caught; and while she looks the balls don't bump.
+  ;; For the next tick, both back with the green
   (local.set $t (i32.add (local.get $t) (i32.const 1)))
-  (i32.store (i32.const @PG_FLAGS)
-    (select (i32.and (i32.load (i32.const @PG_FLAGS)) (i32.const @(~PGF_BUMPS)))
-            (i32.or (i32.load (i32.const @PG_FLAGS)) (i32.const @PGF_BUMPS))
-            (i32.and (i32.ge_u (local.get $t) (i32.add (local.get $r0) (i32.const @RL_GRACE))) (i32.lt_u (local.get $t) (local.get $e))))))
+  (local.set $f (i32.and (i32.load (i32.const @PG_FLAGS)) (i32.const @(~(PGF_BUMPS | PGF_NOKICK)))))
+  (if (i32.eqz (i32.and (i32.ge_u (local.get $t) (i32.add (local.get $r0) (i32.const @RL_GRACE))) (i32.lt_u (local.get $t) (local.get $e))))
+    (then (local.set $f (i32.or (local.get $f) (i32.const @PGF_BUMPS)))))
+  (if (i32.and (i32.ge_u (local.get $t) (local.get $r0)) (i32.lt_u (local.get $t) (local.get $e)))
+    (then (local.set $f (i32.or (local.get $f) (i32.const @PGF_NOKICK)))))
+  (i32.store (i32.const @PG_FLAGS) (local.get $f)))
 
 ;; Over when nobody is racing. On the round's last tick (this, or the
 ;; clock's), the balls still racing are scored by how far they got: kept out
