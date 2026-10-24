@@ -10,6 +10,7 @@ on:
 
 jobs:
   matrix:
+    # the tests, and every sim's recorded log replayed in every configuration (Fireplace's in its own job)
     runs-on: ubuntu-24.04
     container: mcr.microsoft.com/playwright:v1.56.1-noble
     timeout-minutes: 60
@@ -63,15 +64,69 @@ jobs:
         run: |
           node tools/genparty.mjs --bots 16 --ticks 20000 --out logs/party.qgl
           node harness/matrix.mjs --ticks 20000 --log logs/party.qgl --wasm build/party/game.wasm --runtimes node,deno,chromium
-      - name: Fireplace (build/fireplace/), the playlist round once (bumper balls, party, the arena in a drawn mode, party, golf, bumper again), guests coming and going
-        run: |
-          node tools/genfireplace.mjs --bots 12 --ticks 145000 --out logs/fireplace.qgl
-          node harness/matrix.mjs --ticks 145000 --log logs/fireplace.qgl --wasm build/fireplace/game.wasm --runtimes node,deno,chromium
       - name: The Xbox's sim (xbox/sim/), its Pentium III build natively and under qemu, against V8
         run: |
           node harness/matrix.mjs --ticks 20000 --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
           node harness/matrix.mjs --ticks 20000 --log logs/game.qgl --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
           node harness/matrix.mjs --ticks 9000 --log logs/pit.qgl --wasm build/xbox/game.wasm --runtimes node,x86,pentium3 --flags default --threads 1,4
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traces
+          path: traces/
+
+  fireplace:
+    # Fireplace's whole playlist replayed in every configuration (about 18 min of the matrix alone), then Fireplace online
+    runs-on: ubuntu-24.04
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: unzip, for setup-deno; openssl, for the relay
+        run: apt-get update && apt-get install -y --no-install-recommends unzip openssl
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.7
+      - run: npm ci
+      - run: npm i --no-save playwright-core@1.56.1
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - run: npm run build
+      - name: Fireplace (build/fireplace/), the playlist round once (bumper balls, party, the arena in a drawn mode, party, golf, bumper again), guests coming and going
+        run: |
+          node tools/genfireplace.mjs --bots 12 --ticks 145000 --out logs/fireplace.qgl
+          node harness/matrix.mjs --ticks 145000 --log logs/fireplace.qgl --wasm build/fireplace/game.wasm --runtimes node,deno,chromium
+      - name: Fireplace online (a relay on Fireplace's sim, 64 guests, the room moved from bumper balls into party, every hash checked)
+        run: node net/run-fireplace.mjs --chrome 0 --bots 64 --seconds 240
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traces-fireplace
+          path: traces/
+
+  online:
+    # the online gates: a relay, a referee, hundreds of bots through its native door, every hash checked
+    runs-on: ubuntu-24.04
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: unzip, for setup-deno; clang, lld and qemu-user, for the Pentium III build; openssl, for the relay
+        run: apt-get update && apt-get install -y --no-install-recommends unzip clang lld qemu-user openssl
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.7
+      - run: npm ci
+      - run: npm i --no-save playwright-core@1.56.1
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - run: npm run build
       - name: Xbox clients online (a relay on the Xbox's sim, a native client and a late one under qemu, impaired, a flipped bit healed, and the tiny client)
         run: node net/run-x2.mjs --seconds 40 --late 10 --flip 20
       - name: The arena online, full (a relay on the arena's sim, 256 AI fighters through its native door, every hash checked)
@@ -82,8 +137,6 @@ jobs:
         run: node net/run-bumper.mjs --chrome 0 --bots 256 --seconds 100
       - name: Party online, full (a relay on Party's sim, 256 AI balls through its native door, the rotation, a round placed, every hash checked)
         run: node net/run-party.mjs --chrome 0 --bots 256 --seconds 100
-      - name: Fireplace online (a relay on Fireplace's sim, 64 guests, the room moved from bumper balls into party, every hash checked)
-        run: node net/run-fireplace.mjs --chrome 0 --bots 64 --seconds 240
       - name: 256 players in one room (the bot host's golfers, impaired, the 257th refused)
         run: node net/run-n1.mjs --chrome 0 --seconds 60
       - name: Spectators through a tree of relays (two edges on the root, a third two deep, 100 verifying spectators each, a player turned away at an edge)
@@ -93,7 +146,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: traces
+          name: traces-online
           path: traces/
 
   xbox:
