@@ -97,14 +97,14 @@ test('the stage for 1, 8, 64 and 256: a disc of hex tiles sized for the crowd, 4
   }
 });
 
-test('the schedule: a rest, a warning from 3 s down to 1.2 s, a 1.52 s drop; sudden death\'s warning 1.6 s', () => {
+test('the schedule: a rest, a warning from 2.6 s down to 1.2 s, a 1.52 s drop; sudden death\'s warning 1.6 s', () => {
   assert.equal(L.CC_FULL, (L.CC_WARN0 - L.CC_WARN1) / L.CC_WARNK);
   assert.equal(L.CC_SD, L.CC_SHRINK + L.CC_SHRINKN);
   assert.equal(cycleAt(L.CC_FULL), L.CC_T_FULL);
   assert.equal(cycleAt(L.CC_SD), L.CC_T_SD);
   assert.equal(L.CC_FX_CALL, L.FX_MG + 4 * L.MG_COLOR);
   assert.deepEqual([L.CC_FX_DROP, L.CC_FX_RISE], [L.CC_FX_CALL + 1, L.CC_FX_CALL + 2]);
-  assert.deepEqual([warnOf(0), warnOf(1), warnOf(8), warnOf(9), warnOf(19), warnOf(20), warnOf(40)], [375, 350, 175, 150, 150, 200, 200]);
+  assert.deepEqual([warnOf(0), warnOf(1), warnOf(6), warnOf(7), warnOf(17), warnOf(18), warnOf(40)], [325, 300, 175, 150, 150, 200, 200]);
   let t = 0;
   for (let c = 0; c < 40; c++) {
     assert.equal(cycleAt(c), t, `cycle ${c} starts where the last ended`);
@@ -114,7 +114,7 @@ test('the schedule: a rest, a warning from 3 s down to 1.2 s, a 1.52 s drop; sud
     assert.equal(when(w.d0 - 1).d0, w.d0);
     t = w.e;
   }
-  assert.ok(cycleAt(L.CC_SD) * TICK > 75 && cycleAt(L.CC_SD) * TICK < 90, `sudden death from ${cycleAt(L.CC_SD) * TICK} s`);
+  assert.ok(cycleAt(L.CC_SD) * TICK > 65 && cycleAt(L.CC_SD) * TICK < 85, `sudden death from ${cycleAt(L.CC_SD) * TICK} s`);
   assert.ok(when(L.CC_LEN).c > L.CC_SD + 4, 'and a few of them before the clock');
   // the rim: the disc's own to cycle CC_SHRINK - 1, then in even steps to CC_RMIN
   const r0 = Math.fround(50);

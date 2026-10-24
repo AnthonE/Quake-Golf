@@ -1,10 +1,10 @@
 ;; COLOR CALL: one floor of hex tiles in CC_K colours over the sea. Every
 ;; cycle the board takes new colours (CC_REST), a colour is called (the
-;; warning, 3 s shrinking to 1.2 s), and then every tile of any other colour
+;; warning, 2.6 s shrinking to 1.2 s), and then every tile of any other colour
 ;; drops away for CC_DROP ticks and comes back. From cycle CC_SHRINK each drop
-;; also takes the outer ring for good, greyed through the cycle before it
-;; goes, down to the middle tile and its ring; from cycle CC_SD only the one
-;; tile called holds. Last ball up wins.
+;; also takes the outer ring for good (drawn grey from its cycle's start), down
+;; to the middle tile and its ring; from cycle CC_SD only the one tile called
+;; holds. Last ball up wins.
 ;;
 ;; Everything is a function of the tick into play and the round's seed: the
 ;; cycle and its phase ($cc_when), the board's colours ($cc_colour), the rim
@@ -119,6 +119,7 @@
 (func $cc_setup (param $n i32)
   (local $rad f32)
   (local.set $rad (f32.min (!madd (f32.sqrt (f32.convert_i32_u (local.get $n))) (f32.const @CC_RK) (f32.const @CC_R0)) (f32.const @CC_RMAX)))
+  (!chk (local.get $rad) 41 (local.get $n))
   (i32.store (i32.const @PG_KIND) (i32.const @PK_OUT))
   (i32.store (i32.const @PG_LEN) (i32.const @CC_LEN))
   (f32.store (i32.const @PG_SIZE) (local.get $rad))

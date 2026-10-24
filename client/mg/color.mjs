@@ -4,13 +4,13 @@
 // darken and shake as the warning runs out, a halo round the board and the
 // lantern over it take the colour), then every other tile drops away fast,
 // sinks, and rises back in the next cycle's colours as the drop ends. The
-// ring a drop takes for good is grey through the cycle before; sudden death
+// ring a drop takes for good is grey from its cycle's start; sudden death
 // lights its one tile with a beam. All of it is the sim's own schedule
 // (src/mg/color.wat) worked again here in f32 where the sim works in f32, so
 // what is drawn and what the bots steer by is what the sim does.
 import * as L from '../../src/layout.mjs';
 import { PLAT_Y, hexAt, hexCentre, hash32 } from '../../src/party-view.mjs';
-import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
+import { LOOK, SPRITE, DECAL, COLS } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const f = Math.fround;
@@ -26,7 +26,7 @@ const LIFE = 1.6; // s a tile gone for good is drawn falling
 const FLIP = 40; // ticks the new colours take to sweep from the middle to the rim
 const LANTERN = 15; // m over the floor
 
-// The colours, by index: the first four always, purple over CC_KN5 balls, orange over CC_KN6.
+// The colours, by index: the first four always, purple over CC_KN5 balls (orange spare).
 export const COLORS = [
   { name: 'RED', rgb: [0.93, 0.15, 0.13], hud: C.RED },
   { name: 'YELLOW', rgb: [1, 0.8, 0.08], hud: C.YELLOW },
@@ -78,7 +78,7 @@ export function stage(view) {
   const cx = dv.getFloat32(L.PG_CX + o, true), s = dv.getUint32(L.HDR_SEED + o, true), h = dv.getUint32(L.HDR_HOLE + o, true);
   const m = memo;
   if (m && m.r0 === r0 && m.k === k && m.cx === cx && m.s === s && m.h === h) return m;
-  memo = { r0, k, cx, s, h, seeds: new Map(), calls: new Map(), colours: new Map(), tiles: null, at: null, crowd: null };
+  memo = { r0, k, cx, s, h, seeds: new Map(), calls: new Map(), colours: new Map(), safe: new Map(), tiles: null, at: null, crowd: null, claimC: -1, claims: null };
   return memo;
 }
 const boardSeed = (st, c) => {
@@ -144,7 +144,7 @@ function tilesOf(st) {
     if (d2 > r2) continue;
     const [x, z] = hexCentre(q, r, S, st.cx);
     st.at.set(key(q, r), out.length);
-    out.push({ q, r, x, z, d2, rho: Math.sqrt(d2), wob: ((q * 7 + r * 13) & 15) / 16 });
+    out.push({ q, r, x, z, d2, rho: Math.sqrt(d2), ang: Math.atan2(z - st.cx, x - st.cx), wob: ((q * 7 + r * 13) & 15) / 16 });
   }
   st.tiles = out;
   return out;
@@ -170,27 +170,53 @@ function playTime(view, g, ctx) {
   return Math.max(0, t);
 }
 
-const lift = (rgb, k) => [rgb[0] + (1 - rgb[0]) * k, rgb[1] + (1 - rgb[1]) * k, rgb[2] + (1 - rgb[2]) * k];
-const dim = (rgb, k) => [rgb[0] * k, rgb[1] * k, rgb[2] * k];
+// A tile: its colour lifted toward white by lit, no garbage.
+const RAD = S * DRAWN;
+function hex(sc, x, y, z, yaw, rgb, lit, look, a = 0, b = 0, alpha = 1) {
+  sc.hex(x, y, z, RAD, HH, yaw, rgb[0] + (1 - rgb[0]) * lit, rgb[1] + (1 - rgb[1]) * lit, rgb[2] + (1 - rgb[2]) * lit, look, a, b, alpha);
+}
+// Every colour (and grey, last) toward a dull grey as k goes 0 to 1, keeping a little of itself.
+const GREY_K = COLORS.length;
+const fadeAll = (k) => [...COLORS.map((c) => c.rgb), GREY].map((rgb) => rgb.map((v) => v + (0.22 + 0.25 * v - v) * 0.75 * k));
+const DULL = fadeAll(1);
 
 // ---- the AI ball
 
-const ball = (view, me) => (typeof me === 'number' ? view.partier(me) : me);
+// Tile (q, r)'s index in tilesOf, or -1 off the board the round started with.
+const indexOf = (st, q, r) => { const i = st.at.get(key(q, r)); return i === undefined ? -1 : i; };
+// Which tiles hold through cycle c's drop, by index.
+function safeOf(st, c) {
+  let v = st.safe.get(c);
+  if (v) return v;
+  const tiles = tilesOf(st), cols = coloursOf(st, c), call = callOf(st, c), r2 = f(rimOf(st.r0, c) ** 2);
+  v = new Uint8Array(tiles.length);
+  for (let i = 0; i < tiles.length; i++) {
+    const T = tiles[i];
+    v[i] = T.d2 <= r2 && (c >= L.CC_SD ? T.q === call.q && T.r === call.r : cols[i] === call.colour) ? 1 : 0;
+  }
+  if (st.safe.size > 8) st.safe.clear();
+  st.safe.set(c, v);
+  return v;
+}
 // Balls in, counted by the tile they're over, once per world tick.
 function crowdOf(view, st) {
   if (st.crowd?.tick === view.tick && st.crowd.bank === view.bank) return st.crowd.count;
-  const count = new Map();
+  const count = new Uint16Array(tilesOf(st).length);
   for (let p = 0; p < L.NPLAYER; p++) {
     const b = L.PLAYERS + view.bank + p * L.PSIZE;
     if ((view.u8[b + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_FALL)) !== L.PF_LIVE) continue;
     const [q, r] = hexAt(view.dv.getFloat32(b + L.P_PX, true), view.dv.getFloat32(b + L.P_PZ, true), S, st.cx);
-    const k = key(q, r);
-    count.set(k, (count.get(k) || 0) + 1);
+    const i = indexOf(st, q, r);
+    if (i >= 0) count[i]++;
   }
   st.crowd = { tick: view.tick, bank: view.bank, count };
   return count;
 }
 const NEAR = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+// the axial offsets within 4 tiles, nearest first
+const RINGS = [];
+for (let dr = -4; dr <= 4; dr++) for (let dq = -4; dq <= 4; dq++) if (Math.abs(dq + dr) <= 4) RINGS.push([dq, dr]);
+RINGS.sort((a, b) => Math.hypot(a[0] + a[1] / 2, a[1] * 0.866) - Math.hypot(b[0] + b[1] / 2, b[1] * 0.866));
 const MINDS = new WeakMap();
 const SLOT_MINDS = [];
 function mindOf(bot, slot) {
@@ -205,99 +231,103 @@ function mindOf(bot, slot) {
 const luck = (st, slot, c, k) => hash32(slot * 977 + k, c, st.s ^ 0x5bd1e995) / 2 ** 32;
 
 // What the ball wants on tick `tick` (the one its word is for): where to be,
-// how fast to get there, whether to hop. Seen from a world `tick - view.tick` old.
+// how fast to get there, whether to hop. Seen from a world `tick - view.tick`
+// old, so it looks from where it will be by then. A ball sees the call a
+// reaction time after it's made, and a clumsy one now and then reads it wrong
+// for a moment; then it makes for a tile that holds, near, not crowded by the
+// balls on it or the AI balls making for it, off the rim, and brakes onto it.
 function plan(view, me, bot, tick) {
-  const g = view.party();
-  const b = ball(view, me);
-  if (!b || !b.live || b.out || g.state !== L.H_PLAY) return null;
+  const dv = view.dv, o = view.bank || 0;
+  const slot = typeof me === 'number' ? me : me?.slot;
+  if (dv.getUint32(L.HDR_STATE + o, true) !== L.H_PLAY || !(slot >= 0)) return null;
+  const rb = L.PLAYERS + o + slot * L.PSIZE;
+  if ((view.u8[rb + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE) return null;
   const st = stage(view);
-  const t = Math.max(0, (tick - g.start) | 0);
+  const tiles = tilesOf(st);
+  const t = Math.max(0, (tick - dv.getUint32(L.HDR_START + o, true)) | 0);
   const w = when(t);
-  const mind = mindOf(bot, b.slot);
+  const mind = mindOf(bot, slot);
   const skill = bot?.skill ?? 0.6;
   const lag = Math.max(0, Math.min(40, (tick - view.tick) | 0)) * TICK;
-  const pos = [b.pos[0] + b.vel[0] * lag, b.pos[2] + b.vel[2] * lag];
-  const vel = [b.vel[0], b.vel[2]];
+  const vel = [dv.getFloat32(rb + L.P_VX, true), dv.getFloat32(rb + L.P_VZ, true)];
+  const pos = [dv.getFloat32(rb + L.P_PX, true) + vel[0] * lag, dv.getFloat32(rb + L.P_PZ, true) + vel[1] * lag];
+  const hopV = dv.getFloat32(L.PG_HOP + o, true);
   if (mind.c !== w.c) {
-    // a new cycle: when it sees the call, and whether it reads it wrong at first
     mind.c = w.c;
-    mind.react = w.w0 + Math.round((0.15 + 0.5 * (1 - skill) * luck(st, b.slot, w.c, 1)) / TICK);
-    mind.misread = luck(st, b.slot, w.c, 2) < 0.22 * (1 - skill) && w.c < L.CC_SD;
-    mind.target = null;
+    mind.react = w.w0 + Math.round((0.15 + 0.6 * (1 - skill) * luck(st, slot, w.c, 1)) / TICK);
+    mind.misread = luck(st, slot, w.c, 2) < 0.3 * (1 - skill) && w.c < L.CC_SD;
+    mind.target = -1;
     mind.at = -1e9;
   }
   const rimP = rimOf(st.r0, w.c - 1), rimN = rimOf(st.r0, w.c);
-  const rho = Math.hypot(pos[0] - st.cx, pos[1] - st.cx);
+  const crowd = crowdOf(view, st);
   if (t < mind.react) {
-    // the rest: drift in off the grey ring and out of the crowd, and wait
+    // the rest: in off the grey ring and out of the crowd, and wait
+    const rho = Math.hypot(pos[0] - st.cx, pos[1] - st.cx);
     const keep = Math.max(1.5, Math.min(rimN - 2.5, rimP * 0.75));
     let gx = pos[0], gz = pos[1];
     if (rho > keep) { gx = st.cx + ((pos[0] - st.cx) / rho) * keep; gz = st.cx + ((pos[1] - st.cx) / rho) * keep; }
-    const crowd = crowdOf(view, st);
     const [mq, mr] = hexAt(pos[0], pos[1], S, st.cx);
-    if ((crowd.get(key(mq, mr)) || 0) > 1) {
+    const i = indexOf(st, mq, mr);
+    if (i >= 0 && crowd[i] > 1) {
       // someone on my tile: to the emptiest neighbour inside the rim
       let best = Infinity;
-      for (const [a, c] of NEAR) {
-        const [x, z] = hexCentre(mq + a, mr + c, S, st.cx);
-        const s = (crowd.get(key(mq + a, mr + c)) || 0) + (Math.hypot(x - st.cx, z - st.cx) > keep ? 2 : 0) + luck(st, b.slot, w.c, 10 + a * 3 + c) * 0.5;
-        if (s < best) { best = s; gx = x; gz = z; }
+      for (let k = 0; k < 6; k++) {
+        const j = indexOf(st, mq + NEAR[k][0], mr + NEAR[k][1]);
+        if (j < 0) continue;
+        const T = tiles[j];
+        const s = crowd[j] + (T.rho > keep ? 2 : 0) + luck(st, slot, w.c, 10 + k) * 0.5;
+        if (s < best) { best = s; gx = T.x; gz = T.z; }
       }
     }
-    return { goal: [gx, gz], vmax: 3, hop: false, pos, vel, w, st };
+    return { goal: [gx, gz], vmax: 3, hop: false, pos, vel, slot };
   }
-  // the call: a tile that holds through the drop, near, not crowded, away from the rim
   const misled = mind.misread && t < mind.react + 50;
-  if (!mind.target || t - mind.at >= 8) {
+  if (mind.target < 0 || t - mind.at >= 8) {
     mind.at = t;
-    const call = callOf(st, w.c);
-    const crowd = crowdOf(view, st);
+    const safe = safeOf(st, w.c), cols = coloursOf(st, w.c), call = callOf(st, w.c);
+    const r2N = f(rimN * rimN);
     // the tiles the other AI balls are making for (what a player sees of where everyone is heading)
-    if (st.claimC !== w.c) { st.claimC = w.c; st.claims = new Map(); }
+    if (st.claimC !== w.c) { st.claimC = w.c; st.claims = new Uint16Array(tiles.length); }
     const claims = st.claims;
-    const mine = mind.target && mind.claimC === w.c ? key(mind.target.q, mind.target.r) : -1;
-    const ahead = [pos[0] + vel[0] * 0.25, pos[1] + vel[1] * 0.25];
-    const [mq, mr] = hexAt(ahead[0], ahead[1], S, st.cx);
+    const mine = mind.claimC === w.c ? mind.target : -1;
+    const ax = pos[0] + vel[0] * 0.25, az = pos[1] + vel[1] * 0.25;
+    const [mq, mr] = hexAt(ax, az, S, st.cx);
     const left = Math.max(0.05, (w.d0 - t) * TICK);
-    let best = Infinity, pickT = null;
-    const consider = (q, r) => {
-      const ok = misled ? colourOf(st, q, r, w.c) !== call.colour && inside(d2Of(st, q, r), rimN) : holds(st, q, r, w.d0, w);
-      if (!ok) return;
-      const [x, z] = hexCentre(q, r, S, st.cx);
-      const dist = Math.hypot(x - ahead[0], z - ahead[1]);
-      const eta = dist / 6.5 + 0.15;
-      const kk = key(q, r), own = kk === mine;
-      const here = Math.hypot(pos[0] - x, pos[1] - z) < S;
-      let s = eta + 0.9 * Math.max(0, (crowd.get(kk) || 0) - (here ? 1 : 0)) + 0.7 * Math.max(0, (claims.get(kk) || 0) - (own ? 1 : 0)) - (own ? 0.45 : 0);
+    let best = Infinity, pick = -1;
+    const consider = (i) => {
+      const T = tiles[i];
+      if (misled ? cols[i] === call.colour || T.d2 > r2N : !safe[i]) return;
+      const eta = Math.hypot(T.x - ax, T.z - az) / 6.5 + 0.15;
+      const own = i === mine, here = Math.hypot(pos[0] - T.x, pos[1] - T.z) < S;
+      let s = eta + 0.9 * Math.max(0, crowd[i] - (here ? 1 : 0)) + 0.7 * Math.max(0, claims[i] - (own ? 1 : 0)) - (own ? 0.45 : 0);
       if (own && here) s -= 0.6; // already on it: mine
       if (eta > left + 0.2) s += 3 + eta;
-      if (Math.hypot(x - st.cx, z - st.cx) > rimN - S) s += 0.25;
-      s += luck(st, b.slot, w.c, 100 + ((q * 31 + r) & 63)) * 0.3 * (1 - skill);
-      if (s < best) { best = s; pickT = { q, r, x, z }; }
+      if (T.rho > rimN - S) s += 0.25;
+      s += luck(st, slot, w.c, 100 + (i & 63)) * 0.3 * (1 - skill);
+      if (s < best) { best = s; pick = i; }
     };
-    if (w.c >= L.CC_SD && !misled) consider(call.q, call.r);
-    else for (let dr = -5; dr <= 5; dr++) for (let dq = -5; dq <= 5; dq++) if (Math.abs(dq + dr) <= 5) consider(mq + dq, mr + dr);
-    if (!pickT && !misled) consider(call.q, call.r);
-    if (pickT) {
-      const kk = key(pickT.q, pickT.r);
-      if (kk !== mine) {
-        if (mine >= 0) claims.set(mine, (claims.get(mine) || 1) - 1);
-        claims.set(kk, (claims.get(kk) || 0) + 1);
+    if (w.c >= L.CC_SD && !misled) consider(indexOf(st, call.q, call.r));
+    else for (const [dq, dr] of RINGS) { const i = indexOf(st, mq + dq, mr + dr); if (i >= 0) consider(i); }
+    if (pick < 0 && !misled) { const i = indexOf(st, call.q, call.r); if (i >= 0) consider(i); }
+    if (pick >= 0) {
+      if (pick !== mine) {
+        if (mine >= 0 && claims[mine]) claims[mine]--;
+        claims[pick]++;
       }
-      mind.target = pickT;
+      mind.target = pick;
       mind.claimC = w.c;
     }
   }
-  const tg = mind.target;
-  if (!tg) return { goal: [st.cx, st.cx], vmax: 6, hop: false, pos, vel, w, st };
+  if (mind.target < 0) return { goal: [st.cx, st.cx], vmax: 6, hop: false, pos, vel, slot };
+  const T = tiles[mind.target];
   // a hop just before the drop, off a tile that won't hold, lands on the one that will
   let hop = false;
-  if (t < w.d0 && w.d0 - t <= 40 && !misled && !solidAt(st, pos[0], pos[1], w.d0)) {
-    const air = 2 * g.hop / 20;
-    const land = [pos[0] + vel[0] * air, pos[1] + vel[1] * air];
-    if (g.hop > 0 && solidAt(st, land[0], land[1], t + Math.round(air / TICK) + 2) && Math.hypot(vel[0], vel[1]) > 3) hop = true;
+  if (t < w.d0 && w.d0 - t <= 40 && !misled && hopV > 0 && !solidAt(st, pos[0], pos[1], w.d0)) {
+    const air = (2 * hopV) / 20;
+    if (Math.hypot(vel[0], vel[1]) > 3 && solidAt(st, pos[0] + vel[0] * air, pos[1] + vel[1] * air, t + Math.round(air / TICK) + 2)) hop = true;
   }
-  return { goal: [tg.x, tg.z], vmax: 10, hop, pos, vel, w, st };
+  return { goal: [T.x, T.z], vmax: 10, hop, pos, vel, slot };
 }
 
 // Push for the velocity that gets to goal and stops there: full speed while
@@ -315,8 +345,8 @@ function steer(p, last) {
 function lantern(st, out, rgb, t, pulse) {
   const y = PLAT_Y + LANTERN;
   const col = rgb || [0.95, 0.95, 0.92];
-  out.scene.hex(st.cx, y, st.cx, 2.6, 0.5, t * 0.5, ...col, LOOK.GLOW, rgb ? 1 + 0.4 * pulse : 0.25, 0.4);
-  out.scene.cyl(st.cx, y + 2.6, st.cx, 0.08, 2.1, 0.3, 0.3, 0.33, LOOK.METAL);
+  // see-through enough to cast no shadow on the board
+  out.scene.hex(st.cx, y, st.cx, 2.6, 0.5, t * 0.5, ...col, LOOK.GLOW, rgb ? 1 + 0.4 * pulse : 0.25, 0.4, 0.68);
   if (rgb) out.glow?.push({ pos: [st.cx, y, st.cx], size: 7 + 2 * pulse, color: [...rgb, 0.45], kind: SPRITE.FLASH });
 }
 
@@ -332,16 +362,14 @@ export default {
     const tiles = tilesOf(st);
     const tp = playTime(view, g, ctx);
     const sc = out.scene;
-    const rad = S * DRAWN;
     const y0 = PLAT_Y - HH;
-    const now = (ctx?.now ?? 0) / 1000;
     if (tp < 0) {
       // the countdown: the first board, a slow shimmer running round it
+      const now = (ctx?.now ?? 0) / 1000;
       const cols = coloursOf(st, 0);
       for (let i = 0; i < tiles.length; i++) {
         const T = tiles[i];
-        const k = 0.5 + 0.5 * Math.sin(now * 2 - T.rho * 0.35 + Math.atan2(T.z - st.cx, T.x - st.cx));
-        sc.hex(T.x, y0, T.z, rad, HH, 0, ...lift(COLORS[cols[i]].rgb, 0.12 * k), LOOK.PLASTIC);
+        hex(sc, T.x, y0, T.z, 0, COLORS[cols[i]].rgb, 0.06 + 0.06 * Math.sin(now * 2 - T.rho * 0.35 + T.ang), LOOK.PLASTIC);
       }
       lantern(st, out, null, now, 0);
       return;
@@ -358,45 +386,48 @@ export default {
     const colsX = phase === 2 ? coloursOf(st, c + 1) : cols;
     const k = phase === 1 ? (tp - w.w0) / (w.d0 - w.w0) : 0;
     const pulse = 0.5 + 0.5 * Math.sin(tp * TICK * Math.PI * 2 * (2 + 3 * k));
-    const shake = phase === 1 ? Math.max(0, 1 - (w.d0 - tp) / 56) : 0;
+    const shake = phase === 1 ? Math.max(0, 1 - (w.d0 - tp) / 56) * 0.09 : 0;
     const tau = (tp - w.d0) * TICK;
+    // through the warning everything but the call goes dull, the same for every tile this frame
+    const dull = phase === 1 ? fadeAll(Math.min(1, k * 1.6)) : null;
+    const sink = 0.05 * Math.min(1, k * 1.6);
     for (let i = 0; i < tiles.length; i++) {
       const T = tiles[i];
       if (T.d2 > r2A) continue;
       if (T.d2 > r2P) {
         // gone for good at the last drop: still falling, tumbling, fading
         const a = (tp - prevD0) * TICK;
-        if (a < LIFE) sc.hex(T.x, y0 - 0.5 * FALL_G * a * a, T.z, rad, HH, a * (T.wob - 0.5) * 3, ...GREY, LOOK.MATTE, 0, 0, 1 - a / LIFE);
+        if (a < LIFE) hex(sc, T.x, y0 - 0.5 * FALL_G * a * a, T.z, a * (T.wob - 0.5) * 3, GREY, 0, LOOK.MATTE, 0, 0, 1 - a / LIFE);
         continue;
       }
       const doomed = T.d2 > r2N;
       const safe = !doomed && (sd ? T.q === call.q && T.r === call.r : cols[i] === call.colour);
       if (phase === 0) {
         // the new colours sweep out from the middle; a tile that held through the last drop flips with a hop
+        const held = c > 0 && (c - 1 >= L.CC_SD ? T.q === prev.q && T.r === prev.r : colsP[i] === prev.colour);
         const at = w.s + 6 + FLIP * (T.rho / st.r0);
-        const held = c > 0 && T.d2 <= r2P && (c - 1 >= L.CC_SD ? T.q === prev.q && T.r === prev.r : colsP[i] === prev.colour);
-        const flipped = !held || tp >= at;
         const u = held ? Math.min(1, Math.max(0, (tp - at) / 14)) : 1;
-        const rgb = !flipped ? COLORS[colsP[i]].rgb : doomed ? GREY : COLORS[cols[i]].rgb;
-        sc.hex(T.x, y0 + 0.35 * Math.sin(Math.PI * u), T.z, rad, HH, 0, ...lift(rgb, held && u < 1 ? 0.25 * Math.sin(Math.PI * u) : 0), doomed && flipped ? LOOK.MATTE : LOOK.PLASTIC);
+        const pop = held && u > 0 && u < 1 ? Math.sin(Math.PI * u) : 0;
+        const rgb = held && tp < at ? COLORS[colsP[i]].rgb : doomed ? GREY : COLORS[cols[i]].rgb;
+        hex(sc, T.x, y0 + 0.35 * pop, T.z, 0, rgb, 0.25 * pop, doomed && !(held && tp < at) ? LOOK.MATTE : LOOK.PLASTIC);
       } else if (phase === 1) {
         if (safe) {
-          sc.hex(T.x, y0 + 0.04 + 0.06 * pulse, T.z, rad, HH, 0, ...lift(COLORS[cols[i]].rgb, 0.1 * pulse), LOOK.GLOW, 0.15 + 0.3 * pulse, 0.55);
+          // the call's tiles rise a little and glow, pulsing faster as the warning runs out
+          hex(sc, T.x, y0 + 0.1 + 0.08 * pulse, T.z, 0, COLORS[cols[i]].rgb, 0.08 * pulse, LOOK.GLOW, 0.35 + 0.45 * pulse, 0.5);
         } else {
-          const j = shake * 0.08;
-          const dx = j * Math.sin(tp * 2.3 + T.q * 5.1 + T.r * 2.7), dz = j * Math.sin(tp * 2.9 + T.q * 3.3 - T.r * 4.1);
-          sc.hex(T.x + dx, y0, T.z + dz, rad, HH, 0, ...dim(doomed ? GREY : COLORS[cols[i]].rgb, 1 - 0.5 * k * k), doomed ? LOOK.MATTE : LOOK.PLASTIC);
+          // the rest go dull, settle, and shake in the last 0.45 s
+          const dx = shake * Math.sin(tp * 2.3 + T.q * 5.1 + T.r * 2.7), dz = shake * Math.sin(tp * 2.9 + T.q * 3.3 - T.r * 4.1);
+          hex(sc, T.x + dx, y0 - sink, T.z + dz, 0, dull[doomed ? GREY_K : cols[i]], 0, LOOK.MATTE);
         }
       } else if (safe) {
-        sc.hex(T.x, y0, T.z, rad, HH, 0, ...COLORS[cols[i]].rgb, LOOK.GLOW, 0.4 + 0.1 * pulse, 0.55);
+        hex(sc, T.x, y0 + 0.1, T.z, 0, COLORS[cols[i]].rgb, 0, LOOK.GLOW, 0.6 + 0.15 * pulse, 0.5);
       } else if (doomed) {
-        if (tau < LIFE) sc.hex(T.x, y0 - 0.5 * FALL_G * tau * tau, T.z, rad, HH, tau * (T.wob - 0.5) * 3, ...GREY, LOOK.MATTE, 0, 0, 1 - tau / LIFE);
+        if (tau < LIFE) hex(sc, T.x, y0 - 0.5 * FALL_G * tau * tau, T.z, tau * (T.wob - 0.5) * 3, GREY, 0, LOOK.MATTE, 0, 0, 1 - tau / LIFE);
       } else {
-        // dropped: away fast, down a while, back up in the next cycle's colours as the drop ends
+        // dropped: away fast and fading, down a while, back up in the next cycle's colours as the drop ends
         const up = (w.e - tp) / RISE;
-        let y = -Math.min(DOWN, 0.5 * FALL_G * tau * tau), rgb = dim(COLORS[cols[i]].rgb, 0.6);
-        if (up < 1) { y = -DOWN * up * up; rgb = T.d2 > r2X ? GREY : COLORS[colsX[i]].rgb; }
-        sc.hex(T.x, y0 + y, T.z, rad, HH, 0, ...rgb, LOOK.PLASTIC);
+        if (up < 1) hex(sc, T.x, y0 - DOWN * up * up, T.z, 0, T.d2 > r2X ? GREY : COLORS[colsX[i]].rgb, 0, LOOK.MATTE, 0, 0, 1 - 0.7 * up);
+        else hex(sc, T.x, y0 - Math.min(DOWN, 0.5 * FALL_G * tau * tau), T.z, 0, DULL[cols[i]], 0, LOOK.MATTE, 0, 0, 1 - 0.7 * Math.min(1, tau / 0.35));
       }
     }
     // the call over the board: the halo round it, and in sudden death the one tile's beam and target
@@ -450,22 +481,27 @@ export default {
     const c = w.c, sd = c >= L.CC_SD;
     const call = callOf(st, c), col = COLORS[call.colour];
     const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
-    const bar = (u, n = 24) => '#'.repeat(Math.max(0, Math.min(n, Math.round(u * n)))).padEnd(n, '.');
+    // a bar of n cells, u of it lit in c and the rest grey, centred
+    const bar = (y, u, c, n = 30) => {
+      const lit = Math.max(0, Math.min(n, Math.round(u * n))), x = Math.floor((COLS - n) / 2);
+      if (lit) ctx.put(x, y, '='.repeat(lit), c);
+      if (lit < n) ctx.put(x + lit, y, '-'.repeat(n - lit), C.GREY);
+    };
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     const playing = me && me.live && !me.out;
     if (tp < w.w0) {
       ctx.centre(row, c === 0 ? 'GET READY' : sd ? 'SUDDEN DEATH' : `CALL ${c + 1}`, sd ? C.YELLOW : C.WHITE);
       if (rimOf(st.r0, c) < rimOf(st.r0, c - 1)) ctx.centre(row + 1, sd ? 'ONE TILE WILL HOLD' : 'GREY TILES FALL FOR GOOD', C.ORANGE);
     } else if (tp < w.d0) {
-      ctx.centre(row, sd ? `ONE TILE  ${col.name}` : `>>  ${col.name}  <<`, col.hud);
-      ctx.centre(row + 1, `${bar((w.d0 - tp) / (w.d0 - w.w0))} ${((w.d0 - tp) * TICK).toFixed(1)}`, col.hud);
+      ctx.centre(row, sd ? `ONE TILE  ${col.name}  ${((w.d0 - tp) * TICK).toFixed(1)}` : `${col.name}  ${((w.d0 - tp) * TICK).toFixed(1)}`, col.hud);
+      bar(row + 1, (w.d0 - tp) / (w.d0 - w.w0), col.hud);
       if (playing) {
         const ok = solidAt(st, me.pos[0], me.pos[2], w.d0);
         ctx.centre(row + 2, ok ? 'SAFE' : 'MOVE!', ok ? C.GREEN : C.RED);
       }
     } else {
       ctx.centre(row, `HOLD ON  ${col.name}`, col.hud);
-      ctx.centre(row + 1, bar((w.e - tp) / L.CC_DROP), C.GREY);
+      bar(row + 1, (w.e - tp) / L.CC_DROP, C.WHITE);
     }
     const right = `CALL ${c + 1}  ${(warnOf(c) * TICK).toFixed(1)}S` + (playing ? `  SURVIVED ${survived(view, me.slot)}` : '');
     ctx.right(3, right, C.GREY);
@@ -476,10 +512,10 @@ export default {
     // tile that won't hold is worse the nearer the drop; the grey ring and
     // the edge a little
     danger(view, x, z, tick) {
-      const g = view.party();
-      if (g.state !== L.H_PLAY) return 0;
+      const o = view.bank || 0;
+      if (view.dv.getUint32(L.HDR_STATE + o, true) !== L.H_PLAY) return 0;
       const st = stage(view);
-      const t = Math.max(0, (tick - g.start) | 0);
+      const t = Math.max(0, (tick - view.dv.getUint32(L.HDR_START + o, true)) | 0);
       const w = when(t);
       const [q, r] = hexAt(x, z, S, st.cx);
       if (!holds(st, q, r, t, w)) return 1;
@@ -502,7 +538,7 @@ export default {
     think(view, me, bot, tick = view.tick) {
       const p = plan(view, me, bot, tick);
       if (!p) return null;
-      const mind = mindOf(bot, ball(view, me).slot);
+      const mind = mindOf(bot, p.slot);
       const s = steer(p, mind.yaw);
       mind.yaw = s.yaw;
       return s;
