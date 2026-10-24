@@ -212,6 +212,8 @@
             ;; into the pen, the next spot in it, still
             (call $rl_spot (local.get $fin) (i32.const 0x7fffffff) (f32.sub (f32.load (i32.const @(PG_H + RL_ZF))) (f32.const @RL_PEN0)) (f32.const -1))
             (local.set $z) (local.set $x)
+            (!chk (local.get $x) 56 (local.get $p))
+            (!chk (local.get $z) 57 (local.get $p))
             (call $p_place (local.get $p) (local.get $x) (f32.const @PLAT_Y) (local.get $z))
             (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.const @(PF_LIVE | PF_GROUND | PF_DEAD)))
             (!inc $fin))
