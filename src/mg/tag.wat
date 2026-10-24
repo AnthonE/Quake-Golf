@@ -1,17 +1,19 @@
 ;; TAG: infection on a walled disc over the sea, with bouncy pillars to dodge
 ;; round. One ball in TG_PER starts it, in the middle; the rest start free
 ;; round them. An it that touches a free ball (after the bumps, slot order)
-;; makes it it too. A free ball scores a point a second and is handed a
-;; spring every TG_GIVE ticks; an it rolls a little faster. Nobody falls
-;; (PK_SCORE, but the rim keeps every ball in). The round ends when nobody is
-;; free, the one who caught the last free ball a point over it and first, or
-;; at the clock with the free sharing first; the rest by their time free.
+;; makes it it too. A free ball scores a point a second; every TG_GIVE ticks
+;; a free ball is handed a spring, an it a dash; an it rolls a little faster.
+;; Nobody falls (PK_SCORE, but the rim keeps every ball in). The round ends
+;; when nobody is free, the one who caught the last free ball a point over
+;; it and first, or at the clock with the free sharing first; the rest by
+;; their time free.
 ;;
 ;; The stage is the confirmed world's from setup on (the pillars in PG_S),
 ;; and the rest of what push does to a ball is a function of its own record
 ;; and its bank's clock: the bounces, an it's push (its flag in PG_M), a free
-;; ball's points and springs. So the prediction is exact; what it can't know
-;; is a tag, ball against ball, which arrives a round trip late like a bump.
+;; ball's points, the springs and the dashes. So the prediction is exact;
+;; what it can't know is a tag, ball against ball, which arrives a round trip
+;; late like a bump.
 
 ;; The arena for the crowd, its pillars, who starts it, and where everyone
 ;; starts: the its on a spiral in the middle, the free on one round them,
@@ -130,7 +132,8 @@
 ;; Ball p on bank d after its roll: an it's keys push a little more; a ball
 ;; in a pillar is put on its skin and bounces off (a hard hit with a kick);
 ;; one past the rim is put back on it and bounces off softly; a free ball's
-;; points are its seconds in play, and a spring comes to it on the schedule.
+;; points are its seconds in play; and on the schedule a spring comes to a
+;; free ball, a dash to an it.
 (func $tg_push (param $p i32) (param $d i32)
   (local $pb i32) (local $m i32) (local $fl i32) (local $in i32) (local $t i32) (local $k i32) (local $np i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vz f32) (local $rb f32) (local $reach f32)
@@ -221,19 +224,22 @@
   (!put f32 @(PLAYERS + P_PZ) (local.get $pb) (local.get $pz))
   (!put f32 @(PLAYERS + P_VX) (local.get $pb) (local.get $vx))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz))
-  ;; free and in the round: a point a second, and a spring when they're handed out
-  (if (i32.eq (i32.and (local.get $m) (i32.const @(TG_M_IN | TG_M_IT))) (i32.const @TG_M_IN))
+  ;; in the round: a free ball's points are its seconds; on the schedule, a
+  ;; spring to a free ball holding nothing, a dash to an it
+  (if (i32.and (local.get $m) (i32.const @TG_M_IN))
     (then
       (local.set $t (call $p_t (local.get $d)))
-      (!put u16 @(PLAYERS + PG_SCORE) (local.get $pb) (i32.div_u (local.get $t) (i32.const @TG_SEC)))
+      (if (i32.eqz (i32.and (local.get $m) (i32.const @TG_M_IT)))
+        (then (!put u16 @(PLAYERS + PG_SCORE) (local.get $pb) (i32.div_u (local.get $t) (i32.const @TG_SEC)))))
       (if (i32.and (i32.eqz (!at u8 @(PLAYERS + B_ITEM) (local.get $pb)))
                    (i32.and (i32.ge_u (local.get $t) (i32.const @TG_GIVE0))
                             (i32.eqz (i32.rem_u (i32.sub (local.get $t) (i32.const @TG_GIVE0)) (i32.const @TG_GIVE)))))
-        (then (!put u8 @(PLAYERS + B_ITEM) (local.get $pb) (i32.const @PU_SPRING)))))))
+        (then (!put u8 @(PLAYERS + B_ITEM) (local.get $pb)
+                (select (i32.const @PU_DASH) (i32.const @PU_SPRING) (i32.and (local.get $m) (i32.const @TG_M_IT)))))))))
 
 ;; Slot q is it from this tick, by p (255 joined in play, 254 dealt): both
-;; marked with the tick (neither tags for TG_FRESH), q's spring gone (springs
-;; are the free's), a tag for p; and if q
+;; marked with the tick (neither tags for TG_FRESH), q's spring gone (a dash
+;; comes at the next handing out), a tag for p; and if q
 ;; was the last one free, p caught it: a point over q's, the round's best.
 ;; The FX.
 (func $tg_make (param $q i32) (param $p i32) (param $t i32) (param $free i32)

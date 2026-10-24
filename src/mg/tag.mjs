@@ -1,7 +1,8 @@
 // TAG (MG_TAG, prefix tg): infection on a walled disc of bouncy pillars. A
 // few balls start it; an it that touches a free ball makes it it too. A
 // free ball scores a point a second and holds a spring (bumper's SPRING)
-// handed out every TG_GIVE ticks; an it rolls a little faster. Nobody falls:
+// handed out every TG_GIVE ticks, an it a dash (bumper's DASH); an it rolls
+// a little faster. Nobody falls:
 // the rim and the pillars bounce. Catch the last one free and you win with a
 // point over it; at the clock the free share the win.
 export const TG_R0 = 16; // the arena: 16 m plus TG_RK times the root of the balls in, at most TG_RMAX
@@ -29,7 +30,7 @@ export const TG_PE = 0.8; // a pillar's bounce: the speed into it comes back thi
 export const TG_KICK = 3; // m/s more off a pillar hit harder than TG_KMIN
 export const TG_KMIN = 2;
 export const TG_WE = 0.5; // the rim's bounce
-// Springs to the free: the first TG_GIVE0 ticks into play, then every TG_GIVE, to every free ball holding none.
+// Springs to the free and dashes to the its: TG_GIVE0 ticks into play, then every TG_GIVE, to every ball holding none.
 export const TG_GIVE0 = 250; // 2 s
 export const TG_GIVE = 1250; // 10 s
 // Its header, byte offsets in PG_H.

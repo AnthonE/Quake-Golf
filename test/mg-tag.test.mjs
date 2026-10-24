@@ -155,7 +155,7 @@ test('a touch is ball to ball in 3D, skins within TG_TOUCH: over its head is cle
   assert.equal(role(g, 3), FREE, 'clear over its head');
 });
 
-test('a point a second while free, frozen once it; springs to the free at 2 s and every 10 s, none to an it, gone when tagged', async () => {
+test('a point a second while free, frozen once it; at 2 s and every 10 s a spring to each free ball, a dash to each it, holding none', async () => {
   const g = await room(3, { clean: true });
   for (let p = 0; p < 3; p++) mark(g, p, FREE);
   mark(g, 0, IT);
@@ -167,24 +167,25 @@ test('a point a second while free, frozen once it; springs to the free at 2 s an
     const t = playT(g) - 1;
     assert.equal(g.v.partier(1).score, Math.floor(t / L.TG_SEC), 'a point a second');
     assert.equal(g.v.partier(0).score, 0, 'an it scores nothing');
-    assert.equal(g.v.partier(1).item, 0, 'no spring before 2 s');
+    assert.deepEqual([g.v.partier(0).item, g.v.partier(1).item], [0, 0], 'nothing before 2 s');
   }
   g.step();
-  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).item), [0, L.PU_SPRING, L.PU_SPRING], 'springs for the free at 2 s');
-  // P2 springs: up, and a new one at the next give; P3 keeps its own and gets no second
-  g.step([[L.EV_INPUT, 1, partyWord({ use: 1 })]]);
-  assert.equal(g.v.partier(1).item, 0);
+  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).item), [L.PU_DASH, L.PU_SPRING, L.PU_SPRING], 'a dash for the it, springs for the free at 2 s');
+  // P2 springs: up, and a new one at the next give; P3 keeps its own and gets no second; P1 dashes
+  g.step([[L.EV_INPUT, 1, partyWord({ use: 1 })], [L.EV_INPUT, 0, partyWord({ yaw: 8192, use: 1 })]]);
+  assert.deepEqual([g.v.partier(0).item, g.v.partier(1).item], [0, 0]);
   assert.ok(g.v.partier(1).vel[1] > 10 && !g.v.partier(1).ground, 'up it goes');
+  assert.ok(g.v.partier(0).vel[0] < -15, 'the it dashes');
   let n = 0;
   while (!g.v.partier(1).ground && n++ < 400) g.step();
   assert.ok(n > 100, `${n} ticks in the air`);
   assert.equal(fxs(g.v, L.FX_BLAST).length, 1, 'a stomp where it lands');
   at(g, L.TG_GIVE0 + L.TG_GIVE - 1);
   g.step();
-  assert.equal(g.v.partier(1).item, 0, 'not yet');
+  assert.deepEqual([g.v.partier(0).item, g.v.partier(1).item], [0, 0], 'not yet');
   g.step();
-  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).item), [0, L.PU_SPRING, L.PU_SPRING], 'again at 12 s');
-  // tagged: the spring goes, the points stop
+  assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).item), [L.PU_DASH, L.PU_SPRING, L.PU_SPRING], 'again at 12 s');
+  // tagged: the spring goes, the points stop; a dash at the next give
   const p0 = g.v.partier(0).pos;
   put(g, 2, p0[0] + 2.1, p0[2]);
   g.step();
@@ -193,6 +194,9 @@ test('a point a second while free, frozen once it; springs to the free at 2 s an
   for (let k = 0; k < 300; k++) g.step();
   assert.equal(g.v.partier(2).score, s, 'frozen');
   assert.equal(g.v.partier(1).score, Math.floor((playT(g) - 1) / L.TG_SEC));
+  at(g, L.TG_GIVE0 + 2 * L.TG_GIVE);
+  g.step();
+  assert.equal(g.v.partier(2).item, L.PU_DASH, 'an it now: a dash');
 });
 
 test('an it rolls 6% faster: the keys push it TG_BOOST more on the ground; in the air no more', async () => {
@@ -351,7 +355,7 @@ test('a ball joining in play is it; when the its have all left, one of the free 
   assert.equal(g.v.party().state, L.H_PLAY);
 });
 
-test('the prediction matches the confirmed ball bit for bit: into a pillar and off it, off the rim, its points and its spring, as an it pushing harder', async () => {
+test('the prediction matches the confirmed ball bit for bit: into a pillar and off it, off the rim, its points and its spring, as an it pushing harder and dashing', async () => {
   const g = await room(3, { seed: 31 });
   const R = g.v.party().size;
   const ps = pillars(g);
@@ -387,12 +391,16 @@ test('the prediction matches the confirmed ball bit for bit: into a pillar and o
   assert.ok(fxs(g.v, L.FX_USE).length >= 1 && g.v.partier(0).item === 0, 'it sprang');
   assert.ok(c.rim > 0);
   assert.equal(g.v.partier(0).score, Math.floor((playT(g) - 1) / L.TG_SEC), 'its points, a second at a time');
-  // D: as an it, the push and the pillars
+  // D: as an it, the push, a dash handed out and used, the pillars
   mark(g, 0, IT, 0);
   put(g, 0, px + 6, pz, { vx: -3 });
-  const d = run((k) => partyWord({ yaw: k < 150 ? yawTo(px, pz) : (k * 131) & 16383, move: 1 }), 400);
+  at(g, L.TG_GIVE0 + 4 * L.TG_GIVE - 40);
+  const uses = fxs(g.v, L.FX_USE).length;
+  const d = run((k) => partyWord({ yaw: k < 150 ? yawTo(px, pz) : (k * 131) & 16383, move: 1, use: k >= 60 ? 2 : 1 }), 400);
   assert.ok(d.pill < L.TG_PR + 1.6, `an it against the pillar (${d.pill.toFixed(2)} m)`);
   assert.equal(g.v.partier(0).m & IT, IT);
+  assert.equal(fxs(g.v, L.FX_USE).length, uses + 1, 'it dashed');
+  assert.equal(fxs(g.v, L.FX_USE).at(-1).size, L.PU_DASH);
 });
 
 // A round of Partier balls on the debug build: no trap, a round played to

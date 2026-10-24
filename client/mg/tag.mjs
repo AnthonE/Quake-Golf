@@ -6,8 +6,9 @@
 // in the countdown the deal in PG_S; the pillars are PG_S's from setup on.
 // The brain: an it runs down the free ball it can reach soonest (leading
 // it, round the pillars in the way, a little shy of one another it already
-// hunts); a free ball keeps away from the its near it, off the rim, and
-// springs when one is about to touch it.
+// hunts) and dashes at it when it's near and dead ahead; a free ball keeps
+// away from the its near it, off the rim, and springs when one is about to
+// touch it.
 import * as L from '../../src/layout.mjs';
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
@@ -206,6 +207,9 @@ function flee(view, me, bot, w, st) {
   return { goal: best };
 }
 
+// Ticks from t (into play) to the next handing out of springs and dashes.
+const nextGive = (t) => (t < L.TG_GIVE0 ? L.TG_GIVE0 - t : L.TG_GIVE - ((t - L.TG_GIVE0) % L.TG_GIVE));
+
 // ---- drawing
 
 // The ball p is drawn at: the frontend's extrapolation, the prediction's for your own.
@@ -225,7 +229,7 @@ function drawnAt(view, ctx, p) {
 export default {
   id: L.MG_TAG, key: 'tag', name: 'TAG',
   hint: 'RED IS IT  A POINT A SECOND WHILE FREE  CATCH THE LAST ONE TO WIN',
-  rules: 'TOUCHED BY RED YOU TURN RED  THE FREE GET A SPRING EVERY 10 S',
+  rules: 'TOUCHED BY RED YOU TURN RED  SPRINGS FOR THE FREE  DASHES FOR RED',
   env: 'night',
 
   draw(view, ctx, out) {
@@ -345,13 +349,12 @@ export default {
       for (const b of w.free) { const d = Math.hypot(b.x - me.pos[0], b.z - me.pos[2]); if (d < bd) { bd = d; best = b; } }
       ctx.centre(row, t < 375 ? 'YOU\'RE IT!  TAG SOMEONE' : 'YOU\'RE IT', C.RED);
       if (best) ctx.centre(row + 1, w.free.length === 1 ? `CATCH P${best.slot + 1} TO WIN  ${Math.round(bd)} M` : `NEAREST FREE P${best.slot + 1}  ${Math.round(bd)} M`, w.free.length === 1 ? C.YELLOW : C.WHITE);
+      if (me.item !== L.PU_DASH) ctx.centre(row + 2, `NEXT DASH IN ${Math.ceil(nextGive(g.t) / 125)}`, C.GREY);
     } else if (me.m & IN) {
       let bd = Infinity;
       for (const b of w.its) bd = Math.min(bd, Math.hypot(b.x - me.pos[0], b.z - me.pos[2]));
       ctx.centre(row, w.free.length === 1 ? 'THE LAST ONE FREE  RUN!' : `FREE  NEAREST IT ${Number.isFinite(bd) ? Math.round(bd) : '-'} M`, bd < 6 ? C.RED : bd < 14 ? C.YELLOW : C.GREEN);
-      const t = g.t;
-      const next = t < L.TG_GIVE0 ? L.TG_GIVE0 - t : L.TG_GIVE - ((t - L.TG_GIVE0) % L.TG_GIVE);
-      if (me.item !== L.PU_SPRING) ctx.centre(row + 1, `NEXT SPRING IN ${Math.ceil(next / 125)}`, C.GREY);
+      if (me.item !== L.PU_SPRING) ctx.centre(row + 1, `NEXT SPRING IN ${Math.ceil(nextGive(g.t) / 125)}`, C.GREY);
     }
   },
 
@@ -367,8 +370,10 @@ export default {
       let v = 0;
       for (let i = 0; i < list.length; i++) {
         const e = list[i];
+        // an it holding a dash reaches further
+        const reach = e.item === L.PU_DASH ? 6.5 : 5;
         const dx = e.x + e.vx * tau - x, dz = e.z + e.vz * tau - z, d2 = dx * dx + dz * dz;
-        if (d2 < 25) v = Math.max(v, Math.min(1, (5 - Math.sqrt(d2)) / 2.8));
+        if (d2 < reach * reach) v = Math.max(v, Math.min(1, (reach - Math.sqrt(d2)) / 2.8));
       }
       const rx = x - st.cx, rz = z - st.cx, lim = st.r - 3;
       if (rx * rx + rz * rz > lim * lim) v = Math.max(v, 0.25 * Math.min(1, (Math.hypot(rx, rz) - lim) / 3));
@@ -389,16 +394,25 @@ export default {
       if (!b || !b.live || b.out || !playing(view)) return null;
       const st = stage(view), w = world(view);
       const x = bot?.pos?.[0] ?? b.pos[0], z = bot?.pos?.[1] ?? b.pos[2];
+      // the power-up is the brain's to spend (the planner's own rule would jump in
+      // any crowd, or dash at whoever is ahead): the record it reads holds none
+      // (a fresh one each think)
+      const item = b.item;
+      if (typeof me === 'object') me.item = 0;
       if (b.m & IT) {
         const h = hunt(view, b, bot, w, st);
         if (!h) return null;
         if (bot) bot.goal = h.goal;
-        return { yaw: Math.atan2(h.goal[1] - z, h.goal[0] - x), move: 1 };
+        // a dash at the free ball it hunts, near and straight ahead of where it rolls
+        let use = false;
+        if (item === L.PU_DASH && b.ground && h.d > 2.6 && h.d < 5 + 3 * (bot?.skill ?? 0.6)) {
+          const vx = bot?.vel?.[0] ?? b.vel[0], vz = bot?.vel?.[1] ?? b.vel[2], sp = Math.hypot(vx, vz);
+          const gx = h.goal[0] - x, gz = h.goal[1] - z, gd = Math.hypot(gx, gz) || 1;
+          use = sp > 4 && (gx * vx + gz * vz) / (gd * sp) > 0.93 && (w.tick + me.slot) % 3 === 0;
+        }
+        return { yaw: Math.atan2(h.goal[1] - z, h.goal[0] - x), move: 1, use };
       }
-      if (!(b.m & IN) || b.item !== L.PU_SPRING) return null;
-      // the spring is the brain's to spend: the planner's own rule would jump in
-      // any crowd, so the record it reads holds none (a fresh one each think)
-      if (typeof me === 'object') me.item = 0;
+      if (!(b.m & IN) || item !== L.PU_SPRING) return null;
       if (!b.ground) return null;
       const skill = bot?.skill ?? 0.6;
       // an it within a skin or two in the next fifth of a second, coming on: jump
