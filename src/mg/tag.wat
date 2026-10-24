@@ -41,8 +41,12 @@
       (f32.sqrt (!madd (local.get $b2) (f32.div (f32.add (f32.convert_i32_u (local.get $i)) (f32.const 0.5)) (f32.convert_i32_u (local.get $m))) (local.get $a2)))))
     (call $sincos (i32.add (i32.mul (local.get $i) (i32.const 6258)) (i32.const 3000)))
     (local.set $co) (local.set $s)
-    (!st f32 @(PG_S + TG_PILL) (i32.shl (local.get $i) (i32.const 1)) (!madd (local.get $co) (local.get $r) (local.get $cx)))
-    (!st f32 @(PG_S + TG_PILL + 4) (i32.shl (local.get $i) (i32.const 1)) (!madd (local.get $s) (local.get $r) (local.get $cx))))
+    (local.set $x (!madd (local.get $co) (local.get $r) (local.get $cx)))
+    (local.set $z (!madd (local.get $s) (local.get $r) (local.get $cx)))
+    (!chk (local.get $x) 136 (local.get $i))
+    (!chk (local.get $z) 137 (local.get $i))
+    (!st f32 @(PG_S + TG_PILL) (i32.shl (local.get $i) (i32.const 1)) (local.get $x))
+    (!st f32 @(PG_S + TG_PILL + 4) (i32.shl (local.get $i) (i32.const 1)) (local.get $z)))
   ;; the its: one in TG_PER, rounded, at least one of two or more; drawn from
   ;; the PRNG by spawn index, then marked by slot (the i-th ball in is index i)
   (local.set $nit (i32.div_u (i32.add (local.get $n) (i32.const @(TG_PER >> 1))) (i32.const @TG_PER)))
@@ -94,6 +98,8 @@
                 (then (local.set $ok (i32.const 0)))))
             (br_if $found (local.get $ok))
             (br $next)))))
+    (!chk (local.get $x) 138 (local.get $i))
+    (!chk (local.get $z) 139 (local.get $i))
     (!st f32 @(PG_S + TG_SPOT) (i32.shl (local.get $i) (i32.const 1)) (local.get $x))
     (!st f32 @(PG_S + TG_SPOT + 4) (i32.shl (local.get $i) (i32.const 1)) (local.get $z))))
 
