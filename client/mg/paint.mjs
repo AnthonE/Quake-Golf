@@ -217,7 +217,7 @@ function worth(st, g, p, x, z) {
 
 export default {
   id: L.MG_PAINT, key: 'paint', name: 'PAINT PARTY',
-  hint: 'ROLL TO PAINT THE FLOOR YOUR COLOUR  BURST PAINT BOMBS  MOST WINS',
+  hint: 'ROLL TO PAINT THE FLOOR  BURST PAINT BOMBS  THE MOST FLOOR WINS',
   env: 'day',
 
   draw(view, ctx, out) {
