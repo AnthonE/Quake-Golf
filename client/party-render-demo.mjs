@@ -4,7 +4,7 @@
 // reads each back with capture() (headless Chrome, ?present=0) into
 // traces/party-render-<scene>.png; in a browser it draws the one in ?scene=
 // (or flips through them all, a click for the next), moving.
-//   ?scene=looks  ?env=night (any scene, another backdrop)  ?res=1280x800  ?present=0
+//   ?scene=looks  ?env=night (any scene, another backdrop)  ?scene=crowd~over (seen from high over the edge)  ?res=1280x800  ?present=0
 import { createRenderer, Scene, LOOK, SPRITE, COLS, DECAL, ENVS } from './party-render.mjs';
 import { put, C } from './font.mjs';
 
@@ -141,7 +141,7 @@ const SCENES = {
           continue;
         }
         const crack = li === 0 && rand() < 0.2 ? 0.15 + rand() * 0.85 : 0;
-        sc.hex(x, y - 0.25, z, 1.94, 0.25, 0, li === 0 ? 0.74 : 0.66, li === 0 ? 0.9 : 0.85, 1.0, LOOK.ICE, crack);
+        sc.hex(x, y - 0.25, z, 1.94, 0.25, 0, li === 0 ? 0.74 : 0.66, li === 0 ? 0.9 : 0.85, 1.0, LOOK.ICE, crack, li * 0.3);
       }
     });
     crowd(s, 60, R - 4, FLOOR, rand);
@@ -413,6 +413,24 @@ const SCENES = {
     title(s, r, 'SEE-THROUGH', 'ALPHA UNDER 1: DRAWN AFTER, DEPTH-TESTED, NOT WRITTEN');
   },
 
+  // ice cracking, a from 0 to 1 along each row; the back row frosted over (b 0.6)
+  cracks(s, r) {
+    s.env = 'snow';
+    s.yaw = Math.PI / 2; s.pitch = -0.75;
+    s.cam = [CX, FLOOR + 11, CX - 9];
+    const sc = s.scene;
+    for (let row = 0; row < 2; row++) {
+      for (let k = 0; k < 6; k++) {
+        const [x, z] = hexCentre(k - 3 + (row ? 0 : 0), row * 2 - 1, 2);
+        const a = (k + 1) / 6 * (row ? 1 : 0.84) - (row ? 0 : 0.14);
+        sc.hex(x, FLOOR - 0.25, z, 1.94, 0.25, 0, 0.74, 0.9, 1.0, LOOK.ICE, Math.max(0, a), row ? 0.6 : 0, 1, 7 + k);
+        label(s, r, [x, FLOOR, z + (row ? 1.2 : -1.6)], `A ${Math.max(0, a).toFixed(2)}`, C.GREY);
+      }
+    }
+    s.extent = 12; s.mini = null;
+    title(s, r, 'THIN ICE CRACKING', 'A 0 TO 1  (BACK ROW: FROST B 0.6)');
+  },
+
   // the sky: a little stage, looking out toward the sun (or the moon) low over the sea
   horizon(s, r, env) {
     s.env = env || 'day';
@@ -461,11 +479,18 @@ async function main() {
   const r = await createRenderer(canvas, { present: q.get('present') !== '0', hudScale: HS });
   const names = Object.keys(SCENES);
   const build = (name, time) => {
-    const [base, env] = name.split('@');
+    const [scene, env] = name.split('@');
+    const [base, view] = scene.split('~');
     const s = frameState(W, H, HS);
     s.text = new Uint32Array(COLS * r.rows);
     SCENES[base](s, r, env);
     if (env) s.env = env;
+    // ~over: the frontends' view when there is nobody to follow, high over the stage's edge
+    if (view === 'over') {
+      const R = s.mini ? s.mini[3] : s.extent;
+      s.yaw = 0.8 + Math.PI; s.pitch = -0.62;
+      s.cam = [s.focus[0] + Math.cos(0.8) * R * 1.3, FLOOR + R * 0.95, s.focus[1] + Math.sin(0.8) * R * 1.3];
+    }
     s.time = time;
     put(s.text, COLS, 1, r.rows - 1, `${base.toUpperCase()}  ${s.env.toUpperCase()}  ${s.scene.count} SOLIDS  ${s.casters.length} CASTERS  ${s.solid.length + s.glow.length} SPRITES`, C.GREY);
     return s;

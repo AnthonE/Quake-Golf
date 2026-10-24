@@ -37,6 +37,18 @@ const FLAKES = 4000;
 // 10 a spinning coin, 11 a bomb; glowing 3 a flash, 4 a ring, 5 a spark
 export const SPRITE = { BALL: 0, BODY: 1, ORB: 2, FLASH: 3, RING: 4, SPARK: 5, ARROW: 6, ROCKET: 7, HEAD: 8, CRUMB: 9, COIN: 10, BOMB: 11 };
 export const SHAPE = { BOX: 0, CYL: 1, HEX: 2, SPHERE: 3 };
+// The looks, and what their two parameters a and b do (0 takes the default):
+//   MATTE    paint with a little grain
+//   PLASTIC  a toy's gloss
+//   ICE      a: cracks, 0 whole to 1 shattered (they spread out from the middle, wider, and the ice whitens);
+//            b: frost, 0 clear to 1 packed snow
+//   METAL    brushed along the solid's longer side, the sky and its clouds in it
+//   HAZARD   stripes a wide (0.5 m) across the solid's own frame, its colour and black
+//   GLOW     lit by a (0 off, 1 bright, past 1 white-hot); b takes the light out to its edges, a neon panel
+//   PAINT    the paint layer (s.paint) on its top faces, over its own colour
+//   CHECKER  squares a a side (1 m) in the world, its colour and the opposite; b softens the opposite toward it
+//   WOOD     planks a wide (0.32 m) along its longer side, grain, seams
+//   RUBBER   rough, a faint sheen, a fine pebbly grain
 export const LOOK = { MATTE: 0, PLASTIC: 1, ICE: 2, METAL: 3, HAZARD: 4, GLOW: 5, PAINT: 6, CHECKER: 7, WOOD: 8, RUBBER: 9 };
 // decal kinds: 0 a ring (its outer edge at radius, width inward), 1 a disc, 2 a zone (a faint disc, a bright rim, ripples going in), 3 a target (a ring, a dot, four ticks)
 export const DECAL = { RING: 0, DISC: 1, ZONE: 2, TARGET: 3 };
@@ -604,13 +616,14 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
     case 1u: { // PLASTIC: a toy's gloss
       c = shade(base * 0.92, n, sh, ao) + sunSpec(n, v, 140.0, 0.9) * sh + skyLite(r) * fresnel(n, v, 0.04) * 0.45;
     }
-    case 2u: { // ICE: frost deep inside that shifts as you move, a wet gloss, cracks that spread with a and whiten it
+    case 2u: { // ICE: frost deep inside that shifts as you move, a wet gloss, cracks that spread with a and whiten it; b frosts it over
       let depth = 0.22;
       let inner = fbm((m.lp.xz - vl.xz / max(abs(vl.y), 0.22) * depth) * 1.7 + seed * 0.13);
       let near = fbm(m.lp.xz * 3.1 + seed);
       let deep = base * vec3f(0.18, 0.42, 0.72);
       var alb = mix(deep, base, 0.3 + 0.7 * smoothstep(0.25, 0.75, inner));
       alb = mix(alb, vec3f(0.92, 0.96, 1.0), 0.12 * near + 0.5 * pa);
+      alb = mix(alb, vec3f(0.9, 0.93, 0.97) * (0.92 + 0.12 * near), clamp(pb, 0.0, 1.0));
       if (!top) { alb = mix(deep * 0.8, alb, 0.45 + 0.4 * smoothstep(-h.y, h.y, m.lp.y)); }
       // cracks: cell walls and rays from the middle, out to a times the face's size, wider as it goes
       var crack = 0.0;
@@ -622,14 +635,19 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
         let wv = voronoi(q * 1.25);
         let wd = (0.012 + 0.05 * pa) * 1.25;
         crack = (1.0 - smoothstep(wd * 0.4, wd + px * 1.25, wv)) * spread;
-        let ang = atan2(m.lp.z, m.lp.x) + seed;
-        let rayd = abs(fract(ang / 6.2832 * 7.0 + vnoise(vec2f(rr * 2.0, seed)) * 0.35) - 0.5) * 6.2832 / 7.0 * rr;
-        crack = max(crack, (1.0 - smoothstep(0.01 + 0.03 * pa, 0.04 + 0.03 * pa + px, rayd)) * (1.0 - smoothstep(reach * 0.75, reach, rr)));
+        // five to eight rays, each wandering and of its own length
+        let nr = 5.0 + floor(hash2(vec2f(seed, 2.3)) * 4.0);
+        let ang = atan2(m.lp.z, m.lp.x) / 6.2832 * nr + seed;
+        let wob = (vnoise(vec2f(rr * 1.6, seed)) - 0.5) * 0.9 + (vnoise(vec2f(rr * 5.0, seed + 4.0)) - 0.5) * 0.25;
+        let sec = ang + wob;
+        let len = 0.45 + 0.55 * hash2(vec2f(floor(sec + 0.5), seed));
+        let rayd = abs(fract(sec + 0.5) - 0.5) * 6.2832 / nr * rr;
+        crack = max(crack, (1.0 - smoothstep(0.01 + 0.03 * pa, 0.04 + 0.03 * pa + px, rayd)) * (1.0 - smoothstep(reach * len * 0.8, reach * len, rr)));
         if (pa > 0.45) { crack = max(crack, (1.0 - smoothstep(0.02, 0.05 + px * 2.0, voronoi(q * 3.3 + 5.0))) * spread * smoothstep(0.45, 0.9, pa) * 0.8); }
         if (!top) { crack = 0.0; }
       }
       c = shade(alb, n, sh, ao) * 0.9;
-      c += skyLite(r) * fresnel(n, v, 0.06) * 0.8 + sunSpec(n, v, 220.0, 1.2) * sh;
+      c += (skyLite(r) * fresnel(n, v, 0.06) * 0.8 + sunSpec(n, v, 220.0, 1.2) * sh) * (1.0 - 0.7 * clamp(pb, 0.0, 1.0));
       c = mix(c, (u.sunc.rgb * max(u.sun.y, 0.3) * sh + ambient(n) * 1.3) * 0.95, crack * 0.85);
       // a glint here and there in the frost
       let gl = step(0.985, hash2(floor(m.lp.xz * 22.0) + seed));
@@ -672,7 +690,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
       let alb = mix(base, other, checkers(cq, fwC)) * (0.93 + 0.1 * grain);
       c = shade(alb, n, sh, ao) + sunSpec(n, v, 50.0, 0.2) * sh;
     }
-    case 8u: { // WOOD: planks along the longer side, grain, seams, a satin finish
+    case 8u: { // WOOD: planks a wide (0.32 m) along the longer side, grain, seams, a satin finish
       let lx = h.x >= h.z;
       var along = select(m.lp.z, m.lp.x, lx);
       var across = select(m.lp.x, m.lp.z, lx);
@@ -681,7 +699,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
         across = m.lp.y;
         if (shape == 1u) { along = m.lp.y; across = atan2(m.lp.z, m.lp.x) * h.x; }
       }
-      let pw = 0.32;
+      let pw = select(0.32, pa, pa > 0.0);
       let pk = floor(across / pw + seed * 0.1);
       let tone = 0.78 + 0.36 * hash2(vec2f(pk, seed));
       let g = along * 0.35 + vnoise(vec2f(along * 0.25, across * 3.0 + pk * 7.0)) * 2.5 + hash2(vec2f(pk, 1.0)) * 9.0;
@@ -825,7 +843,7 @@ struct FOutS { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(
   let z = dot(r, u.fwd.xyz);
   if (z < 0.4) { return o; }
   let s = u.cam.w / z;
-  let px = max(0.045 * s, 0.9);
+  let px = clamp(0.045 * s, 0.9, 5.0);
   let c = CORNERS[v];
   let sc = vec2f(u.screen.x * 0.5 + dot(r, u.right.xyz) * s, u.screen.y * 0.5 - dot(r, u.up.xyz) * s) + c * (px + 0.5);
   o.pos = vec4f(sc.x / u.screen.x * 2.0 - 1.0, 1.0 - sc.y / u.screen.y * 2.0, NEAR / z, 1.0);
@@ -1329,10 +1347,22 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
 
   return {
     rows, width: W, height: H, hudScale: hs, hudX, device,
-    // s: { cam, yaw, pitch, time, slot, env, focus: [x, z], extent, scene, casters: [[x, y, z, r]] (index = slot for balls),
-    //      solid: [sprite], glow: [sprite] with sprite { pos, size, color: [r,g,b,a], kind, aspect, minpx, seed, vel, roll },
-    //      beams: [{ a, b, width, color }], decals: [{ pos, radius, width, color, kind }], paint, rects (screen px), text, graph, flash,
-    //      mini: [cx, cy, r px, world r] | null, miniShape: 'disc' | 'square', miniCentre: [x, z] (focus), riders (true) }
+    // s: { cam: [x, y, z], yaw, pitch, time (s), slot (-1 none),
+    //      env: 'day' | 'sunset' | 'night' | 'snow' (a change eases in over half a second),
+    //      focus: [x, z] (or [x, y, z]), extent (m): the square the shadow map and the balls' contact shade cover,
+    //      scene: a Scene,
+    //      casters: [[x, y, z, r]], index = slot for balls: a ball's bottom at y, radius r, a rider over it (riders: false
+    //               for none); r < 0 a round thing of radius -r centred at y (an orb, a bomb, a coin); r 0 or y < -500 nothing,
+    //      solid: [sprite], glow: [sprite], sprite { pos, size, color: [r,g,b,a], kind (SPRITE), aspect, minpx, seed, vel, roll }:
+    //               a COIN's size is its radius, roll turns it; a BOMB's size is its body's radius, roll 0..1 how hot it is,
+    //      beams: [{ a, b, width, color }],
+    //      decals: [{ pos: [x, y, z], radius, width, color: [r, g, b, a], kind (DECAL) }], flat at y, glowing,
+    //      paint: null | { cells: Uint8Array(n * n) (cells[j * n + i] covers x0 + (i + 0.5) * size / n, z0 + (j + 0.5) * size / n),
+    //               n, origin: [x0, z0], size (the grid's side, m), palette: Float32Array(1024) (rgba 0..1, index 0..255;
+    //               alpha 0 leaves the solid's own colour), version (uploaded when it or cells changes) },
+    //      rects: [[x0, y0, x1, y1, r, g, b, a]] (screen px), text: Uint32Array(COLS * rows), graph (client/netgraph.mjs), flash 0..1,
+    //      mini: [cx, cy, radius px, world radius] | null, miniShape: 'disc' (turns the way you face) | 'square' (north up),
+    //      miniCentre: [x, z] (the focus) }
     frame(u8, s, target) {
       if (!ctx && !target) return;
       const scene = s.scene || empty;
@@ -1348,7 +1378,8 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
       // for the shadow map and the minimap; and how high and low the stage goes round the focus
       const n = scene.count, D = scene.data;
       if (n > cap) { grow(n); order = new Uint32Array(cap * 2); vis = new Uint8Array(cap); keyZ = new Float32Array(cap); }
-      const focus = s.focus || [cam[0], cam[2]];
+      const xz = (p) => (p && p.length > 2 ? [p[0], p[2]] : p);
+      const focus = xz(s.focus) || [cam[0], cam[2]];
       const ext = s.extent || 60;
       const kx = W / 2 / focal, ky = H / 2 / focal, nx = 1 / Math.sqrt(1 + kx * kx), ny = 1 / Math.sqrt(1 + ky * ky);
       cnt.fill(0);
@@ -1417,7 +1448,7 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
 
       // the minimap's square: its centre (the focus) and the world radius it shows
       const mini = s.mini || null;
-      const mc = s.miniCentre || focus;
+      const mc = xz(s.miniCentre) || focus;
       const mr = mini ? mini[3] : ext;
 
       uf.set([cam[0], cam[1], cam[2], focal,
