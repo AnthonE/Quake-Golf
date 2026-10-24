@@ -637,10 +637,10 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
         crack = (1.0 - smoothstep(wd * 0.4, wd + px * 1.25, wv)) * spread;
         // five to eight rays, each wandering and of its own length
         let nr = 5.0 + floor(hash2(vec2f(seed, 2.3)) * 4.0);
-        let ang = atan2(m.lp.z, m.lp.x) / 6.2832 * nr + seed;
         let wob = (vnoise(vec2f(rr * 1.6, seed)) - 0.5) * 0.9 + (vnoise(vec2f(rr * 5.0, seed + 4.0)) - 0.5) * 0.25;
-        let sec = ang + wob;
-        let len = 0.45 + 0.55 * hash2(vec2f(floor(sec + 0.5), seed));
+        let sec = atan2(m.lp.z, m.lp.x) / 6.2832 * nr + fract(seed * 0.618) + wob;
+        let ray = floor(sec + 0.5);
+        let len = 0.45 + 0.55 * hash2(vec2f(ray - nr * floor(ray / nr), seed));
         let rayd = abs(fract(sec + 0.5) - 0.5) * 6.2832 / nr * rr;
         crack = max(crack, (1.0 - smoothstep(0.01 + 0.03 * pa, 0.04 + 0.03 * pa + px, rayd)) * (1.0 - smoothstep(reach * len * 0.8, reach * len, rr)));
         if (pa > 0.45) { crack = max(crack, (1.0 - smoothstep(0.02, 0.05 + px * 2.0, voronoi(q * 3.3 + 5.0))) * spread * smoothstep(0.45, 0.9, pa) * 0.8); }
