@@ -156,8 +156,11 @@ match result.
 The wrapper, ours first:
 
 1. List Party and Fireplace as free titles with `play_url` on these pages
-   (the listing rules ask for the source to be public). Fireplace's row and
-   its paid board lane are going up as Fireplace (scry-forge, 2026-10-25).
+   (the listing rules ask for the source to be public). Fireplace has its
+   row (on the coming-soon shelf, in alpha, until people play it) and its
+   board lane, `fireplace-pr`, in scry-forge since 2026-10-25; `elo.json`
+   lands on the row once its steward signs it (`sign_manifest.py --game
+   fireplace --seq 1`, scry-forge's `docs/store/GAME-REPO.md`).
 2. Sign-in: the page calls `Elo.signIn({nonce})` with a nonce from the relay's
    hello; `net/relay.ts` verifies it and keeps the wallet as the slot's
    player. Guests still play.
