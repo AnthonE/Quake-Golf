@@ -80,10 +80,11 @@ shell whose own command line contains the name: it kills that shell.
   (`test/new-mg.test.mjs` holds its anchors).
 - The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut,
   and the team modes Team Slayer, Capture the Flag, Oddball, King of the
-  Hill) are picked per match at run time, not built: `AH_MODE` to `AH_END`
+  Hill, Headhunter, Territories, VIP, Assault) are picked per match at run
+  time, not built: `AH_MODE` to `AH_END`
   at `REGION + 0x48..0x74` (the team modes' scores, target and winner
   included), a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`, `PF_BLUE`, and
-  `PF_CARRY` for a flag's or the skull's carrier), per-fighter state at
+  `PF_CARRY` for a flag's, the skull's or the bomb's carrier), per-fighter state at
   `MODE_REC`, a team mode's objective in `AO` (`REGION + 0xcc00`, 1 KiB).
   A Fiesta must leave all of it 0, so its region stays what it was;
   `forcedSeed(m)` (`arena-view.mjs`) makes a room play one mode. The team
