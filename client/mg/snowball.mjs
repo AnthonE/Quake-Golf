@@ -159,7 +159,7 @@ function plan(view, me, bot, w) {
   const n = sizeUp(me, w);
   const keep = margin(r, sp) + 1;
   // run from what can swallow it, when one is close
-  const close = n.threats.filter((b) => Math.hypot(b.x - x, b.z - z) < b.r + r + 7 + 4 * skill);
+  const close = n.threats.filter((b) => Math.hypot(b.x - x, b.z - z) < b.r + r + 3 + 9 * skill);
   if (close.length) {
     let best = null, score = -Infinity;
     for (let k = 0; k <= 12; k++) {
@@ -197,7 +197,7 @@ function plan(view, me, bot, w) {
     w.claims.set(pick.slot, (w.claims.get(pick.slot) || 0) + 1);
     const d = Math.hypot(pick.x - x, pick.z - z);
     const lead = Math.min(0.9, d / 11) * (0.4 + 0.6 * skill);
-    return inside(st, rim, pick.x + pick.vx * lead, pick.z + pick.vz * lead, keep);
+    return inside(st, rim, pick.x + pick.vx * lead, pick.z + pick.vz * lead, r + 0.6);
   }
   // the rim nearly in: a lighter ball near it, rammed outward from the inside
   if (rim < MC.SB_RMIN + 6) {

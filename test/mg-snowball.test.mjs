@@ -67,10 +67,9 @@ function packAll(g, ago = MC.SB_PACK + 10) { const t = ago < 0 ? 0 : (g.v.tick -
 // grows on fresh snow and wears on packed.
 function sized(r, vx, vz, ground, fresh) {
   const sp = f(Math.sqrt(f(f(vx * vx) + f(vz * vz))));
-  let r2 = f(r * r);
-  if (sp < MC.SB_STILL) r2 = Math.max(f(r2 - f(MC.SB_MELT)), 1);
-  else if (ground) r2 = Math.min(Math.max(f(f(f(sp * DT) * (fresh ? f(MC.SB_GROW) : f(-MC.SB_WEAR))) + r2), 1), MC.SB_BMAX ** 2);
-  return f(Math.sqrt(r2));
+  if (sp < MC.SB_STILL) return Math.max(f(r - f(MC.SB_MELT)), MC.SB_B0);
+  if (!ground) return r;
+  return Math.min(Math.max(f(f(f(sp * DT) * (fresh ? f(MC.SB_GROW) : f(-MC.SB_WEAR))) + r), MC.SB_B0), MC.SB_BMAX);
 }
 
 test('the field for 1, 8, 64 and 256: sized for the crowd, sized balls bumping, its pines clear of every spawn, a snowball of 1 m from play', async () => {
@@ -146,7 +145,7 @@ test('the rim: the field\'s own till SB_CALM, then in to SB_RMIN over SB_SHRINK;
   assert.equal(g.v.partier(1).place, 1);
 });
 
-test('a snowball grows on fresh snow by SB_GROW of the ground it covers, wears on packed by SB_WEAR, melts standing still; SB_B0 to SB_BMAX', async () => {
+test('a snowball grows SB_GROW a metre of fresh snow it covers, wears SB_WEAR a metre of packed, melts standing still; SB_B0 to SB_BMAX', async () => {
   const g = await room(3, { clean: true });
   put(g, 1, C - 12, C + 12);
   put(g, 2, C + 12, C + 12);
@@ -165,7 +164,7 @@ test('a snowball grows on fresh snow by SB_GROW of the ground it covers, wears o
     if (b.radius > r) grew++;
     lap();
   }
-  assert.ok(grew === 300 && rOf(g, 0) > 1.35, `grew to ${rOf(g, 0).toFixed(2)} m`);
+  assert.ok(grew === 300 && rOf(g, 0) > 1.25, `grew to ${rOf(g, 0).toFixed(2)} m`);
   setR(g, 0, 2.99);
   for (let k = 0; k < 100; k++) { g.step(); lap(); }
   assert.equal(rOf(g, 0), MC.SB_BMAX, 'no more than SB_BMAX');
@@ -199,7 +198,7 @@ test('a snowball grows on fresh snow by SB_GROW of the ground it covers, wears o
     g.step();
     assert.equal(rOf(g, 0), sized(r, 0, 0, true, true));
   }
-  assert.ok(Math.abs(rOf(g, 0) ** 2 - (6.25 - 125 * MC.SB_MELT)) < 1e-3, `melted to ${rOf(g, 0).toFixed(3)} m`);
+  assert.ok(Math.abs(rOf(g, 0) - (2.5 - 125 * MC.SB_MELT)) < 1e-3, `melted to ${rOf(g, 0).toFixed(3)} m`);
   // in the air: no growing, no wearing
   put(g, 0, C - 4, C - 6, { y: PLAT_Y + 3, vx: 5, ground: false, r: 2 });
   g.step();

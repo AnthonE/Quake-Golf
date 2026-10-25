@@ -2,9 +2,9 @@
 ;; crumbling in from SB_CALM into play to SB_RMIN over SB_SHRINK ticks, a few
 ;; pines on it that the balls bounce off. Every ball is a snowball (PGF_SIZE:
 ;; its radius is its PG_M, which $b_rad and $b_mass read, so the bumps weigh
-;; it): SB_B0 to start, its square up SB_GROW for every metre it rolls on
-;; fresh snow and down SB_WEAR on packed, SB_B0 to SB_BMAX, and melting back
-;; while it stands still. The snow is a grid in PG_BIG: a ball on the ground
+;; it): SB_B0 to start, up SB_GROW for every metre it rolls on fresh snow
+;; and down SB_WEAR on packed, SB_B0 to SB_BMAX, and melting back while it
+;; stands still. The snow is a grid in PG_BIG: a ball on the ground
 ;; rolls the cells under it (the tick it did), which pack SB_PACK ticks later
 ;; and are fresh again SB_REFILL after. On the ground a big ball is slower to
 ;; get going and quicker flat out, and its skin hanging over the rim tips it
@@ -171,7 +171,7 @@
 ;; the snow by the ground it covered this tick.
 (func $sb_push (param $p i32) (param $d i32)
   (local $pb i32) (local $fl i32) (local $in i32) (local $k i32) (local $np i32)
-  (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vz f32) (local $r f32) (local $r2 f32)
+  (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vz f32) (local $r f32)
   (local $f f32) (local $drag f32) (local $acc f32) (local $s f32) (local $c f32) (local $fwd f32) (local $side f32)
   (local $wx f32) (local $wz f32) (local $len f32) (local $cx f32) (local $rim f32) (local $sp f32)
   (local $dx f32) (local $dz f32) (local $d2 f32) (local $dist f32) (local $nx f32) (local $nz f32) (local $over f32)
@@ -260,26 +260,25 @@
                     (local.set $vx (!madd (local.get $nx) (local.get $j) (local.get $vx)))
                     (local.set $vz (!madd (local.get $nz) (local.get $j) (local.get $vz))))))))))))
   (local.set $sp (f32.sqrt (!madd (local.get $vx) (local.get $vx) (f32.mul (local.get $vz) (local.get $vz)))))
-  (local.set $r2 (f32.mul (local.get $r) (local.get $r)))
   (if (f32.lt (local.get $sp) (f32.const @SB_STILL))
-    (then (local.set $r2 (f32.max (f32.sub (local.get $r2) (f32.const @SB_MELT)) (f32.const @(SB_B0 * SB_B0)))))
+    (then (local.set $r (f32.max (f32.sub (local.get $r) (f32.const @SB_MELT)) (f32.const @SB_B0))))
     (else
       (if (i32.and (local.get $fl) (i32.const @PF_GROUND))
         (then
           (local.set $j (select (f32.const @SB_GROW) (f32.const @(-SB_WEAR))
                           (call $sb_fresh (call $sb_cell (local.get $px) (local.get $pz)) (i32.load offset=@HDR_TICK (local.get $d)))))
-          (local.set $r2 (f32.min (f32.max (!madd (f32.mul (local.get $sp) (f32.const @DT)) (local.get $j) (local.get $r2)) (f32.const @(SB_B0 * SB_B0)))
-                                  (f32.const @(SB_BMAX * SB_BMAX))))))))
+          (local.set $r (f32.min (f32.max (!madd (f32.mul (local.get $sp) (f32.const @DT)) (local.get $j) (local.get $r)) (f32.const @SB_B0))
+                                 (f32.const @SB_BMAX)))))))
   (!chk (local.get $px) 153 (local.get $p))
   (!chk (local.get $pz) 154 (local.get $p))
   (!chk (local.get $vx) 155 (local.get $p))
   (!chk (local.get $vz) 156 (local.get $p))
-  (!chk (local.get $r2) 157 (local.get $p))
+  (!chk (local.get $r) 157 (local.get $p))
   (!put f32 @(PLAYERS + P_PX) (local.get $pb) (local.get $px))
   (!put f32 @(PLAYERS + P_PZ) (local.get $pb) (local.get $pz))
   (!put f32 @(PLAYERS + P_VX) (local.get $pb) (local.get $vx))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz))
-  (!put f32 @(PLAYERS + PG_M) (local.get $pb) (f32.sqrt (local.get $r2))))
+  (!put f32 @(PLAYERS + PG_M) (local.get $pb) (local.get $r)))
 
 ;; Ball p swallows ball q: p's square up SB_EAT of q's (to SB_BMAX), a
 ;; swallow to its score and the KO to its name; who swallowed q, the FX, and
@@ -309,33 +308,42 @@
 ;; within SB_TOUCH, in 3D), one under SB_EATK of the other's radius: the big
 ;; one swallows the small one. A ball swallowed this tick swallows no more;
 ;; one that grew is weighed at its new size. Then the balls left on the
-;; ground roll the snow.
+;; ground roll the snow. The balls in, their radii and where they are, in
+;; B_SCR as this tick's swallowing starts (a radius 0 once swallowed).
 (func $sb_tick
   (local $t i32) (local $n i32) (local $a i32) (local $b i32) (local $i i32) (local $j i32) (local $ib i32) (local $jb i32) (local $p i32)
-  (local $ri f32) (local $rj f32) (local $rs f32) (local $dx f32) (local $dy f32) (local $dz f32)
+  (local $ri f32) (local $rj f32) (local $rs f32) (local $dx f32) (local $dy f32) (local $dz f32) (local $xi f32) (local $zi f32)
   (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (if (call $p_in (i32.shl (local.get $p) (i32.const 6)))
-      (then (!st u8 @B_SCR (local.get $n) (local.get $p)) (!inc $n))))
+    (local.set $ib (i32.shl (local.get $p) (i32.const 6)))
+    (if (call $p_in (local.get $ib))
+      (then
+        (!st u8 @B_SCR (local.get $n) (local.get $p))
+        (!st f32 @(B_SCR + 0x400) (local.get $n) (call $b_rad (local.get $ib)))
+        (!st f32 @(B_SCR + 0x800) (local.get $n) (!at f32 @(PLAYERS + P_PX) (local.get $ib)))
+        (!st f32 @(B_SCR + 0xc00) (local.get $n) (!at f32 @(PLAYERS + P_PZ) (local.get $ib)))
+        (!inc $n))))
   (!for $a (i32.const 0) (local.get $n)
-    (local.set $i (!ld u8 @B_SCR (local.get $a)))
-    (local.set $ib (i32.shl (local.get $i) (i32.const 6)))
-    (block $gone
-      (br_if $gone (i32.eqz (call $p_in (local.get $ib))))
-      (local.set $ri (call $b_rad (local.get $ib)))
-      (!for $b (i32.add (local.get $a) (i32.const 1)) (local.get $n)
-        (local.set $j (!ld u8 @B_SCR (local.get $b)))
-        (local.set $jb (i32.shl (local.get $j) (i32.const 6)))
-        (if (call $p_in (local.get $jb))
-          (then
-            (local.set $rj (call $b_rad (local.get $jb)))
-            (if (i32.or (f32.lt (local.get $rj) (f32.mul (local.get $ri) (f32.const @SB_EATK)))
-                        (f32.lt (local.get $ri) (f32.mul (local.get $rj) (f32.const @SB_EATK))))
+    (local.set $ri (!ld f32 @(B_SCR + 0x400) (local.get $a)))
+    (if (f32.gt (local.get $ri) (f32.const 0))
+      (then
+        (local.set $i (!ld u8 @B_SCR (local.get $a)))
+        (local.set $ib (i32.shl (local.get $i) (i32.const 6)))
+        (local.set $xi (!ld f32 @(B_SCR + 0x800) (local.get $a)))
+        (local.set $zi (!ld f32 @(B_SCR + 0xc00) (local.get $a)))
+        (block $gone
+          (!for $b (i32.add (local.get $a) (i32.const 1)) (local.get $n)
+            (local.set $rj (!ld f32 @(B_SCR + 0x400) (local.get $b)))
+            (if (i32.and (f32.gt (local.get $rj) (f32.const 0))
+                         (i32.or (f32.lt (local.get $rj) (f32.mul (local.get $ri) (f32.const @SB_EATK)))
+                                 (f32.lt (local.get $ri) (f32.mul (local.get $rj) (f32.const @SB_EATK)))))
               (then
                 (local.set $rs (f32.add (f32.add (local.get $ri) (local.get $rj)) (f32.const @SB_TOUCH)))
-                (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_PX) (local.get $jb)) (!at f32 @(PLAYERS + P_PX) (local.get $ib))))
-                (local.set $dz (f32.sub (!at f32 @(PLAYERS + P_PZ) (local.get $jb)) (!at f32 @(PLAYERS + P_PZ) (local.get $ib))))
+                (local.set $dx (f32.sub (!ld f32 @(B_SCR + 0x800) (local.get $b)) (local.get $xi)))
+                (local.set $dz (f32.sub (!ld f32 @(B_SCR + 0xc00) (local.get $b)) (local.get $zi)))
                 (if (i32.and (f32.lt (f32.abs (local.get $dx)) (local.get $rs)) (f32.lt (f32.abs (local.get $dz)) (local.get $rs)))
                   (then
+                    (local.set $j (!ld u8 @B_SCR (local.get $b)))
+                    (local.set $jb (i32.shl (local.get $j) (i32.const 6)))
                     (local.set $dy (f32.sub (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $jb)) (local.get $rj))
                                             (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $ib)) (local.get $ri))))
                     (if (f32.lt (!dot3 (local.get $dx) (local.get $dy) (local.get $dz) (local.get $dx) (local.get $dy) (local.get $dz)) (f32.mul (local.get $rs) (local.get $rs)))
@@ -343,9 +351,13 @@
                         (if (f32.lt (local.get $rj) (local.get $ri))
                           (then
                             (call $sb_eat (local.get $i) (local.get $j))
-                            (local.set $ri (call $b_rad (local.get $ib))))
+                            (!st f32 @(B_SCR + 0x400) (local.get $b) (f32.const 0))
+                            (local.set $ri (call $b_rad (local.get $ib)))
+                            (!st f32 @(B_SCR + 0x400) (local.get $a) (local.get $ri)))
                           (else
                             (call $sb_eat (local.get $j) (local.get $i))
+                            (!st f32 @(B_SCR + 0x400) (local.get $a) (f32.const 0))
+                            (!st f32 @(B_SCR + 0x400) (local.get $b) (call $b_rad (local.get $jb)))
                             (br $gone))))))))))))))
   ;; then every ball in on the ground rolls the snow under it
   (local.set $t (i32.load (i32.const @HDR_TICK)))
