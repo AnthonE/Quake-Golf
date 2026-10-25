@@ -199,7 +199,9 @@ function ringStep(view, r, p, s) {
 // building out of sight: up to its roof, say; off a roof with no door on it,
 // the cave's, round its ring as from outside); into the goal's building by
 // the cheapest door whose inside sees the goal, walking the ring to it if it
-// can't be walked to straight; round a building in the way on its ring.
+// can't be walked to straight; round a building in the way on its ring. A
+// leg that would meet a wall gives way to a door out of the yard it's in, or
+// to a corner round what's in the way.
 export function route(view, from, goal) {
   const map = view.map();
   if (walkable(view, from, goal)) return goal;
@@ -224,22 +226,45 @@ export function route(view, from, goal) {
     // anywhere else, straight at the goal
     if (gi !== fi || from[1] < goal[1] + 2) return goal;
   }
-  if (gi >= 0) {
+  let leg;
+  if (gi >= 0 && nav.rings[gi].doors.length) {
     const r = nav.rings[gi];
     let best = null, bc = Infinity;
     for (const d of r.doors) {
       const c = dist(from, d.out) + dist(d.in, goal) + (walkable(view, d.in, goal) ? 0 : 1000);
       if (c < bc) { bc = c; best = d; }
     }
-    if (!best) return goal;
     if (walkable(view, from, best.out)) return walkable(view, from, best.in) ? best.in : best.out;
-    return ringStep(view, r, from, best.s);
+    leg = ringStep(view, r, from, best.s);
+  } else {
+    // out in the open, or for a goal on the rocks (no doors: straight at it,
+    // hopping): round whatever else stands between, toward its ring's point nearest the goal
+    const bi = blocker(map, from, goal);
+    if (bi < 0 || bi === gi) return goal;
+    const r = nav.rings[bi];
+    leg = ringStep(view, r, from, ringS(r, goal[0], goal[2]));
   }
-  // both out in the open: round whatever stands between, toward its ring's point nearest the goal
-  const bi = blocker(map, from, goal);
-  if (bi < 0) return goal;
-  const r = nav.rings[bi];
-  return ringStep(view, r, from, ringS(r, goal[0], goal[2]));
+  if (walkable(view, from, leg)) return leg;
+  // that leg runs into a wall. Feet within a building's bounds with nothing
+  // over them (the yard behind each base, walled off from the field) leave by
+  // the door point in sight that's most on the way; else round whatever is in
+  // the leg's way, to its ring's next corner if that's in sight
+  for (const r of nav.rings) {
+    const b = r.box;
+    if (!(from[0] > b[0] && from[0] < b[3] && from[2] > b[2] && from[2] < b[5] && from[1] < b[4] + 0.5)) continue;
+    let best = null, bc = Infinity;
+    for (const d of r.doors) {
+      for (const p of [d.out, d.in]) { const c = dist(from, p) + dist(p, goal); if (c < bc && walkable(view, from, p)) { bc = c; best = p; } }
+    }
+    if (best) return best;
+  }
+  const ci = blocker(map, from, leg);
+  if (ci >= 0) {
+    const r = nav.rings[ci];
+    const w = ringStep(view, r, from, ringS(r, leg[0], leg[2]));
+    if (walkable(view, from, w)) return w;
+  }
+  return leg;
 }
 
 // Slot p's rank among its side's fighters in the room, in slot order, and the

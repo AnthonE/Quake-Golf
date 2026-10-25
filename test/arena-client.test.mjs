@@ -245,6 +245,35 @@ test('route(): onto hill 3 in the cave by an end, from mid-field, from the ridge
   }
 });
 
+test('route(): out of the yard behind each base (spawns 5 and 13) by the base\'s doors; from every spawn to every objective, no leg into a wall', async () => {
+  const g = await world(1);
+  const v = g.v;
+  const map = v.map(), nav = navOf(v);
+  const at = (x, z, top) => [x, v.stand(x, z, top), z];
+  const isDoor = (gi, w) => nav.rings[gi].doors.some((d) => d.in === w || d.out === w);
+  const goals = [...map.flags, map.ball, ...map.hills].map(([x, z, top]) => at(x, z, top));
+  // the yards: within each base's bounds, behind its back wall, under nothing (the bridge passes beside)
+  const yard = [[5, 0, [380, 506]], [13, 1, [644, 518]]];
+  for (const [k, gi, [x, z]] of yard) {
+    const [b0, , b2, b3, , b5] = map.groups[gi].box;
+    assert.deepEqual([map.spawns[k][0], map.spawns[k][2]], [x, z]);
+    assert.ok(x > b0 && x < b3 && z > b2 && z < b5, `spawn ${k} in base ${gi}'s bounds`);
+  }
+  for (const [k, s] of map.spawns.entries()) {
+    const from = [s[0], v.stand(s[0], s[2], s[1] + 0.6), s[2]];
+    for (const [i, goal] of goals.entries()) {
+      const legs = walkRoute(v, from, goal);
+      // for a flag or the skull, round by the base's room or under its bridge (the yard opens only behind)
+      const y = yard.find(([j]) => j === k);
+      if (y && i < 3) assert.ok(isDoor(y[1], legs[0]), `spawn ${k} to ${goal.map(Math.round)}: out by a door, ${JSON.stringify(legs)}`);
+    }
+  }
+  // from the hill behind red's base where the bridge comes down, to blue's flag: by a corner of red's ring, not
+  // at blue's door through red's back wall
+  const behind = walkRoute(v, at(360, 512), at(...map.flags[1]));
+  assert.ok(behind.length >= 2 && behind[0][0] === nav.rings[0].x0, JSON.stringify(behind));
+});
+
 test('the AI fighter: roles by rank on its side, a hunt in Team Slayer, a carrier swings and never shoots', async () => {
   const g = await world(9);
   // a Fiesta: nobody has a side, everyone attacks
