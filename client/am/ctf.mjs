@@ -77,14 +77,14 @@ export default {
     if (ctx.me?.carry && !ctx.me.dead) ctx.put(1, 4, mine.state === L.CF_HOME ? 'YOU HAVE THE FLAG  RUN HOME' : 'YOU HAVE THE FLAG  YOURS MUST BE HOME', (ctx.now >> 8) & 1 ? ctx.C.YELLOW : ctx.C.WHITE);
   },
 
-  // The feed in the side colours (the doer's, or the flag's when nobody did
-  // it); a banner for what happens to your own flag and for what you did.
+  // The feed in the doer's side's colour (the flag's for CF_MX_HOME, the one
+  // news nobody did: its owner 255 is not slot 255); a banner for what
+  // happens to your own flag and for what you did.
   news(f, ctx) {
     const k = f.shot;
     if (k !== 0 && k !== 1) return;
     const who = ctx.name(f.owner), you = f.owner === ctx.slot && ctx.slot >= 0, ours = ctx.slot >= 0 && ctx.team(ctx.slot) === k;
-    const side = f.owner < L.NPLAYER ? ctx.team(f.owner) : k;
-    const col = side >= 0 ? SIDE_C[side] : SIDE_C[k];
+    const col = SIDE_C[f.size === L.CF_MX_HOME ? k : ctx.team(f.owner)];
     const flag = `THE ${NAME[k]}`;
     const near = ctx.dist === undefined || ctx.dist < 60;
     switch (f.size) {
@@ -110,7 +110,7 @@ export default {
         ctx.sound?.pickup?.();
         break;
       case L.CF_MX_HOME:
-        ctx.feed(`${flag} IS HOME`, SIDE_C[k]);
+        ctx.feed(`${flag} IS HOME`, col);
         if (ours) ctx.banner('YOUR FLAG IS HOME', SIDE_C[k], 2000);
         if (near) ctx.sound?.count?.(0);
         break;

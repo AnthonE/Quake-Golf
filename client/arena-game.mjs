@@ -197,7 +197,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
         const cause = f.size === L.KILL_CARRY ? (AMC[md.mode]?.carry === 'skull' ? 'SKULL' : 'FLAG') : SHORT[f.size] || '?';
         const infected = md.mode === L.M_INFECTION && f.owner !== f.shot && view.fighter(f.owner).zombie;
         // a team mode's lines in the killer's side's colour, but for your own
-        const other = md.teamed && f.owner < L.NPLAYER ? SIDE_C[sideOf(view, f.owner)] : C.WHITE;
+        const other = md.teamed ? SIDE_C[sideOf(view, f.owner)] : C.WHITE;
         if (!infected) say(f.owner === f.shot ? `${name(f.shot)} DIED` : `${name(f.owner)} [${cause}] ${name(f.shot)}`, f.owner === slot ? C.GREEN : f.shot === slot ? C.RED : other, now);
         glows.push({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.4, color: [1, 0.3, 0.2, 0.8], kind: 3, born: now, life: 400 });
         if (f.owner === slot && f.shot !== slot) {
@@ -220,7 +220,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
         // a team mode's own news, to its kit module
         const kit = newsOf(f.size);
         if (kit) {
-          const team = (p) => (p < L.NPLAYER ? sideOf(view, p) : -1);
+          // (owner 255 is nobody's news and slot 255's too: the module knows which by f.size)
+          const team = (p) => sideOf(view, p);
           kit.news(f, { slot, me, name, team, feed: (text, color) => say(text, color, now), banner: (text, color, ms = 2500) => { banner = { text, until: now + ms, color }; },
             glow: (g) => glows.push({ ...g, born: now, life: g.life ?? 400 }), sound, dist: d, C, now, view });
           break;

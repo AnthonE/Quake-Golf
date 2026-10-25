@@ -18,11 +18,13 @@
 //     nobody), now (ms), t (s into play) }.
 //   news(f, ctx): a news FX (kind FX_MODE, f.size this mode's MX code, MX_AM +
 //     8k .. + 7) as the confirmed world's ring has it: { tick, kind, owner
-//     (255: nobody), shot, pos, size }. ctx { slot, me, name(p) ('YOU' or
-//     'P12'), team(p) (0 / 1, -1 for 255), feed(text, color), banner(text,
-//     color, ms), glow({ pos, size, color: [r, g, b, a], kind (3 a blast, 5 a
-//     spark, 6 a ring), life (ms), grow }), sound, dist (m from the camera),
-//     C, now, view }.
+//     (255 for nobody, where its MX code says so), shot, pos, size }. ctx {
+//     slot, me, name(p) ('YOU' or 'P12'), team(p) (slot p's side, 0 / 1;
+//     owner 255 is both nobody and slot 255, so a module knows from f.size
+//     whether its news has a doer), feed(text, color), banner(text, color,
+//     ms), glow({ pos, size, color: [r, g, b, a], kind (3 a blast, 5 a spark,
+//     6 a ring), life (ms), grow }), sound, dist (m from the camera), C, now,
+//     view }.
 //   draw(view, ctx, out): this frame's world objects. ctx { dt (s past the
 //     confirmed tick, to now), now (ms), t (s into play), slot, me (fighter(),
 //     confirmed), pme (the prediction's, or null), cam [x, y, z], view, pview }.
