@@ -156,7 +156,7 @@ marshmallows).
 
 1. Teams; the champion kit and FFA ARAM; Team Slayer, CTF, Oddball and King of
    the Hill in the arena. The arena's half is done (its teams, the kit and the
-   four modes: one session, about seven hours with up to four agents at once);
+   four modes: one session of about five and a half hours, up to four agents at once);
    Party's teams and their games (Fall Ball, Egg Scramble, Tug o' War,
    Volleyfall), the champion kit and FFA ARAM are left.
 2. The grid kit: Tetris 99, Bomberman 128, Snake, Puyo 99.
