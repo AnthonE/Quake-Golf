@@ -538,7 +538,7 @@ test('Territories\' client module: each territory a disc in its holder\'s colour
   // the HUD: the letters, under each who holds it on its chip, your side's count; how the one you stand on goes
   const hud = (slot, tm = slot >= 0 ? team(g, slot) : -1) => {
     const lines = [], rects = [];
-    kit.hud(g.v, { put: (x, y, s, c) => lines.push([x, y, s, c]), rect: (...r) => rects.push(r), C, me: slot >= 0 ? g.v.fighter(slot) : null, team: tm });
+    kit.hud(g.v, { put: (x, y, s, c) => lines.push([x, y, s, c]), rect: (...r) => rects.push(r), C, t: 30, me: slot >= 0 ? g.v.fighter(slot) : null, team: tm });
     return { lines, rects };
   };
   const row = [[1, 2, 'A', C.GREY], [1, 3, 'R', C.WHITE], [3, 2, 'B', C.GREY], [3, 3, 'R', C.WHITE], [5, 2, 'C', C.GREY], [5, 3, '-', C.WHITE],
@@ -558,8 +558,9 @@ test('Territories\' client module: each territory a disc in its holder\'s colour
     return hud(slot).lines.at(-1).slice(2);
   };
   on(g, 0, 2);
-  assert.deepEqual([say(0, 2, CAP, 1, 1, 0), say(0, 2, 500, 1, 2, 0), say(0, 2, 500, 1, 1, 2), say(0, 2, 100, 0, 1, 1), say(0, 2, 100, 0, 1, 2), say(0, 2, -400, 2, 2, 1), say(0, 2, -100, 0, 1, 0)],
-    [['HOLDING C', C.RED], ['HOLDING C 80%', C.RED], ['LOSING C 80%', C.YELLOW], ['C CONTESTED', C.YELLOW], ['OUTNUMBERED ON C', C.YELLOW], ['PUSHING C BACK 36%', C.RED], ['TAKING C 0%', C.RED]]);
+  assert.deepEqual([say(0, 2, CAP, 1, 1, 0), say(0, 2, 500, 1, 2, 0), say(0, 2, 500, 1, 1, 2), say(0, 2, 100, 0, 1, 1), say(0, 2, 100, 0, 1, 2), say(0, 2, -400, 2, 2, 1), say(0, 2, -100, 0, 1, 0), say(0, 2, 200, 0, 0, 0)],
+    [['HOLDING C', C.RED], ['HOLDING C 80%', C.RED], ['LOSING C 80%', C.YELLOW], ['C CONTESTED', C.YELLOW], ['OUTNUMBERED ON C', C.YELLOW], ['PUSHING C BACK 36%', C.RED], ['TAKING C 0%', C.RED],
+      ['TAKING C 32%', C.RED]]); // alone on it before the confirmed count has you: yours, not contested
   for (const s of [0, 1, 2, -1]) for (const [x, , str] of hud(s).lines) assert.ok(x >= 1 && x + str.length - 1 <= 26, `${str} fits cols 1 to 26`);
   // the news, told to each side: who took or lost which, a banner to whoever stands on it and to the side that lost one
   for (const p of [0, 1, 2]) {

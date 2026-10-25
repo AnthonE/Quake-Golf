@@ -68,9 +68,10 @@ const rgbOf = (hold) => (hold ? SIDE_RGB[hold - 1] : NOBODY_RGB);
 const pct = (x) => `${Math.max(0, Math.min(100, Math.floor(100 * x)))}%`;
 const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-// How territory t stands for side s with its fighter on it: [words, colour].
+// How territory t stands for side s with its fighter on it: [words, colour]. The
+// fighter counts itself: the confirmed count lags its own feet by a round trip.
 function standing(t, s) {
-  const us = t.on[s], them = t.on[1 - s];
+  const us = Math.max(t.on[s], 1), them = t.on[1 - s];
   const g = s ? -t.gauge : t.gauge; // toward your end, + ; theirs, -
   const name = LETTER[t.k];
   if (t.hold === s + 1) return them > us ? [`LOSING ${name} ${pct(g / CAP)}`, C.YELLOW] : [g < CAP ? `HOLDING ${name} ${pct(g / CAP)}` : `HOLDING ${name}`, SIDE_C[s]];
@@ -186,7 +187,7 @@ export default {
       ctx.put(x + `${SIDE[0]} ${held[0]} `.length, 3, `${SIDE[1]} ${held[1]}`, SIDE_C[1]);
     }
     const me = ctx.me;
-    if (me?.live && !me.dead && (ctx.team === 0 || ctx.team === 1)) {
+    if (ctx.t > 0 && me?.live && !me.dead && (ctx.team === 0 || ctx.team === 1)) {
       const t = ts.find((u) => onIt(u, me.pos));
       if (t) { const [s, c] = standing(t, ctx.team); ctx.put(1, 4, s, c); }
     }
