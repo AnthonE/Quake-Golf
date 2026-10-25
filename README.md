@@ -287,15 +287,15 @@ frags, and the map's pads are laid: the sniper rifles on the roofs, the
 rocket launcher mid-field. King of the Hill keeps its hill clear: nobody
 spawns on it, or within 4 m of its edge, while it's up (each base's roof has
 two of its side's spawns, and a side respawning onto its own roof's hill
-held it 49 to 1 in a minute of 64 AI fighters). Teams are dealt as a match starts, red, blue, red
-in slot order, and a join goes to the side with fewer, red on a tie; nobody
-is moved as people leave. Neither side hurts its own, as in Infection. A
-flag's or the skull's carrier has no guns and no frags: a click or Q swings
-what it carries, a rifle butt's reach that always kills (a press waiting as
-it takes one up is dropped, and a trigger held down swings only once let go
-and pressed again). A match ends at its
-target, or at the clock with the side ahead winning (level is a draw); the
-places put the winning side first, then each side by its objective points
+held it 49 to 1 in a minute of 64 AI fighters). Teams are dealt as a match
+starts, red, blue, red in slot order, and a join goes to the side with
+fewer, red on a tie; nobody is moved as people leave. Neither side hurts its
+own, as in Infection. A flag's or the skull's carrier has no guns and no
+frags: a click or Q swings what it carries, a rifle butt's reach that always
+kills (a press waiting as it takes one up is dropped, and a trigger held
+down swings only once let go and pressed again). A match ends at its target,
+or at the clock with the side ahead winning (level is a draw); the places
+put the winning side first, then each side by its objective points
 (captures, seconds holding), then kills, so Fireplace's marshmallows go to
 the winners' best three.
 
