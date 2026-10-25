@@ -5,7 +5,8 @@
 // frontend (client/<game>-game.mjs) mounts on a host and draws from it; a
 // page with one game (bumper.html, arena.html) mounts one and keeps it, and
 // Fireplace mounts each game as the room moves into it.
-//   q: the page's query (?url=, ?hash=, ?impair=, ?threads=, ?music=0)
+//   q: the page's query (?url=, ?hash=, ?impair=, ?threads=, ?music=0, ?replay=<url>: a
+//      replay file (net/replay.mjs) in the net worker's place, as a spectator)
 import * as L from '../src/layout.mjs';
 import { View } from '../src/view.mjs';
 import { wasmPrefix } from '../net/wire.mjs';
@@ -59,15 +60,16 @@ export async function createHost({ wasm, q = new URLSearchParams(location.search
   h.connect = async () => {
     if (h.connected) return;
     h.connected = true;
+    const replay = q.get('replay');
     const url = q.get('url') || `https://${location.hostname}:4433/`;
-    const hash = q.get('hash') || (await (await fetch(new URL('../certs/hash.txt', import.meta.url))).text()).trim();
+    const hash = replay ? '' : q.get('hash') || (await (await fetch(new URL('../certs/hash.txt', import.meta.url))).text()).trim();
     const certHash = Uint8Array.from(atob(hash), (c) => c.charCodeAt(0));
     const cores = navigator.hardwareConcurrency || 4;
     const threads = Number(q.get('threads') || (cores >= 8 ? 2 : 1));
     const ch = new MessageChannel();
-    h.net = new Worker(new URL('./net.mjs', import.meta.url), { type: 'module' });
+    h.net = new Worker(new URL(replay ? './replay.mjs' : './net.mjs', import.meta.url), { type: 'module' });
     h.sim = new Worker(new URL('./sim.mjs', import.meta.url), { type: 'module' });
-    h.net.onmessage = (e) => { if (e.data.error) h.error = e.data.error.split('\n')[0]; if (e.data.welcome) h.welcome = e.data.welcome; };
+    h.net.onmessage = (e) => { if (e.data.error) h.error = e.data.error.split('\n')[0]; if (e.data.welcome) h.welcome = e.data.welcome; if (e.data.replay) h.replay = e.data.replay; };
     h.sim.onmessage = (e) => {
       const m = e.data;
       if (m.error) h.error = m.error.split('\n')[0];
@@ -76,7 +78,8 @@ export async function createHost({ wasm, q = new URLSearchParams(location.search
       if (m.desync) h.desyncs.push(m.desync);
     };
     for (const w of [h.net, h.sim]) w.onerror = (e) => { h.error = String(e.message || e); e.preventDefault?.(); };
-    h.net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch, arena, fireplace, looks: true }, [ch.port1]);
+    if (replay) h.net.postMessage({ replay: new URL(replay, location.href).href, memory, prefix, simPort: ch.port1 }, [ch.port1]);
+    else h.net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch, arena, fireplace, looks: true }, [ch.port1]);
     h.sim.postMessage({ module, memory, netPort: ch.port2, threads }, [ch.port2]);
     addEventListener('pagehide', () => h.net.postMessage({ leave: true }));
   };

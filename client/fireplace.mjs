@@ -12,6 +12,8 @@
 //   ?bot=1 sits a guest (client/fireplace-bot.mjs) at the controls, and sits down at once
 //   ?look=<word> wears that look (client/looks.mjs packLook) for this visit, earned or not, and keeps nothing
 //   ?watch=1 spectates; ?url=, ?hash=, ?impair=, ?sens=, ?res=, ?music=0 as the games'
+//   ?replay=<url> plays a replay file (net/replay.mjs) as a spectator
+//   ?film=<seconds> with ?replay=: no clock of its own; tools/film.mjs steps it a frame at a time (window.__film)
 import * as L from '../src/layout.mjs';
 import { unpackArena, modeName } from '../src/arena-view.mjs';
 import '../src/bumper-view.mjs';
@@ -23,6 +25,7 @@ import { Guest } from './fireplace-bot.mjs';
 import { readClock } from './clock.mjs';
 import { BALLS, HATS, packLook, unpackLook, savedLook, saveLook, nextOpen, wearable, isOpen, drawLook, lookName } from './looks.mjs';
 import { ACHIEVEMENTS, loadTally, saveTally, emptyTally, record, readResult, gotSet } from './achievements.mjs';
+import { filmClock, filmSound, compose } from './film.mjs';
 
 const q = new URLSearchParams(location.search);
 const stage = document.getElementById('stage');
@@ -30,7 +33,8 @@ const note = document.getElementById('note');
 const roomCanvas = document.getElementById('room');
 const canvases = L.GAMES.map((_, k) => document.getElementById(`g${k}`));
 const BOT = q.get('bot') === '1';
-const WATCH = q.get('watch') === '1';
+const FILM = q.has('film') && q.has('replay') ? Number(q.get('film')) : 0;
+const WATCH = q.get('watch') === '1' || q.has('replay');
 const SENS = Number(q.get('sens') || 3);
 const ZOOM_MS = 1700;
 const LOOK_MS = 5000; // how long B or H keeps your look on the TV
@@ -52,7 +56,10 @@ async function main() {
   [canvases[L.G_ARENA].width, canvases[L.G_ARENA].height] = [320, 200];
   [canvases[L.G_BUMPER].width, canvases[L.G_BUMPER].height] = [W, H];
   [canvases[L.G_PARTY].width, canvases[L.G_PARTY].height] = [W, H];
+  const clock = FILM ? filmClock() : null;
   const host = await createHost({ wasm: '../build/fireplace/game.wasm', q, watch: WATCH, fireplace: true, connect: false });
+  const track = FILM ? filmSound(FILM, { music: q.get('music') !== '0' }) : null;
+  if (track) host.sound = track.sound;
   const { view, get, set, press, sound, i32, f64 } = host;
   // the room's theme: ?theme=, else this viewer's last pick, else Grandma's (client/themes.mjs)
   const theme = await loadTheme(q.get('theme') || savedTheme() || DEFAULT).catch((e) => { console.warn(e.message); return FALLBACK; });
@@ -290,7 +297,7 @@ async function main() {
   let crackleAt = 0;
   let flick = 1;
   function frame(now) {
-    requestAnimationFrame(frame);
+    if (!FILM) requestAnimationFrame(frame);
     const st = get(L.CL_STATE);
     const g = view.dv.getUint32(L.FP_GAME, true);
     const held = view.dv.getUint32(L.FP_STAGE, true) === 1;
@@ -358,8 +365,43 @@ async function main() {
     },
   };
   note.remove();
-  if (BOT || WATCH || q.get('auto') === '1') { scene = 'couch'; setTimeout(sitDown, 1500); }
-  requestAnimationFrame(frame);
+  if (FILM) {
+    // tools/film.mjs: the replay paused, moved a tick at a time, a frame drawn at the film's time
+    const pause = (async () => {
+      while (!host.replay) await new Promise((ok) => setTimeout(ok, 20));
+      host.net.postMessage({ pause: true });
+      return host.replay;
+    })();
+    const settle = async () => { while (mounting) await mounting.catch(() => {}); };
+    window.__film = {
+      // sit down: the replay opens, paused at its start; its span in sim ticks
+      async sit() { sitDown(); const r = await pause; return { first: r.first - r.roomStart, end: r.end - r.roomStart }; },
+      // the sim stepped to tick t (fractional: the frame between ticks), never back
+      async seek(t) {
+        host.net.postMessage({ to: t });
+        const t0 = Date.now();
+        while (view.tick < Math.floor(t) && !host.error) {
+          if (Date.now() - t0 > 60000) throw new Error(`the sim did not reach tick ${t} (at ${view.tick})`);
+          await new Promise((ok) => setTimeout(ok, 5));
+        }
+      },
+      // one frame at film time ms; out: its time in the cut (seconds), or -1 while the film skips
+      async frame(ms, out = -1) {
+        clock.at(ms);
+        track.at(Math.max(0, out), out >= 0);
+        frame(ms);
+        await settle();
+      },
+      shot: async (W, H, caption) => compose(await window.__qa.capture(), W, H, caption),
+      async theme(id) { room.setTheme(await loadTheme(id)); },
+      // back on the couch, the TV's title up (the film's last shot)
+      couch() { scene = 'couch'; zoomBy(0, performance.now()); },
+      audio: () => track.render(),
+    };
+  } else {
+    if (BOT || WATCH || q.get('auto') === '1') { scene = 'couch'; setTimeout(sitDown, 1500); }
+    requestAnimationFrame(frame);
+  }
 }
 
 main().catch((e) => {

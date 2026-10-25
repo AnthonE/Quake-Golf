@@ -756,6 +756,33 @@ node harness/matrix.mjs --ticks 145000 --log logs/fireplace.qgl --wasm build/fir
 node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--res 960x600] [--port 4433]
 ```
 
+### The trailer
+
+Fireplace films itself from a replay. `tools/film.mjs record` runs a room of
+guests and keeps its replay; `plan` prints what was on, second by second;
+`shoot` draws a cut list (`film/trailer.json`) in headless Chrome. The page
+runs with `?replay=…&film=<seconds>`: the replay sits paused, and for each
+frame the film moves the sim to the frame's tick (between ticks too, so motion
+is smooth), sets the page's clock and draws once. The room's scenes are the
+page's own (the couch, the zoom into the TV, the standings between games), run
+on that clock at 60 frames a second with every other one kept. The sound is
+the game's own, every call made while a shot rolls, rendered in an
+OfflineAudioContext on the cut's timeline (`client/film.mjs`), then brought
+to -14 LUFS. Captions are drawn in the games' 3x5 font.
+
+```sh
+node tools/film.mjs record --seconds 960 --bots 64   # a replay in replays/
+node tools/film.mjs plan replays/<file>.qgr          # each game's span
+node tools/film.mjs shoot film/trailer.json --replay replays/<file>.qgr [--stills 2,7.5]
+```
+
+The house cut was shot on a 960 s room of 64 guests, which went through the
+whole playlist once (bumper balls from 1 s, party from 175 s, the arena's
+Juggernaut from 423 s, party from 612 s, golf from 846 s). On SwiftShader at
+1280 x 720 a second of film took about a minute to draw. A replay is tied to
+the build of `game.wasm` it was recorded on: after a sim change, record again,
+plan it and move the shots.
+
 Not done yet: a vote for what's next, names, achievements that follow a
 player off this browser, and a way to lean back from the TV mid-game.
 
