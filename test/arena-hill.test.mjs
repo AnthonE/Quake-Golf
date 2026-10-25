@@ -494,12 +494,13 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   assert.deepEqual(out.zone, { x: 392, z: 512, r: 6, y: h.pos[1], h: 2, color: [0.92, 0.92, 0.88], pulse: 0.35 });
   assert.ok(out.glow.length === 12 && out.glow.every((x) => Math.abs(Math.hypot(x.pos[0] - 392, x.pos[2] - 512) - 6 * 0.97) < 1e-6 && Math.abs(x.pos[1] - h.pos[1] - 0.35) < 1e-6), 'the rim, on the roof');
   assert.deepEqual(out.beams.map((b) => [b.a, b.b]), [[[392, h.pos[1] + 2, 512], [392, h.pos[1] + 30, 512]]]);
-  assert.deepEqual(out.markers, [{ pos: [392, h.pos[1] + 6, 512], label: 'HILL', color: C.WHITE, kind: 'hill' }]);
+  assert.deepEqual(out.markers, [{ pos: [392, h.pos[1] + 8, 512], label: 'HILL', color: C.WHITE, kind: 'hill' }]);
   // red holds it: red; HOLD to red, HILL in red to blue, nothing over the head of the one on it; no pillar close by
   on(g, 0);
   g.step();
   assert.deepEqual([draw(2).zone.color, draw(2).zone.pulse, draw(2).markers[0].label, draw(1).markers[0].label, draw(1).markers[0].color], [SIDE_RGB[0], 1, 'HOLD', 'HILL', C.RED]);
   assert.deepEqual([draw(0).markers, draw(2, 0, [395, 27, 515]).beams], [[], []]);
+  assert.deepEqual([20, 50, 120].map((m) => draw(2, 0, [392 + m, 30, 512]).markers[0].pos[1] - h.pos[1]), [3, 5, 8], 'the waypoint higher further off');
   // contested: flashing red and blue
   on(g, 1, 1.5, 0);
   g.step();

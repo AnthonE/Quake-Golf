@@ -111,11 +111,15 @@ export default {
       out.glow.push({ pos: [px, py + 0.35, pz], size: 0.4, color: [...rgb, a], kind: 3, minpx: 1 });
     }
     // (the pillar fades out as you come close, where it would only fog the view)
-    const far = Math.min(1, Math.max(0, (Math.hypot(ctx.cam[0] - x, ctx.cam[2] - z) - 12) / 30));
+    const d = Math.hypot(ctx.cam[0] - x, ctx.cam[2] - z);
+    const far = Math.min(1, Math.max(0, (d - 12) / 30));
     if (far > 0) out.beams.push({ a: [x, y + 2, z], b: [x, y + 30, z], width: 0.3, color: [...rgb, 0.3 * far] });
-    // the waypoint, high enough that its distance doesn't hide the disc far off, and not over your head while you're on it
+    // the waypoint, rising with the distance so its distance line stays clear
+    // of the disc far off (3 m up to 30 m away, 8 m from 80), and not over
+    // your head while you're on it
     const me = ctx.me?.live && !ctx.me.dead ? ctx.me : null;
-    if (!me || !onHill(h, me.pos)) out.markers.push({ pos: [x, y + 6, z], label: me && me.team >= 0 && h.hold === me.team + 1 ? 'HOLD' : 'HILL', color: WHO_C[h.hold], kind: 'hill' });
+    const up = Math.min(8, Math.max(3, d / 10));
+    if (!me || !onHill(h, me.pos)) out.markers.push({ pos: [x, y + up, z], label: me && me.team >= 0 && h.hold === me.team + 1 ? 'HOLD' : 'HILL', color: WHO_C[h.hold], kind: 'hill' });
   },
   cols: [{ head: 'HILL', get: (o) => String(o.points) }],
   // everyone to the hill, defenders too, at a run that still shoots back; held from two thirds of its radius in
