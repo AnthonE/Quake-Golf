@@ -1,0 +1,37 @@
+name: A Party minigame
+description: Propose a minigame for Party (and so for Fireplace), or say you're making one
+title: "[minigame] "
+labels: [minigame]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `node tools/new-mg.mjs <key> <prefix> "<NAME>"` writes a minigame that already plays; CONTRIBUTING.md has the rest and the bar. Ideas are in docs/roadmap.md's kits table. Saying here what you're making keeps two people off the same one.
+  - type: input
+    id: name
+    attributes:
+      label: Its name
+      placeholder: SNOWBALL
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: How it plays
+      description: What the stage is, what you do, how you're out or how you score, how a round ends.
+    validations:
+      required: true
+  - type: textarea
+    id: crowd
+    attributes:
+      label: With 256 balls
+      description: Does the stage grow with the crowd? What does a bot do in it?
+  - type: dropdown
+    id: making
+    attributes:
+      label: Are you making it?
+      options:
+        - Yes, a PR is coming
+        - No, it's an idea for someone else
+    validations:
+      required: true

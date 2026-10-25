@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fireplace Room</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #070504; color: #e8d6c0; font: 14px/1.4 ui-monospace, monospace; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; cursor: pointer; }
+  #note { position: fixed; left: 8px; bottom: 8px; padding: 4px 8px; background: #070504cc; max-width: calc(100vw - 32px); }
+</style>
+<canvas id="room"></canvas>
+<div id="note">lighting the fire…</div>
+<script type="module" src="./room.mjs"></script>

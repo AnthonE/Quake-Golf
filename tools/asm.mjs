@@ -34,6 +34,7 @@ import * as layout from '../src/layout.mjs';
 import { makeMacros } from '../src/macros.mjs';
 import { pathToFileURL } from 'node:url';
 import { isMain } from './main.mjs';
+import { buildThemes } from './themes.mjs';
 import { compileMap, dataSegment, mapDir } from './map.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -354,6 +355,7 @@ async function buildSim({ name, src, out, flags = {}, fireplace = false }) {
 const MAP_ARG = (() => { const i = process.argv.indexOf('--map'); return i >= 0 ? process.argv[i + 1] : undefined; })();
 
 async function main() {
+  buildThemes(); // Fireplace's room themes: data, checked and bundled; no sim reads them
   for (const sim of SIMS) await buildSim(sim);
 }
 

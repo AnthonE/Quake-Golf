@@ -75,7 +75,9 @@ shell whose own command line contains the name: it kills that shell.
   least as far ahead as the prediction runs (the host's 201 ticks), and bank
   d's FX ring (what its own ball did this run: Thin Ice's own cracks), and
   write only that ball's record and that ring. A seed whose top byte is 0xA7
-  forces a minigame (`--mg k`).
+  forces a minigame (`--mg k`). `node tools/new-mg.mjs <key> <prefix> NAME`
+  writes a new one and appends it to every list that names them
+  (`test/new-mg.test.mjs` holds its anchors).
 - The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut)
   are picked per match at run time, not built: `AH_MODE` at `REGION + 0x48`,
   a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`), per-fighter state at `MODE_REC`.
@@ -109,6 +111,13 @@ shell whose own command line contains the name: it kills that shell.
   the lean frontend for Fireplace.
 - Renderers take `{ device }` to share the page's GPU device, and draw into
   `target` (a texture) when given one: that is how the TV shows a game.
+- The room's look is a theme (`client/themes/<id>.json`, `client/themes.mjs`):
+  data only the room's shader reads, local to the viewer, never the sim.
+  Grandma's writes out every default. A new colour goes in `COLORS`, the
+  shader and CONTRIBUTING.md's table (`test/themes.test.mjs` checks all
+  three); `elo.json`'s mods are written from the themes (`node tools/elo.mjs`).
+- `elo.json` is Fireplace's manifest for its Elo Pros store row (jobs, mods);
+  CONTRIBUTING.md is the outside contributor's guide, pay included.
 
 ## Style
 

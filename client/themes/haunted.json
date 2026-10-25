@@ -1,0 +1,44 @@
+{
+  "theme": 1,
+  "name": "Haunted",
+  "by": "AnthonE",
+  "about": "A green fire, purple walls, pumpkins, and a clear night with a pale moon.",
+  "window": "clear",
+  "mantel": "pumpkins",
+  "colors": {
+    "fire": "#7dff8a",
+    "brick": "#4a4a50",
+    "mortar": "#2a2a2a",
+    "wallpaper": [
+      "#3b2a4a",
+      "#4f3a5e"
+    ],
+    "cornice": "#2a2030",
+    "baseboard": "#1e1622",
+    "floor": "#3a2a20",
+    "ceiling": "#2a2430",
+    "couch": "#2a1a30",
+    "rug": [
+      "#3a1a4a",
+      "#1f3a2a",
+      "#2a2a2a"
+    ],
+    "rugEdge": "#6a5a7a",
+    "night": [
+      "#0a1a12",
+      "#16301f"
+    ],
+    "moon": "#d8ffd0",
+    "outdoor": "#2a4a3a",
+    "ambient": "#34463a",
+    "paintSky": [
+      "#3a5a3a",
+      "#101820"
+    ],
+    "paintGround": "#5a6a5a",
+    "paintHouse": "#101010",
+    "lamp": "#a0b8a0",
+    "lampGlow": "#8adf9a",
+    "sill": "#1c2a22"
+  }
+}

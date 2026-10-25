@@ -1,0 +1,55 @@
+{
+  "theme": 1,
+  "name": "Grandma's",
+  "by": "AnthonE",
+  "about": "The living room at grandma's, at night: a fire going, pumpkins on the mantel, snow at the window.",
+  "window": "snow",
+  "mantel": "pumpkins",
+  "colors": {
+    "brick": "#8c3824",
+    "mortar": "#8c8070",
+    "mantel": "#3d2112",
+    "hearth": "#736e66",
+    "wood": "#5c331a",
+    "couch": "#591f1a",
+    "trim": "#d9d4c7",
+    "ceiling": "#8c8073",
+    "floor": "#8c572e",
+    "wallpaper": [
+      "#9ea885",
+      "#c7bd99"
+    ],
+    "baseboard": "#6b4729",
+    "cornice": "#bfb8a6",
+    "rug": [
+      "#80291a",
+      "#9e7338",
+      "#4d3824"
+    ],
+    "rugEdge": "#d9bf80",
+    "lamp": "#f2d999",
+    "lampGlow": "#e4c18d",
+    "fire": "#ffbd7b",
+    "paintSky": [
+      "#e68c4d",
+      "#404d8c"
+    ],
+    "paintGround": "#d9e0eb",
+    "paintHouse": "#592e1a",
+    "paintFrame": "#805c1f",
+    "night": [
+      "#2b3451",
+      "#47557b"
+    ],
+    "moon": "#f3f3e6",
+    "flakes": "#cacaca",
+    "sill": "#a8acba",
+    "outdoor": "#47516f",
+    "ambient": "#4c413b",
+    "props": [
+      "#f26b14",
+      "#f26b14"
+    ],
+    "propCap": "#4d591a"
+  }
+}

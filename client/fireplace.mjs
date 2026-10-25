@@ -6,6 +6,7 @@
 // every game's frontend mounted in turn on its own canvas (golf, the arena,
 // bumper balls, party); while the room is in view, the game draws into a
 // texture the TV shows.
+//   ?theme=<id> the room in client/themes/<id>.json (T cycles them while the room is in view)
 //   ?bot=1 sits a guest (client/fireplace-bot.mjs) at the controls, and sits down at once
 //   ?watch=1 spectates; ?url=, ?hash=, ?impair=, ?sens=, ?res=, ?music=0 as the games'
 import * as L from '../src/layout.mjs';
@@ -13,7 +14,8 @@ import { unpackArena } from '../src/arena-view.mjs';
 import '../src/bumper-view.mjs';
 import '../src/party-view.mjs';
 import { createHost, epoch, fitSize } from './host.mjs';
-import { createRoom, SCREEN, FONT } from './room-render.mjs';
+import { createRoom, SCREEN, COUCH, cardText, cardFire } from './room-render.mjs';
+import { loadTheme, themeList, savedTheme, saveTheme, FALLBACK, DEFAULT } from './themes.mjs';
 import { Guest } from './fireplace-bot.mjs';
 import { readClock } from './clock.mjs';
 
@@ -44,7 +46,9 @@ async function main() {
   [canvases[L.G_PARTY].width, canvases[L.G_PARTY].height] = [W, H];
   const host = await createHost({ wasm: '../build/fireplace/game.wasm', q, watch: WATCH, fireplace: true, connect: false });
   const { view, get, set, press, sound, i32, f64 } = host;
-  const room = await createRoom(roomCanvas, host.device, { present: q.get('present') !== '0' });
+  // the room's theme: ?theme=, else this viewer's last pick, else Grandma's (client/themes.mjs)
+  const theme = await loadTheme(q.get('theme') || savedTheme() || DEFAULT).catch((e) => { console.warn(e.message); return FALLBACK; });
+  const room = await createRoom(roomCanvas, host.device, { present: q.get('present') !== '0', theme });
   const tvTex = canvases.map((c) => room.tvTexture(c.width, c.height));
   const genome = (await (await fetch('../xbox/golfer.h')).text()).match(/GOLFER_DEFAULT "(qg2:[A-Za-z0-9_-]+)"/)[1];
   const guest = BOT ? new Guest(0, (Math.random() * 1e9) | 0, Number(q.get('skill') || 0.8), genome) : null;
@@ -71,11 +75,20 @@ async function main() {
   stage.addEventListener('click', () => { if (scene === 'couch') sitDown(); else if (!document.pointerLockElement && !BOT && !WATCH) stage.requestPointerLock(); });
   addEventListener('keydown', (e) => {
     if (scene === 'couch' && (e.code === 'Enter' || e.code === 'Space')) sitDown();
+    if (e.code === 'KeyT' && !e.repeat && !(scene === 'in' && zoom >= 0.999)) nextTheme();
     if (e.code === 'KeyF' && !e.repeat) {
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen().then(() => navigator.keyboard?.lock?.()).catch(() => {});
     }
   });
+
+  // T, while the room is in view: the next theme the build bundled, kept for next time
+  let themeAt = -1e9;
+  async function nextTheme() {
+    const ids = await themeList();
+    const id = ids[(ids.indexOf(room.theme.id) + 1) % ids.length];
+    try { room.setTheme(await loadTheme(id)); saveTheme(id); themeAt = performance.now(); } catch (e) { console.warn(e.message); }
+  }
 
   // the game the room is on, mounted on its own canvas; the last one put away
   async function mountGame(g) {
@@ -116,40 +129,19 @@ async function main() {
 
   // ---- the TV's cards, drawn in the games' own 3x5 font
   const g2 = room.card.getContext('2d');
-  const text = (s, x, y, px, color, align = 'left') => {
-    s = String(s).toUpperCase();
-    const w = s.length * 4 * px - px;
-    let x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
-    g2.fillStyle = color;
-    for (const ch of s) {
-      const code = ch.charCodeAt(0);
-      if (code >= 32 && code <= 95) {
-        const bits = FONT[code - 32];
-        for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if ((bits >> (14 - (r * 3 + c))) & 1) g2.fillRect(x0 + c * px, y + r * px, px, px);
-      }
-      x0 += 4 * px;
-    }
-  };
-  // a little fire, in pixels, flickering
-  const pixelFire = (cx, cy, s, t) => {
-    for (let y = 0; y < 9; y++) {
-      for (let x = -5; x <= 5; x++) {
-        const h = 9 - y;
-        const wv = Math.sin(t * 9 + y * 1.7 + x) * 0.8;
-        if (Math.abs(x + wv * 0.3) > (h * 0.55 + 0.5) * (0.7 + 0.3 * Math.sin(t * 13 + x))) continue;
-        g2.fillStyle = y > 6 ? '#ffe9a0' : y > 3 ? '#ff9a2a' : '#d8461a';
-        if (Math.abs(x) < 2 && y > 5) g2.fillStyle = '#fff6d0';
-        g2.fillRect(cx + x * s, cy - h * s, s, s);
-      }
-    }
-    g2.fillStyle = '#5a3416';
-    g2.fillRect(cx - 6 * s, cy, 13 * s, s * 1.5);
+  const text = (s, x, y, px, color, align) => cardText(g2, s, x, y, px, color, align);
+  const pixelFire = (cx, cy, s, t) => cardFire(g2, cx, cy, s, t);
+  // the room's theme and who made it: on the title, and for a while after T changes it
+  const roomLine = () => {
+    const s = `ROOM: ${room.theme.name} BY ${room.theme.by}  -  T FOR ANOTHER`;
+    text(s, 320, 372, s.length * 12 <= 620 ? 3 : 2, '#8ea0b8', 'center');
   };
   function drawCard(kind, now) {
     const t = now / 1000;
     g2.fillStyle = '#10141f';
     g2.fillRect(0, 0, 640, 400);
     text('CH 3', 620, 18, 3, '#7fbf7f', 'right');
+    if (kind === 'title' || now - themeAt < 4000) roomLine();
     if (kind === 'title' || kind === 'tuning') {
       pixelFire(320, 150, 9, t);
       text('FIREPLACE', 320, 178, 11, '#ffcf6a', 'center');
@@ -230,11 +222,9 @@ async function main() {
     const focal = H * 1.05;
     const mid = [(SCREEN.x0 + SCREEN.x1) / 2, (SCREEN.y0 + SCREEN.y1) / 2, SCREEN.z];
     const d = Math.min((SCREEN.x1 - SCREEN.x0) * focal / W, (SCREEN.y1 - SCREEN.y0) * focal / H) * 0.995;
-    const drift = [Math.sin(now / 4000) * 0.04, Math.sin(now / 5300) * 0.02, 0];
-    const couch = [0.05 + drift[0], 1.02 + drift[1], -0.35];
     const z = ease(zoom);
     last = {
-      cam: lerp(couch, [mid[0], mid[1], mid[2] - d], z), look: lerp([-0.15, 0.82, 3.4], mid, z), focal, time: now / 1000, zoom: z,
+      cam: lerp(COUCH.cam(now), [mid[0], mid[1], mid[2] - d], z), look: lerp(COUCH.look, mid, z), focal, time: now / 1000, zoom: z,
       cardMix: scene === 'couch' || scene === 'tuning' ? 1 : cardMix, flicker: flick, tvOn: scene === 'couch' ? 1 : tvOn,
       tvLight: (game >= 0 && cardMix < 0.5 ? TV_LIGHT[game] : [0.35, 0.4, 0.6]).map((v) => v * (0.85 + 0.15 * Math.random())), tvBright: 1, game: game >= 0 ? tvTex[game] : null,
     };
@@ -246,7 +236,7 @@ async function main() {
     state: () => {
       const g = view.dv.getUint32(L.FP_GAME, true);
       const slot = get(L.CL_SLOT);
-      return { slot, clState: get(L.CL_STATE), error: host.error, game: g, gameName: gameName(g, view.dv.getUint32(L.HDR_SEED, true)), state: view.hole().state, scene, zoom, games: gamesSeen,
+      return { slot, clState: get(L.CL_STATE), error: host.error, theme: room.theme.id, game: g, gameName: gameName(g, view.dv.getUint32(L.HDR_SEED, true)), state: view.hole().state, scene, zoom, games: gamesSeen,
         mallows: slot >= 0 ? view.dv.getUint16(L.FP_MALLOWS + 2 * slot, true) : 0, card, me: frontend?.state?.().me ?? null };
     },
     // a PNG of what's on the screen: the room, or the game

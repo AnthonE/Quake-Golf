@@ -9,7 +9,9 @@
 // a shadow mask and a glow; as the camera closes in the curve and the lines
 // fade, so the last frame of a zoom is the game as it is drawn on its own.
 // Shares the page's GPU device, so the TV can show a texture a game drew.
+// Every colour comes from the theme (client/themes.mjs), a uniform of its own.
 import { FONT } from './font.mjs';
+import { wgsl, pack, FALLBACK, UNIFORM_BYTES } from './themes.mjs';
 
 // The TV's glass, in room metres (on its cabinet's front face, z = SCREEN_Z).
 export const SCREEN = { x0: 0.48, x1: 1.52, y0: 0.27, y1: 0.9, z: 3.05 };
@@ -27,6 +29,7 @@ struct U {
 @group(0) @binding(1) var game: texture_2d<f32>;
 @group(0) @binding(2) var card: texture_2d<f32>;
 @group(0) @binding(3) var samp: sampler;
+${wgsl()}@group(0) @binding(4) var<uniform> th: Theme;
 
 const PI = 3.14159265;
 const FIRE = vec3f(-1.8, 0.45, 3.68);
@@ -157,8 +160,9 @@ fn rod(o: vec3f, d: vec3f, a: vec3f, b: vec3f, r: f32) -> f32 {
 const ROD0A = vec3f(1.2, 1.07, 3.4);
 const ROD0B = vec3f(0.78, 1.8, 3.48);
 const ROD1B = vec3f(1.66, 1.84, 3.52);
-const PUMP0 = vec4f(-2.7, 1.42, 3.6, 0.1);
-const PUMP1 = vec4f(-0.85, 1.4, 3.55, 0.08);
+// the mantel's two things (pumpkins, baubles), on the shelf's lip in front of the brick (z 3.28 to 3.45)
+const PUMP0 = vec4f(-2.62, 1.41, 3.36, 0.09);
+const PUMP1 = vec4f(-0.98, 1.395, 3.37, 0.075);
 
 fn trace(o: vec3f, d: vec3f, tmax: f32) -> Hit {
   var h: Hit;
@@ -179,7 +183,7 @@ fn trace(o: vec3f, d: vec3f, tmax: f32) -> Hit {
       if (a.x > a.y && a.x > a.z) { h.n = vec3f(sign(q.x), 0.0, 0.0); } else if (a.y > a.z) { h.n = vec3f(0.0, sign(q.y), 0.0); } else { h.n = vec3f(0.0, 0.0, sign(q.z)); }
     }
   }
-  for (var k = 0; k < 2; k++) {
+  for (var k = 0; k < select(2, 0, th.mode.y == 2u); k++) {
     let pp = select(PUMP1, PUMP0, k == 0);
     let t = sphere(o, d, pp.xyz, pp.w);
     if (t > 1e-4 && t < h.t) { h.t = t; h.m = 20u; h.n = normalize(o + d * t - pp.xyz); h.k = u32(k); }
@@ -215,14 +219,14 @@ fn brick(p: vec2f, soot: f32) -> vec3f {
   let x = p.x / 0.21 + select(0.0, 0.5, (u32(row) & 1u) == 1u);
   let mortar = fract(p.y / 0.075) < 0.12 || fract(x) < 0.05;
   let id = vec2f(floor(x), row);
-  var c = lin(vec3f(0.55, 0.22, 0.14)) * (0.7 + 0.5 * hash2(id)) * (0.85 + 0.3 * vnoise(p * 30.0));
-  if (mortar) { c = lin(vec3f(0.55, 0.5, 0.44)) * 0.8; }
+  var c = th.c[TH_BRICK].rgb * (0.7 + 0.5 * hash2(id)) * (0.85 + 0.3 * vnoise(p * 30.0));
+  if (mortar) { c = th.c[TH_MORTAR].rgb * 0.8; }
   return mix(c, vec3f(0.01), soot);
 }
 
 fn walnut(p: vec2f) -> vec3f {
   let g = fbm(vec2f(p.x * 1.5, p.y * 40.0) + vec2f(fbm(p * 4.0) * 2.0, 0.0));
-  return lin(vec3f(0.36, 0.2, 0.1)) * (0.65 + 0.6 * g);
+  return th.c[TH_WOOD].rgb * (0.65 + 0.6 * g);
 }
 
 // The fire: how bright it is at p, inside the firebox (0 outside).
@@ -235,7 +239,7 @@ fn flame(p: vec3f, t: f32) -> f32 {
   let shape = smoothstep(width, width * 0.2, abs(q.x)) * (1.0 - h) * (1.0 - h);
   return max(0.0, n * 3.2 * shape - 0.12) * smoothstep(0.15, 0.05, abs(q.z));
 }
-fn fireColor(i: f32) -> vec3f { return vec3f(2.4, 0.9, 0.22) * i + vec3f(1.6, 1.3, 0.6) * i * i; }
+fn fireColor(i: f32) -> vec3f { return (vec3f(2.4, 0.9, 0.22) * i + vec3f(1.6, 1.3, 0.6) * i * i) * th.c[TH_FIRE].rgb; }
 
 // The TV's picture at uv (0..1 across the glass): the game or the card, a CRT's curve,
 // scanlines and mask fading as the camera closes in.
@@ -285,12 +289,12 @@ struct FOut { @location(0) color: vec4f };
       alb = brick(uvb, soot);
     }
     case 1u: { alb = brick(p.xy, 0.85); }
-    case 2u: { alb = lin(vec3f(0.24, 0.13, 0.07)) * (0.7 + 0.4 * fbm(vec2f(p.x * 3.0, p.y * 60.0))); spec = 0.2; }
-    case 3u: { alb = lin(vec3f(0.45, 0.43, 0.4)) * (0.7 + 0.4 * vnoise(p.xz * 9.0)); }
+    case 2u: { alb = th.c[TH_MANTEL].rgb * (0.7 + 0.4 * fbm(vec2f(p.x * 3.0, p.y * 60.0))); spec = 0.2; }
+    case 3u: { alb = th.c[TH_HEARTH].rgb * (0.7 + 0.4 * vnoise(p.xz * 9.0)); }
     case 4u: { // a log, its underside glowing
       alb = lin(vec3f(0.18, 0.11, 0.06)) * (0.6 + 0.5 * vnoise(p.xz * 30.0 + p.y * 20.0));
       let ember = smoothstep(0.3, 0.12, p.y) * (0.5 + 0.5 * vnoise(p.xz * 25.0 + t * 0.7));
-      emit = vec3f(1.6, 0.4, 0.05) * ember * u.screen.z;
+      emit = vec3f(1.6, 0.4, 0.05) * th.c[TH_FIRE].rgb * ember * u.screen.z;
     }
     case 5u: { // walnut, the screen's bezel, the speaker's grille, the knobs
       alb = walnut(select(p.xy, p.zy, abs(h.n.x) > 0.5));
@@ -323,12 +327,12 @@ struct FOut { @location(0) color: vec4f };
     case 7u: { // the picture: a cozy cabin at dusk, in thick paint
       let q = vec2f((p.x + 2.45) / 1.3, (p.y - 1.55) / 0.7);
       let frame = q.x < 0.06 || q.x > 0.94 || q.y < 0.08 || q.y > 0.92;
-      alb = mix(lin(vec3f(0.9, 0.55, 0.3)), lin(vec3f(0.25, 0.3, 0.55)), q.y);
-      if (q.y < 0.35 + 0.1 * sin(q.x * 9.0)) { alb = lin(vec3f(0.85, 0.88, 0.92)); }
-      if (abs(q.x - 0.55) < 0.12 && q.y > 0.3 && q.y < 0.5 + (0.12 - abs(q.x - 0.55))) { alb = lin(vec3f(0.35, 0.18, 0.1)); }
+      alb = mix(th.c[TH_PAINT_SKY].rgb, th.c[TH_PAINT_SKY + 1u].rgb, q.y);
+      if (q.y < 0.35 + 0.1 * sin(q.x * 9.0)) { alb = th.c[TH_PAINT_GROUND].rgb; }
+      if (abs(q.x - 0.55) < 0.12 && q.y > 0.3 && q.y < 0.5 + (0.12 - abs(q.x - 0.55))) { alb = th.c[TH_PAINT_HOUSE].rgb; }
       if (abs(q.x - 0.55) < 0.03 && abs(q.y - 0.38) < 0.04) { emit = vec3f(1.2, 0.8, 0.3); }
       alb *= 0.8 + 0.3 * vnoise(q * 60.0);
-      if (frame) { alb = lin(vec3f(0.5, 0.36, 0.12)); spec = 0.5; }
+      if (frame) { alb = th.c[TH_PAINT_FRAME].rgb; spec = 0.5; }
     }
     case 8u: { // board games, each box its own colour
       let k = f32(h.k);
@@ -336,22 +340,22 @@ struct FOut { @location(0) color: vec4f };
       if (h.n.y > 0.5 && fract(p.x * 8.0) < 0.5) { alb *= 1.3; }
     }
     case 9u: { alb = walnut(p.xy * 2.0); spec = 0.3; }
-    case 10u: { alb = lin(vec3f(0.95, 0.85, 0.6)); emit = vec3f(1.3, 0.9, 0.45) * 0.6; }
-    case 11u: { alb = lin(vec3f(0.85, 0.83, 0.78)); }
-    case 12u: { alb = lin(vec3f(0.35, 0.12, 0.1)) * (0.7 + 0.3 * vnoise(p.xy * 40.0)); }
+    case 10u: { alb = th.c[TH_LAMP].rgb; emit = th.c[TH_LAMP_GLOW].rgb; }
+    case 11u: { alb = th.c[TH_TRIM].rgb; }
+    case 12u: { alb = th.c[TH_COUCH].rgb * (0.7 + 0.3 * vnoise(p.xy * 40.0)); }
     case 13u: { alb = vec3f(0.02); spec = 0.5; }
-    case 20u: { // a pumpkin: ribs and a stalk
+    case 20u: { // on the mantel: a pumpkin (ribs and a stalk), or a bauble (glossy, a cap on top)
       let q = p - select(PUMP1.xyz, PUMP0.xyz, h.k == 0u);
-      let rib = 0.75 + 0.25 * abs(cos(atan2(q.z, q.x) * 4.0));
-      alb = lin(vec3f(0.95, 0.42, 0.08)) * rib;
-      if (h.n.y > 0.93) { alb = lin(vec3f(0.3, 0.35, 0.1)); }
-      spec = 0.3;
+      let rib = select(0.75 + 0.25 * abs(cos(atan2(q.z, q.x) * 4.0)), 1.0, th.mode.y == 1u);
+      alb = th.c[TH_PROPS + h.k].rgb * rib;
+      spec = select(0.3, 0.9, th.mode.y == 1u);
+      if (h.n.y > 0.93) { alb = th.c[TH_PROP_CAP].rgb; }
     }
     case 30u: { // the floor: oak planks, and the rug
       let plank = floor(p.x / 0.16);
       let off = hash2(vec2f(plank, 3.0)) * 2.0;
       let seam = fract(p.x / 0.16) < 0.03 || fract((p.z + off) / 1.6) < 0.008;
-      alb = lin(vec3f(0.55, 0.34, 0.18)) * (0.75 + 0.35 * hash2(vec2f(plank, floor((p.z + off) / 1.6)))) * (0.85 + 0.3 * fbm(vec2f(p.x * 30.0, p.z * 2.0)));
+      alb = th.c[TH_FLOOR].rgb * (0.75 + 0.35 * hash2(vec2f(plank, floor((p.z + off) / 1.6)))) * (0.85 + 0.3 * fbm(vec2f(p.x * 30.0, p.z * 2.0)));
       if (seam) { alb *= 0.5; }
       spec = 0.25;
       let r = vec2f((p.x + 0.2) / 1.7, (p.z - 1.9) / 1.05);
@@ -360,32 +364,48 @@ struct FOut { @location(0) color: vec4f };
         let ring = fract(rr * 6.0);
         // a braided rug: rings of three yarns, twisted
         let yarn = u32(floor(rr * 14.0 + 0.1 * sin(atan2(r.y, r.x) * 30.0 + rr * 40.0))) % 3u;
-        alb = select(select(lin(vec3f(0.5, 0.16, 0.1)), lin(vec3f(0.62, 0.45, 0.22)), yarn == 1u), lin(vec3f(0.3, 0.22, 0.14)), yarn == 2u) * (0.8 + 0.3 * vnoise(p.xz * 80.0));
-        if (rr > 0.94) { alb = lin(vec3f(0.85, 0.75, 0.5)); }
+        alb = select(select(th.c[TH_RUG].rgb, th.c[TH_RUG + 1u].rgb, yarn == 1u), th.c[TH_RUG + 2u].rgb, yarn == 2u) * (0.8 + 0.3 * vnoise(p.xz * 80.0));
+        if (rr > 0.94) { alb = th.c[TH_RUG_EDGE].rgb; }
         spec = 0.0;
       }
     }
-    case 31u: { alb = lin(vec3f(0.55, 0.5, 0.45)); }
+    case 31u: { alb = th.c[TH_CEILING].rgb; }
     default: { // wallpaper: cream and sage stripes, a darker baseboard, the window
       let a = select(p.x, p.z, abs(h.n.x) > 0.5);
       let stripe = fract(a / 0.3) < 0.5;
-      alb = select(lin(vec3f(0.62, 0.66, 0.52)), lin(vec3f(0.78, 0.74, 0.6)), stripe) * (0.92 + 0.08 * vnoise(vec2f(a, p.y) * 20.0));
+      alb = select(th.c[TH_WALLPAPER].rgb, th.c[TH_WALLPAPER + 1u].rgb, stripe) * (0.92 + 0.08 * vnoise(vec2f(a, p.y) * 20.0));
       if (fract(a / 0.3) < 0.52 && fract(a / 0.3) > 0.48) { alb *= 0.8; }
-      if (p.y < 0.14) { alb = lin(vec3f(0.42, 0.28, 0.16)); }
-      if (p.y > 2.66) { alb = lin(vec3f(0.75, 0.72, 0.65)); }
-      // the window: the night outside, snow coming down past the glass
+      if (p.y < 0.14) { alb = th.c[TH_BASEBOARD].rgb; }
+      if (p.y > 2.66) { alb = th.c[TH_CORNICE].rgb; }
+      // the window: the night outside, and snow coming down past the glass, or rain, or stars
       if (h.n.z < -0.5 && p.x > 2.5 && p.x < 3.6 && p.y > 1.02 && p.y < 2.2) {
         let wq = vec2f(p.x - 2.5, p.y - 1.02);
-        var night = mix(vec3f(0.02, 0.03, 0.08), vec3f(0.06, 0.09, 0.2), wq.y / 1.2);
-        if (distance(wq, vec2f(0.85, 0.95)) < 0.07) { night = vec3f(0.9, 0.9, 0.8); }
-        for (var k = 0; k < 3; k++) {
-          let sc = 22.0 + f32(k) * 14.0;
-          let g = wq * sc + vec2f(sin(t * 0.3 + f32(k)) * 2.0, t * (1.5 + f32(k) * 0.6));
-          let id = floor(g);
-          let f = fract(g) - 0.5 - (vec2f(hash2(id), hash2(id + 3.1)) - 0.5) * 0.6;
-          if (hash2(id + 7.0) > 0.7 && length(f) < 0.12) { night += vec3f(0.6); }
+        var night = mix(th.c[TH_NIGHT].rgb, th.c[TH_NIGHT + 1u].rgb, wq.y / 1.2);
+        if (th.mode.x == 2u) { // clear: stars, twinkling
+          let sg = floor(wq * 70.0);
+          let sf = fract(wq * 70.0) - 0.5;
+          if (hash2(sg) > 0.96 && length(sf) < 0.18) { night += th.c[TH_MOON].rgb * (0.25 + 0.25 * sin(t * 2.0 + hash2(sg + 1.0) * 30.0)); }
         }
-        if (wq.y < 0.12 + 0.03 * sin(wq.x * 12.0)) { night = vec3f(0.4, 0.42, 0.5); }
+        if (distance(wq, vec2f(0.85, 0.95)) < 0.07) { night = th.c[TH_MOON].rgb; }
+        if (th.mode.x == 0u) {
+          for (var k = 0; k < 3; k++) {
+            let sc = 22.0 + f32(k) * 14.0;
+            let g = wq * sc + vec2f(sin(t * 0.3 + f32(k)) * 2.0, t * (1.5 + f32(k) * 0.6));
+            let id = floor(g);
+            let f = fract(g) - 0.5 - (vec2f(hash2(id), hash2(id + 3.1)) - 0.5) * 0.6;
+            if (hash2(id + 7.0) > 0.7 && length(f) < 0.12) { night += th.c[TH_FLAKES].rgb; }
+          }
+        }
+        if (th.mode.x == 1u) { // rain: streaks, a little slanted, falling fast
+          for (var k = 0; k < 3; k++) {
+            let sc = 30.0 + f32(k) * 12.0;
+            let g = vec2f((wq.x + wq.y * 0.12) * sc, wq.y * sc * 0.2 + t * (5.0 + f32(k) * 1.5));
+            let id = floor(g);
+            let f = fract(g) - 0.5;
+            if (hash2(id + 7.0) > 0.72 && abs(f.x - (hash2(id) - 0.5) * 0.6) < 0.05 && abs(f.y) < 0.4) { night += th.c[TH_FLAKES].rgb * 0.7; }
+          }
+        }
+        if (wq.y < 0.12 + select(0.0, 0.03 * sin(wq.x * 12.0), th.mode.x == 0u)) { night = th.c[TH_SILL].rgb; }
         emit = night;
         alb = vec3f(0.0);
         spec = 0.6;
@@ -397,15 +417,15 @@ struct FOut { @location(0) color: vec4f };
   let lv = fl - p;
   let ld = length(lv);
   let l = lv / ld;
-  var fire = vec3f(1.0, 0.52, 0.2) * 3.2 * u.screen.z / (1.0 + ld * ld * 0.45);
+  var fire = vec3f(1.0, 0.52, 0.2) * th.c[TH_FIRE].rgb * 3.2 * u.screen.z / (1.0 + ld * ld * 0.45);
   if (blocked(p + h.n * 0.003, fl)) { fire *= 0.12; }
   let tvl = TVC + vec3f(0.0, 0.0, -0.05) - p;
   let td = length(tvl);
   let tvfacing = max(-tvl.z / td, 0.0);
   let tv = u.tv.rgb * 1.6 * tvfacing / (1.0 + td * td * 1.1);
-  let snow = vec3f(0.06, 0.08, 0.16) * max(dot(h.n, normalize(vec3f(3.0, 1.6, 4.0) - p)), 0.0) / (1.0 + distance(p, vec3f(3.0, 1.6, 4.0)));
+  let snow = th.c[TH_OUTDOOR].rgb * max(dot(h.n, normalize(vec3f(3.0, 1.6, 4.0) - p)), 0.0) / (1.0 + distance(p, vec3f(3.0, 1.6, 4.0)));
   // what bounces about a small room with a fire in it
-  let amb = vec3f(0.07, 0.05, 0.04) * (0.8 + 0.2 * u.screen.z);
+  let amb = th.c[TH_AMBIENT].rgb * (0.8 + 0.2 * u.screen.z);
   let lambert = max(dot(h.n, l), 0.0);
   c = alb * (fire * lambert + tv * max(dot(h.n, normalize(tvl)), 0.0) + snow + amb) + emit;
   if (spec > 0.0) {
@@ -428,7 +448,7 @@ struct FOut { @location(0) color: vec4f };
   // the fire's glow in the air, and the TV's
   let near = dot(fl - o, d);
   let miss = length(fl - o - d * max(near, 0.0));
-  c += vec3f(1.0, 0.45, 0.12) * 0.035 * u.screen.z / (0.02 + miss * miss) * step(0.0, near) * select(0.15, 1.0, h.t > near - 0.4);
+  c += vec3f(1.0, 0.45, 0.12) * th.c[TH_FIRE].rgb * 0.035 * u.screen.z / (0.02 + miss * miss) * step(0.0, near) * select(0.15, 1.0, h.t > near - 0.4);
   // filmic, the display's gamma, grain, a warm vignette
   let a = c * 1.1;
   var outc = clamp((a * (2.51 * a + 0.03)) / (a * (2.43 * a + 0.59) + 0.14), vec3f(0.0), vec3f(1.0));
@@ -440,8 +460,9 @@ struct FOut { @location(0) color: vec4f };
 }
 `;
 
-// present: false draws only into a target (a capture): headless Chrome can't present WebGPU
-export async function createRoom(canvas, device, { present = true } = {}) {
+// present: false draws only into a target (a capture): headless Chrome can't present WebGPU.
+// theme: a validated theme (client/themes.mjs validate()), Grandma's if none; setTheme() changes it.
+export async function createRoom(canvas, device, { present = true, theme = FALLBACK } = {}) {
   const format = navigator.gpu.getPreferredCanvasFormat();
   const ctx = present ? canvas.getContext('webgpu') : null;
   ctx?.configure({ device, format, alphaMode: 'opaque' });
@@ -450,6 +471,8 @@ export async function createRoom(canvas, device, { present = true } = {}) {
   const errs = info.messages.filter((m) => m.type === 'error');
   if (errs.length) throw new Error('WGSL (room): ' + errs.map((m) => `${m.lineNum}:${m.linePos} ${m.message}`).join('; '));
   const ubuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const tbuf = device.createBuffer({ size: UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(tbuf, 0, pack(theme));
   const pipe = device.createRenderPipeline({
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_full' },
@@ -464,14 +487,16 @@ export async function createRoom(canvas, device, { present = true } = {}) {
   const binds = new Map();
   const bindFor = (tex) => {
     if (!binds.has(tex)) binds.set(tex, device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: { buffer: ubuf } }, { binding: 1, resource: tex.createView() }, { binding: 2, resource: card.createView() }, { binding: 3, resource: sampler }] }));
+      { binding: 0, resource: { buffer: ubuf } }, { binding: 1, resource: tex.createView() }, { binding: 2, resource: card.createView() }, { binding: 3, resource: sampler },
+      { binding: 4, resource: { buffer: tbuf } }] }));
     return binds.get(tex);
   };
   const uf = new Float32Array(24);
   const W = canvas.width, H = canvas.height;
 
   return {
-    format, card: cardCanvas, width: W, height: H,
+    format, card: cardCanvas, width: W, height: H, theme,
+    setTheme(t) { this.theme = t; device.queue.writeBuffer(tbuf, 0, pack(t)); },
     // a texture a game draws the TV's picture into: its own size, the canvas format
     tvTexture: (w, h) => device.createTexture({ size: [w, h], format, usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC }),
     // after drawing on .card's context: its pixels up to the TV's card
@@ -530,5 +555,41 @@ export async function readTexture(device, tex, W, H, format) {
   buf.destroy();
   return rgba;
 }
+
+// The TV's cards are drawn on a 2D canvas in the games' 3x5 font: s in capitals
+// at x, y, each font pixel px wide, aligned left, center or right of x.
+export function cardText(g2, s, x, y, px, color, align = 'left') {
+  s = String(s).toUpperCase();
+  const w = s.length * 4 * px - px;
+  let x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  g2.fillStyle = color;
+  for (const ch of s) {
+    const code = ch.charCodeAt(0);
+    if (code >= 32 && code <= 95) {
+      const bits = FONT[code - 32];
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if ((bits >> (14 - (r * 3 + c))) & 1) g2.fillRect(x0 + c * px, y + r * px, px, px);
+    }
+    x0 += 4 * px;
+  }
+}
+// a little fire, in pixels, flickering
+export function cardFire(g2, cx, cy, s, t) {
+  for (let y = 0; y < 9; y++) {
+    for (let x = -5; x <= 5; x++) {
+      const h = 9 - y;
+      const wv = Math.sin(t * 9 + y * 1.7 + x) * 0.8;
+      if (Math.abs(x + wv * 0.3) > (h * 0.55 + 0.5) * (0.7 + 0.3 * Math.sin(t * 13 + x))) continue;
+      g2.fillStyle = y > 6 ? '#ffe9a0' : y > 3 ? '#ff9a2a' : '#d8461a';
+      if (Math.abs(x) < 2 && y > 5) g2.fillStyle = '#fff6d0';
+      g2.fillRect(cx + x * s, cy - h * s, s, s);
+    }
+  }
+  g2.fillStyle = '#5a3416';
+  g2.fillRect(cx - 6 * s, cy, 13 * s, s * 1.5);
+}
+
+// The camera on the couch, looking at the fireplace and the TV, drifting a
+// little as someone breathing would; zoom 0.
+export const COUCH = { look: [-0.15, 0.82, 3.4], cam: (now) => [0.05 + Math.sin(now / 4000) * 0.04, 1.02 + Math.sin(now / 5300) * 0.02, -0.35] };
 
 export { FONT };

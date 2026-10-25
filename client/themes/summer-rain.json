@@ -1,0 +1,33 @@
+{
+  "theme": 1,
+  "name": "Summer Rain",
+  "by": "AnthonE",
+  "about": "Blue stripes, light oak, nothing on the mantel and rain on the window.",
+  "window": "rain",
+  "mantel": "none",
+  "colors": {
+    "wallpaper": [
+      "#6f93b0",
+      "#dfe8ee"
+    ],
+    "cornice": "#e8e8e0",
+    "trim": "#f0f0ea",
+    "floor": "#b8875a",
+    "brick": "#a05a44",
+    "couch": "#4a6f8a",
+    "rug": [
+      "#3f6f8a",
+      "#e0d4b0",
+      "#7aa37a"
+    ],
+    "rugEdge": "#f0e6cc",
+    "night": [
+      "#1a2230",
+      "#2a3646"
+    ],
+    "moon": "#9aa3b0",
+    "flakes": "#9fb4c8",
+    "sill": "#4a5260",
+    "outdoor": "#5a6a80"
+  }
+}

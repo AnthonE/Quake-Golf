@@ -440,8 +440,11 @@ test('rounds of AI balls on the debug build, no trap: Thin Ice, then the rotatio
   // Thin Ice forced (through the seed), a ball leaving and coming back
   const ti = await playParty({ bytes, mg: L.MG_THINICE, bots: 12, ticks: 5000, leaveAt: 1200 });
   assert.ok(ti.rounds >= 1 && ti.games.every((g) => g === L.MG_THINICE), `${ti.rounds} rounds of ${ti.games}`);
-  // seed 9's rotation opens on Thin Ice, then whatever the PRNG picks next
-  const rot = await playParty({ bytes, seed: 9, bots: 12, ticks: 6500, leaveAt: 1500 });
+  // a rotation that opens on Thin Ice, then whatever the PRNG picks next (seed 9's, with fourteen minigames:
+  // which seed opens on it moves as minigames are added, so it is looked for)
+  let seed = 9;
+  while ((await playParty({ bytes, seed, bots: 12, ticks: 800 })).games[0] !== L.MG_THINICE) seed++;
+  const rot = await playParty({ bytes, seed, bots: 12, ticks: 6500, leaveAt: 1500 });
   assert.ok(rot.games.length >= 2 && rot.games[0] === L.MG_THINICE && rot.games[1] !== L.MG_THINICE, `minigames ${rot.games}`);
   assert.equal(partySeed(5, 3), (0xa7030005) >>> 0);
   for (const [tag, r, ticks] of [['ti', ti, 5000], ['rot', rot, 6500]]) {
