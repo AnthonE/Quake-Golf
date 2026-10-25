@@ -87,11 +87,14 @@ const luck = (slot, k) => { let h = Math.imul(slot + 1, 0x9e3779b1) ^ Math.imul(
 const ROOMY = Math.PI * 1.35 * 1.35;
 
 // The house as every AI ball looking at one world tick sees it: each ball
-// in it (where, how fast, its ring), how many each ring holds.
+// in it or near it (where, how fast, its ring) and in a grid of CELL m
+// squares, how many each ring holds.
+const CELL = 4;
+const cellOf = (x, z) => Math.floor(x / CELL) * 4096 + Math.floor(z / CELL);
 function house(view, st) {
   const c = view._beh;
   if (c && c.tick === view.tick && c.o === st.o) return c;
-  const balls = [], count = [0, 0, 0, 0];
+  const balls = [], count = [0, 0, 0, 0], grid = new Map();
   for (let p = 0; p < L.NPLAYER; p++) {
     const r = L.PLAYERS + st.o + p * L.PSIZE;
     if ((view.u8[r + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_FALL)) !== L.PF_LIVE) continue;
@@ -99,17 +102,24 @@ function house(view, st) {
     const k = ringAt(st, x, z);
     if (k < 0 && Math.hypot(x - st.cx, z - st.cx) > st.ring[3] + 2) continue;
     if (k >= 0) count[k]++;
-    balls.push({ slot: p, x, z, vx: view.dv.getFloat32(r + L.P_VX, true), vz: view.dv.getFloat32(r + L.P_VZ, true), k, big: view.dv.getUint16(r + L.B_MEGA, true) > 0 });
+    const b = { slot: p, x, z, vx: view.dv.getFloat32(r + L.P_VX, true), vz: view.dv.getFloat32(r + L.P_VZ, true), k, big: view.dv.getUint16(r + L.B_MEGA, true) > 0 };
+    balls.push(b);
+    const key = cellOf(x, z), list = grid.get(key);
+    if (list) list.push(b); else grid.set(key, [b]);
   }
   const area = st.ring.map((r, k) => Math.PI * (r * r - (k ? st.ring[k - 1] ** 2 : 0)));
-  view._beh = { tick: view.tick, o: st.o, balls, count, cap: area.map((a) => Math.max(1, Math.floor(a / ROOMY * 0.7))) };
+  view._beh = { tick: view.tick, o: st.o, balls, grid, count, cap: area.map((a) => Math.max(1, Math.floor(a / ROOMY * 0.7))) };
   return view._beh;
 }
 
-// The nearest any other ball in the house comes to (x, z), at most 4 m.
+// The nearest any other ball in the house comes to (x, z), at most CELL m.
 function clearance(h, slot, x, z) {
-  let m = 16;
-  for (const b of h.balls) if (b.slot !== slot) m = Math.min(m, (b.x - x) ** 2 + (b.z - z) ** 2);
+  let m = CELL * CELL;
+  const i0 = Math.floor(x / CELL), j0 = Math.floor(z / CELL);
+  for (let i = i0 - 1; i <= i0 + 1; i++) for (let j = j0 - 1; j <= j0 + 1; j++) {
+    const list = h.grid.get(i * 4096 + j);
+    if (list) for (const b of list) if (b.slot !== slot) m = Math.min(m, (b.x - x) ** 2 + (b.z - z) ** 2);
+  }
   return Math.sqrt(m);
 }
 
