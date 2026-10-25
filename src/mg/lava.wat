@@ -152,7 +152,8 @@
   (f32.mul (f32.convert_i32_u (i32.shr_u (call $hash32 (local.get $k) (i32.const 0x1a7a) (call $p_seed (i32.const @LV_KROUTE))) (i32.const 8)))
            (f32.const 0x1p-24)))
 
-;; A section on the end of the route, from s0 at h0, len long rising dh; its index.
+;; A section on the end of the route, from s0 at h0, len long rising dh;
+;; its index.
 (func $lv_add (param $kind i32) (param $fl i32) (param $s0 f32) (param $len f32) (param $h0 f32) (param $dh f32) (param $pa f32) (param $pg f32) (result i32)
   (local $j i32) (local $a i32)
   (local.set $j (i32.load (i32.const @(PG_H + LV_NSEC))))
@@ -232,9 +233,10 @@
 ;; as long, the shelf as wide; round the first turn climbs only (ramps and
 ;; steps: it is rock down to the shelf) and calm ones (the crowd is thick
 ;; there), then a gap, a slider or a ledge (in an order of the seed's) and a
-;; climb by turns till the route is LV_HMIN up, then the summit. The lava's heights and paces, deeper and slower the
-;; bigger the crowd. A scoring round nobody comes back into (PK_SCORE,
-;; placed by PG_SCORE), braking with no keys, bumps without their kick.
+;; climb by turns till the route is LV_HMIN up, then the summit. The lava's
+;; heights and paces, deeper and slower the bigger the crowd. A scoring
+;; round nobody comes back into (PK_SCORE, placed by PG_SCORE), braking with
+;; no keys, bumps without their kick.
 (func $lv_setup (param $n i32)
   (local $sq f32) (local $w f32) (local $rm f32) (local $c f32) (local $st f32) (local $s f32) (local $h f32) (local $u f32)
   (local $q i32) (local $k i32) (local $f i32) (local $j i32) (local $b i32) (local $t i32) (local $a i32) (local $first i32)
