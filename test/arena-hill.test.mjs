@@ -540,15 +540,20 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   on(g, 1, 1.5, 0);
   g.step();
   assert.deepEqual([draw(2, 100).zone.color, draw(2, 400).zone.color, draw(2, 700).zone.color], [SIDE_RGB[0], SIDE_RGB[1], SIDE_RGB[0]]);
-  // the HUD: who has it and when it moves, who's on it (or how it stands for you, on it), the target
-  const hud = (slot) => { const lines = []; kit.hud(g.v, { put: (x, y, s, c) => lines.push([x, y, s, c]), C, me: g.v.fighter(slot), team: team(g, slot) }); return lines; };
+  // the HUD: who has it, when it moves (on the last hill, the target), who's on it (or how it stands for you,
+  // on it); each line within cols 1 to 26, clear of the shields and the score bar
+  const hud = (slot, view = g.v) => { const lines = []; kit.hud(view, { put: (x, y, s, c) => lines.push([x, y, s, c]), C, me: g.v.fighter(slot), team: team(g, slot) }); return lines; };
+  const fits = (lines) => lines.every(([x, , s]) => x >= 1 && x + s.length - 1 <= 26);
   const left = (n) => `${Math.floor(n / 125 / 60)}:${String(Math.floor(n / 125) % 60).padStart(2, '0')}`;
   const moves = `MOVES IN ${left(h.moves - g.v.tick)}`;
-  assert.deepEqual(hud(2), [[1, 2, 'HILL: CONTESTED', C.YELLOW], [18, 2, moves, C.GREY], [1, 3, 'ON IT', C.GREY], [7, 3, 'RED 1', C.RED], [13, 3, 'BLUE 1', C.CYAN], [1, 4, 'FIRST TO 100 SECONDS', C.GREY]]);
-  assert.deepEqual(hud(0)[2], [1, 3, 'CONTESTED: CLEAR THEM OFF', C.YELLOW]);
+  assert.deepEqual(hud(2), [[1, 2, 'HILL: CONTESTED', C.YELLOW], [1, 3, moves, C.GREY], [1, 4, 'ON IT', C.GREY], [7, 4, 'RED 1', C.RED], [13, 4, 'BLUE 1', C.CYAN]]);
+  assert.deepEqual(hud(0)[2], [1, 4, 'CONTESTED: CLEAR THEM OFF', C.YELLOW]);
+  const last = Object.assign(Object.create(g.v), { hole: () => ({ ...g.v.hole(), until: h.moves }) });
+  assert.deepEqual(hud(2, last)[1], [1, 3, 'FIRST TO 100 SECONDS', C.GREY], 'the last hill');
+  assert.ok([hud(0), hud(2), hud(2, last)].every(fits));
   away(g, [1]);
   g.step();
-  assert.deepEqual([hud(0)[0], hud(0)[2], hud(1)[0]], [[1, 2, 'HILL: RED', C.RED], [1, 3, 'YOU ARE HOLDING IT', C.RED], [1, 2, 'HILL: RED', C.RED]]);
+  assert.deepEqual([hud(0)[0], hud(0)[2], hud(1)[0]], [[1, 2, 'HILL: RED', C.RED], [1, 4, 'YOU ARE HOLDING IT', C.RED], [1, 2, 'HILL: RED', C.RED]]);
   // the news, told to each side
   for (const p of [0, 1]) {
     const said = [], shown = [], glows = [];
