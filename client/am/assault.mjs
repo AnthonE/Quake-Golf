@@ -44,7 +44,7 @@ const PLATE_R = Number(AC.AS_PLATE_R);
 // CTF's attackers cross the field), and only the five nearest an enemy
 // carrier hunt it: over 30,000 ticks 3 plants in each run of 64 and 5 and 4
 // in the two of 256, both sides scoring in all four; whole matches of 64
-// (seeds 6, 11) and 128 (11) end at 3 bombs before the clock. Eight plant 15
+// (seeds 6, 11), 128 and 256 (11) end at 3 bombs before the clock. Eight plant 15
 // times in 10 runs (seeds 7 to 16), both sides in 4; sixteen 13 in 6 (7 to
 // 12), both sides in 1. A defender 30 m off gets onto a planted bomb and
 // defuses it with 12 ticks to spare (AS_FUSE less AS_DEFUSE leaves 3 s to
