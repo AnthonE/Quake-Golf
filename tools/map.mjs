@@ -5,7 +5,9 @@
 //
 //   map.json      bounds, the terrain images and how to read them, the
 //                 structures (boxes, by prefab or by hand), teleporters,
-//                 spawn points and weapon pads; see maps/bloodgulch/map.json
+//                 spawn points, weapon pads, and what the team modes play
+//                 for (two flags, the skull's spot, hills: defaults for any
+//                 left out); see maps/bloodgulch/map.json
 //   height.png    the ground: grey, 8 or 16 bits, 2 m a pixel, read as
 //                 metres = base + level * scale
 //   surface.png   optional: what the ground is (colours, nearest of "surfaces")
@@ -126,6 +128,38 @@ export function compileMap(dir = mapDir()) {
   });
   if (pads.length > L.NPAD) fail(`${pads.length} pads, at most ${L.NPAD}`);
   for (const [k, tp] of teleporters.entries()) { inside(tp.from[0], tp.from[2], `teleporter ${k}`); inside(tp.to[0], tp.to[2], `teleporter ${k}'s exit`); }
+  // ---- what the team modes play for: the flags' stands, the skull's spot, the hills
+  const point = (at, what) => {
+    if (!Array.isArray(at) || at.length < 2 || at.slice(0, 3).some((v) => typeof v !== 'number')) fail(`${what}: "at" is [x, z] or [x, z, top]`);
+    inside(at[0], at[1], what);
+    return [at[0], at[1], at[2] ?? GROUND];
+  };
+  const [bw, bd] = [bounds[1] - bounds[0], bounds[3] - bounds[2]];
+  const mid = [(bounds[0] + bounds[1]) / 2, (bounds[2] + bounds[3]) / 2];
+  let flags;
+  if (spec.flags) {
+    if (!Array.isArray(spec.flags) || spec.flags.length !== 2) fail('flags: exactly two, red\'s and blue\'s');
+    flags = ['red', 'blue'].map((team) => point((spec.flags.find((f) => f.team === team) || fail(`flags: no ${team} flag`)).at, `${team}'s flag`));
+  } else {
+    // an eighth in from each end of the longer side, red at the low end
+    flags = bw >= bd ? [[bounds[0] + bw / 8, mid[1], GROUND], [bounds[1] - bw / 8, mid[1], GROUND]] : [[mid[0], bounds[2] + bd / 8, GROUND], [mid[0], bounds[3] - bd / 8, GROUND]];
+  }
+  const ball = spec.ball ? point(spec.ball.at, 'the ball') : [...mid, GROUND];
+  let hills;
+  if (spec.hills) {
+    if (!Array.isArray(spec.hills) || !spec.hills.length || spec.hills.length > L.NHILL) fail(`${spec.hills.length ?? 0} hills: 1 to ${L.NHILL}`);
+    hills = spec.hills.map((h, k) => {
+      if (!(h.radius > 0 && h.radius <= 30)) fail(`hill ${k}: a radius over 0, at most 30 m`);
+      return [...point(h.at, `hill ${k}`), h.radius];
+    });
+  } else {
+    // the middle, and halfway from it to each flag
+    const r = Math.max(3, Math.min(10, Math.min(bw, bd) / 10));
+    hills = [[...mid, GROUND, r], ...flags.map((f) => [(mid[0] + f[0]) / 2, (mid[1] + f[1]) / 2, GROUND, r])];
+  }
+  const sides = [0, 0];
+  for (const s of spawns) sides[half(s.x, s.z, flags)]++;
+  ['red', 'blue'].forEach((team, k) => { if (!sides[k]) fail(`no spawn on ${team}'s half (the spawns nearer its flag at ${flags[k][0]}, ${flags[k][1]} than the other)`); });
 
   // ---- the bytes: the head as MAP lays it out, the groups, the boxes, the images
   const head = new DataView(new ArrayBuffer(L.MAP_HEAD));
@@ -155,7 +189,14 @@ export function compileMap(dir = mapDir()) {
   boxes.forEach((b, k) => { b.box.forEach((v, i) => bbytes.setFloat32(32 * k + 4 * i, v, true)); bbytes.setUint32(32 * k + 24, b.material, true); bbytes.setUint32(32 * k + 28, b.group, true); });
   const hbytes = new Uint8Array(heights.buffer.slice(0));
   if (new Uint8Array(new Uint16Array([1]).buffer)[0] !== 1) throw new Error('a little-endian host, please');
-  const parts = [new Uint8Array(head.buffer), new Uint8Array(gbytes.buffer), new Uint8Array(bbytes.buffer), hbytes, surf];
+  // the objectives as MAP_OBJ lays them out
+  const obj = new DataView(new ArrayBuffer(L.MAP_OBJ_SIZE));
+  const orel = (a) => a - L.MAP_OBJ;
+  obj.setUint32(orel(L.MAP_NHILL), hills.length, true);
+  flags.forEach((f, k) => f.forEach((v, i) => obj.setFloat32(orel(L.MAP_FLAGS) + 16 * k + 4 * i, v, true)));
+  ball.forEach((v, i) => obj.setFloat32(orel(L.MAP_BALL) + 4 * i, v, true));
+  hills.forEach((h, k) => h.forEach((v, i) => obj.setFloat32(orel(L.MAP_HILLS) + 16 * k + 4 * i, v, true)));
+  const parts = [new Uint8Array(head.buffer), new Uint8Array(gbytes.buffer), new Uint8Array(bbytes.buffer), hbytes, surf, new Uint8Array(obj.buffer)];
   const bytes = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   const offs = [];
   parts.reduce((at, p) => { offs.push(at); bytes.set(p, at); return at + p.length; }, 0);
@@ -165,10 +206,18 @@ export function compileMap(dir = mapDir()) {
     // folded into the arena's WAT as @MAPSEG_* and @MAPIMG_*
     consts: {
       MAPSEG_GROUPS: offs[1], MAPSEG_NGROUPB: gbytes.byteLength, MAPSEG_BOXES: offs[2], MAPSEG_NBOXB: bbytes.byteLength,
-      MAPSEG_H: offs[3], MAPSEG_S: offs[4], MAPIMG_X0: gx, MAPIMG_Z0: gz, MAPIMG_W: W, MAPIMG_H: H,
+      MAPSEG_H: offs[3], MAPSEG_S: offs[4], MAPSEG_OBJ: offs[5], MAPIMG_X0: gx, MAPIMG_Z0: gz, MAPIMG_W: W, MAPIMG_H: H,
     },
-    bounds, groups, boxes, teleporters, spawns, pads, heights, surf, origin: [ox, oz], size: [W, H],
+    bounds, groups, boxes, teleporters, spawns, pads, flags, ball, hills, sides, heights, surf, origin: [ox, oz], size: [W, H],
   };
+}
+
+// Whose half of the map (x, z) is on, as the sim's $a_half reckons it in f32:
+// 0 red's if strictly nearer red's flag than blue's, else 1 blue's.
+export function half(x, z, flags) {
+  const f = Math.fround;
+  const d2 = ([fx, fz]) => { const dx = f(f(x) - f(fx)), dz = f(f(z) - f(fz)); return f(f(dx * dx) + f(dz * dz)); };
+  return d2(flags[0]) < d2(flags[1]) ? 0 : 1;
 }
 
 // The segment as WAT text: a passive data segment, copied out by memory.init.
@@ -185,4 +234,7 @@ if (isMain(import.meta.url)) {
   console.log(`${m.name}: ${m.size[0]} x ${m.size[1]} samples at ${m.origin.join(', ')}, ${m.boxes.length} boxes in ${m.groups.length} structures, ` +
     `${m.teleporters.length} teleporters, ${m.spawns.length} spawns, ${m.pads.length} pads; ${m.bytes.length} B`);
   for (const g of m.groups) console.log(`  ${g.name}: ${g.count} boxes, ${g.bound.map((v) => +v.toFixed(2)).join(' ')}`);
+  const at = ([x, z, top]) => `${x}, ${z}${top === GROUND ? '' : ` up to ${top}`}`;
+  console.log(`  flags: red ${at(m.flags[0])}, blue ${at(m.flags[1])}; spawns on each half: red ${m.sides[0]}, blue ${m.sides[1]}`);
+  console.log(`  the skull: ${at(m.ball)}; ${m.hills.length} hills: ${m.hills.map((h) => `${at(h)} r ${h[3]}`).join('; ')}`);
 }

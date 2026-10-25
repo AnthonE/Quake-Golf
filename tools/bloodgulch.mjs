@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // How maps/bloodgulch/ was drawn: the ground painted into height.png and
-// surface.png, the structures, teleporters, spawns and pads written to
-// map.json. The files it writes are the map; this is only the brush that
+// surface.png, the structures, teleporters, spawns, pads and the team
+// modes' objectives written to map.json. The files it writes are the map;
+// this is only the brush that
 // made them. Edit the images in any paint program (16-bit grey, 1/256 m a
 // level), map.json in any editor, or this and run it again:
 //   node tools/bloodgulch.mjs [maps/bloodgulch]
@@ -133,6 +134,16 @@ export function bloodGulch() {
       { weapon: 'rocket', at: [512, 512] }, { weapon: 'shotgun', at: [418, 548] }, { weapon: 'shotgun', at: [606, 476] },
       { weapon: 'sword', at: [512, 574] }, { weapon: 'br', at: [452, 478] }, { weapon: 'br', at: [572, 546] },
       { weapon: 'needler', at: [482, 548] }, { weapon: 'plasma', at: [542, 468] }, { weapon: 'br', at: [512, 458] }, { weapon: 'plasma', at: [436, 500] },
+    ],
+    // what the team modes play for: a flag on each base's floor, in the middle
+    // of its room; the skull mid-field, as far from either base as from its
+    // teleporter's exit; six hills, by turns either side of the middle (a
+    // roof's top keeps it off the room under it, the cave's off the ridge)
+    flags: BASES.map((b) => ({ team: b.team, at: [b.x, 512] })),
+    ball: { at: [512, 512] },
+    hills: [
+      { at: [512, 512], radius: 8 }, { at: [BASES[0].x, 512, PAD + ROOF + 0.5], radius: 6 }, { at: [568.5, 570.5, 24], radius: 4 },
+      { at: [512, CAVE.z0 + 2, CAVE.floor + 2], radius: 4 }, { at: [BASES[1].x, 512, PAD + ROOF + 0.5], radius: 6 }, { at: [454.5, 453.5, 24], radius: 4 },
     ],
   };
 }

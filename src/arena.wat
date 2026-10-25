@@ -18,9 +18,10 @@
 ;; fighter in MODE_REC.
 
 ;; ---- the map, built from maps/<name>/ by tools/map.mjs into this passive
-;; segment: its head, its structures (boxes in groups), then its height and
-;; surface images. Init copies them out; past the images the generated
-;; terrain becomes the mountains round it, climbing from the images' edge.
+;; segment: its head, its structures (boxes in groups), its height and
+;; surface images, then the team modes' objectives. Init copies them out;
+;; past the images the generated terrain becomes the mountains round it,
+;; climbing from the images' edge.
 (!mapdata)
 
 (func $arena_gen (param $seed i32)
@@ -29,6 +30,7 @@
   (memory.init $map (i32.const @MAP) (i32.const 0) (i32.const @MAP_HEAD))
   (memory.init $map (i32.const @MAP_GROUPS) (i32.const @MAPSEG_GROUPS) (i32.const @MAPSEG_NGROUPB))
   (memory.init $map (i32.const @MAP_BOXES) (i32.const @MAPSEG_BOXES) (i32.const @MAPSEG_NBOXB))
+  (memory.init $map (i32.const @MAP_OBJ) (i32.const @MAPSEG_OBJ) (i32.const @MAP_OBJ_SIZE))
   (!for $z (i32.const 0) (i32.const @MAPIMG_H)
     (local.set $k (i32.add (i32.mul (i32.add (local.get $z) (i32.const @MAPIMG_Z0)) (i32.const @GRID)) (i32.const @MAPIMG_X0)))
     (memory.init $map (i32.add (i32.const @TERRAIN_H) (i32.shl (local.get $k) (i32.const 1)))
