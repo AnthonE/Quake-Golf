@@ -50,7 +50,7 @@ test('readers: sides, carriers and a team mode\'s header; nobody is an ally or r
   setMode(g, L.M_SLAYER);
   const md = g.v.mode();
   assert.equal(md.teamed, true);
-  assert.equal(md.name, 'TEAM SLAYER');
+  assert.equal(md.name, 'TEAM DEATHMATCH');
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.fighter(p).team), [0, 1, 0, 1]);
   assert.deepEqual([[0, 2], [1, 3], [0, 1], [2, 3], [1, 1]].map(([p, q]) => g.v.ally(p, q)), [true, true, false, false, false]);
   // the header: scores red then blue, the target, the winner, the sides' counts
@@ -196,7 +196,7 @@ function walkRoute(v, from, goal) {
   assert.fail(`no way from ${from} to ${goal}`);
 }
 
-test('route(): doors found on Blood Gulch; into each base\'s room by one from mid-field, then to the flag; out and round to a roof', async () => {
+test('route(): doors found on Box Canyon; into each base\'s room by one from mid-field, then to the flag; out and round to a roof', async () => {
   const g = await world(1);
   const v = g.v;
   const at = (x, z, top) => [x, v.stand(x, z, top), z];
@@ -318,7 +318,7 @@ test('the AI fighter: roles by rank on its side, a hunt in Team Slayer, a carrie
   flags(g, 2, 0, L.PF_LIVE);
   assert.deepEqual([roleOf(g.v, 4).rank, roleOf(g.v, 6).rank], [1, 2]);
   flags(g, 2, L.PF_LIVE);
-  // red 0 north of the gulch, blue 3 out of sight behind red's base, everyone else far off: it runs for 3 by the route
+  // red 0 north of the canyon, blue 3 out of sight behind red's base, everyone else far off: it runs for 3 by the route
   for (let p = 0; p < 9; p++) put(g, p, 600 + p, 440);
   put(g, 0, 392, 470); put(g, 3, 392, 512);
   for (let p = 0; p < 9; p++) for (const o of [L.P_VX, L.P_VY, L.P_VZ]) g.dv.setFloat32(rec(p) + o, 0, true);

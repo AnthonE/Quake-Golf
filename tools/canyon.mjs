@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// How maps/bloodgulch/ was drawn: the ground painted into height.png and
+// How maps/canyon/ was drawn: the ground painted into height.png and
 // surface.png, the structures, teleporters, spawns, pads and the team
 // modes' objectives written to map.json. The files it writes are the map;
 // this is only the brush that
 // made them. Edit the images in any paint program (16-bit grey, 1/256 m a
 // level), map.json in any editor, or this and run it again:
-//   node tools/bloodgulch.mjs [maps/bloodgulch]
+//   node tools/canyon.mjs [maps/canyon]
 //
-// The gulch runs along x, walled all round: a base at each end, back to the
+// The canyon runs along x, walled all round: a base at each end, back to the
 // cliff, its roof reached by stairs inside to a hatch or by a bridge from the
 // slope behind it; a teleporter behind each base to the far side of the
 // field; a ridge along the north wall with a cave through it; a creek bed
@@ -104,7 +104,7 @@ function basePrefab() {
   return B.map((b) => b.map(tidy));
 }
 
-export function bloodGulch() {
+export function boxCanyon() {
   const at = (b) => [b.x, PAD, 512];
   const local = (b, p) => placePoint(p, at(b), b.turn).map(tidy);
   const spawns = [];
@@ -117,7 +117,7 @@ export function bloodGulch() {
     [465, 525], [560, 470], [512, 512], [540, 586], [450, 585], [575, 445]]) spawns.push([x, z]);
   const tele = (b, [x, z]) => ({ from: local(b, [-12, 0, 10]), to: [x, +(ground(x, z).h + 0.1).toFixed(2), z], radius: 1.1 });
   return {
-    name: 'Blood Gulch',
+    name: 'Box Canyon',
     bounds: BOUNDS,
     terrain: { origin: ORIGIN, height: 'height.png', scale: 1 / 256, base: 0, surface: 'surface.png' },
     prefabs: { base: basePrefab() },
@@ -167,12 +167,12 @@ export function paint() {
 }
 
 if (isMain(import.meta.url)) {
-  const dir = process.argv[2] || 'maps/bloodgulch';
+  const dir = process.argv[2] || 'maps/canyon';
   mkdirSync(dir, { recursive: true });
   const { hgt, rgb } = paint();
   writeFileSync(join(dir, 'height.png'), encodePng({ width: SIZE[0], height: SIZE[1], channels: 1, depth: 16, data: hgt }));
   writeFileSync(join(dir, 'surface.png'), encodePng({ width: SIZE[0], height: SIZE[1], channels: 3, depth: 8, data: rgb }));
-  const spec = bloodGulch();
+  const spec = boxCanyon();
   // one box to a line, so the file reads (and diffs) like a level script
   const text = JSON.stringify(spec, null, 2).replace(/\[\s+(-?[\d.]+|"[^"]*"),\s+([^[\]{}]*?)\s+\]/g, (m) => m.replace(/\s+/g, ' ').replace('[ ', '[').replace(' ]', ']'));
   writeFileSync(join(dir, 'map.json'), text + '\n');

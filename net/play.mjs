@@ -91,7 +91,7 @@ if (fireplace) {
   const page = host === '0.0.0.0' ? '<this machine>' : host;
   console.log(`\nopen http://${page}:${web}/client/arena.html?hash=${encodeURIComponent(hash)} in Chrome`);
   console.log('click to play: mouse aims, WASD runs, space jumps, left click fires, right click zooms, 1/2, X or the wheel swaps guns,');
-  console.log('Q melee, G grenade, R reload, E picks up the gun on a pad, Tab scores, F fullscreen. Fiesta: random guns, most kills in 10 minutes wins.');
+  console.log('Q melee, G grenade, R reload, E picks up the gun on a pad, Tab scores, F fullscreen. Grab Bag: random guns, most kills in 10 minutes wins.');
   if (nbots) {
     await new Promise((ok) => setTimeout(ok, 1500));
     mkdirSync('traces', { recursive: true });
@@ -105,5 +105,5 @@ if (fireplace) {
   console.log(`\nopen http://${page}:${web}/client/?hash=${encodeURIComponent(hash)} in two Chrome tabs`);
   console.log('click to play: mouse aims, WASD runs, space jumps, left click fires, 1/2 or right click picks rocket or grenade, Tab scores, F fullscreen');
   console.log(`replays: each room's lands in replays/ when it ends; play one at http://${page}:${web}/client/?replay=../replays/<file>`);
-  console.log('a rocket blast just behind your ball drives it far and high; farther back is a softer shot; it rolls into the slipgate cup');
+  console.log('a rocket blast just behind your ball drives it far and high; farther back is a softer shot; it rolls into the cup');
 }

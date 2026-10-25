@@ -383,7 +383,7 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
       let n = vec3f(s.uv.x, -s.uv.y, sqrt(1.0 - r2));
       c *= 0.45 + 0.6 * max(dot(n, normalize(vec3f(0.3, 0.8, 0.5))), 0.0);
     }
-    case 1u: { // a spartan: helmet with a gold visor, armoured body, legs
+    case 1u: { // a soldier: helmet with a gold visor, armoured body, legs
       let y = s.uv.y;
       let head = length(vec2f(s.uv.x * 1.15, (y + 0.78) * 2.0)) < 0.42;
       let visor = head && y > -0.86 && y < -0.72 && abs(s.uv.x) < 0.3;
