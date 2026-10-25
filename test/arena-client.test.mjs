@@ -10,6 +10,7 @@ import { AMC, newsOf, SIDE, SIDE_C } from '../client/am/index.mjs';
 import slayer, { lead, nearestEnemy } from '../client/am/slayer.mjs';
 import { C } from '../client/font.mjs';
 import * as L from '../src/layout.mjs';
+import * as AC from '../src/am/consts.mjs';
 
 // The arena's clients against a world whose memory is poked into shape: the
 // teams sim isn't needed to read sides, scores and objectives, to draw them,
@@ -105,11 +106,24 @@ test('the kit: a module for every team mode, news routed by its MX codes', () =>
   }
   assert.equal(AMC[L.M_FIESTA] ?? AMC[L.M_INFECTION] ?? AMC[L.M_GUNGAME] ?? AMC[L.M_JUGGERNAUT], undefined);
   assert.equal(newsOf(L.MX_TEAMWIN), undefined);
-  assert.equal(newsOf(L.TS_MX_LEAD), slayer);
-  assert.equal(newsOf(L.CF_MX_TAKE), AMC[L.M_CTF]);
-  assert.equal(newsOf(L.HL_MX_CONTEST), AMC[L.M_HILL]);
+  assert.equal(newsOf(AC.TS_MX_LEAD), slayer);
+  assert.equal(newsOf(AC.CF_MX_TAKE), AMC[L.M_CTF]);
+  assert.equal(newsOf(AC.HL_MX_CONTEST), AMC[L.M_HILL]);
   assert.deepEqual([AMC[L.M_CTF].carry, AMC[L.M_ODDBALL].carry], ['flag', 'skull']);
   assert.deepEqual([SIDE, SIDE_C], [['RED', 'BLUE'], [C.RED, C.CYAN]]);
+});
+
+test('AM_CONSTS: every team mode\'s constants, none named twice, after a layout name or after a minigame\'s; out of layout.mjs\'s namespace', async () => {
+  const seen = new Map();
+  for (const a of L.AM) {
+    for (const [k, v] of Object.entries(await import(`../src/am/${a.key}.mjs`))) {
+      assert.ok(!seen.has(k), `${k} in ${a.key} and ${seen.get(k)}`);
+      assert.ok(!(k in L) && !(k in L.MG_CONSTS), `${k} in ${a.key} and layout.mjs or a minigame`);
+      assert.deepEqual([L.AM_CONSTS[k], AC[k]], [v, v]);
+      seen.set(k, a.key);
+    }
+  }
+  assert.equal(Object.keys(L.AM_CONSTS).length, seen.size);
 });
 
 test('Team Slayer\'s module: the lead in words, its HUD lines and news, a hunt for the nearest enemy', async () => {
@@ -125,7 +139,7 @@ test('Team Slayer\'s module: the lead in words, its HUD lines and news, a hunt f
   // news: blue takes the lead (shot 2), told to each side
   for (const team of [0, 1]) {
     const said = [], shown = [];
-    slayer.news({ size: L.TS_MX_LEAD, owner: 3, shot: 2 }, { slot: 5, me: { slot: 5 }, team: (p) => (p === 5 ? team : -1), C, feed: (t, c) => said.push([t, c]), banner: (t, c) => shown.push([t, c]) });
+    slayer.news({ size: AC.TS_MX_LEAD, owner: 3, shot: 2 }, { slot: 5, me: { slot: 5 }, team: (p) => (p === 5 ? team : -1), C, feed: (t, c) => said.push([t, c]), banner: (t, c) => shown.push([t, c]) });
     assert.deepEqual(said, [['BLUE TAKES THE LEAD', C.CYAN]]);
     assert.deepEqual(shown, [[team ? 'YOUR SIDE TAKES THE LEAD' : 'BLUE TAKES THE LEAD', C.CYAN]]);
   }

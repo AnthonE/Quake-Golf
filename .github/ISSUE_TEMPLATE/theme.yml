@@ -1,0 +1,32 @@
+name: A theme for the living room
+description: Propose a reskin of Fireplace's room, or say you're making one
+title: "[theme] "
+labels: [theme]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A theme is one JSON file in `client/themes/`: colours, what's on the mantel, the weather at the window. CONTRIBUTING.md says how to make one and see it as you save. You don't need an issue to send one; this is for saying what you're making, or asking for one.
+  - type: input
+    id: name
+    attributes:
+      label: Its name
+      placeholder: Summer Rain
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What it looks like
+      description: The colours, the mantel (pumpkins, baubles or none), the window (snow, rain or clear).
+    validations:
+      required: true
+  - type: dropdown
+    id: making
+    attributes:
+      label: Are you making it?
+      options:
+        - Yes, a PR is coming
+        - No, it's an idea for someone else
+    validations:
+      required: true

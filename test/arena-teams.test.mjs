@@ -8,6 +8,7 @@ import { compileMap, half } from '../tools/map.mjs';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import * as L from '../src/layout.mjs';
+import * as AC from '../src/am/consts.mjs';
 
 // The teams core and Team Slayer (src/arena.wat's team modes, src/am/slayer.wat).
 // Helpers as test/arena-modes.test.mjs has them; a fighter's side, carry and
@@ -183,7 +184,7 @@ test('teams: dealt red, blue, red... in slot order as a match starts; a join goe
 });
 
 test('every team mode on the kit: sides, its target set as play starts, red against blue to the clock, a draw at 0 to 0', async () => {
-  const want = { [L.M_SLAYER]: L.TS_MIN, [L.M_CTF]: L.CF_CAPS, [L.M_ODDBALL]: L.OB_TARGET, [L.M_HILL]: L.HL_TARGET };
+  const want = { [L.M_SLAYER]: AC.TS_MIN, [L.M_CTF]: AC.CF_CAPS, [L.M_ODDBALL]: AC.OB_TARGET, [L.M_HILL]: AC.HL_TARGET };
   for (const { mode } of L.AM) {
     const g = await room(mode, 3);
     const name = L.MODES[mode].name;
@@ -409,7 +410,7 @@ test('carrying: no shot, no frag, no reload, no pickup; a click or a melee swing
 
 test('Team Slayer: a kill of an enemy scores for the killer\'s side, a death by its own hand takes one off its own (never below 0); news as a side takes the lead', async () => {
   const g = await room(L.M_SLAYER, 4);
-  const lead = (from) => fxs(g.v, L.FX_MODE, L.TS_MX_LEAD, from).map((f) => [f.owner, f.shot]);
+  const lead = (from) => fxs(g.v, L.FX_MODE, AC.TS_MX_LEAD, from).map((f) => [f.owner, f.shot]);
   const swords = () => { for (const p of [0, 1, 2, 3]) loadout(g, p, L.W_SWORD); };
   swords();
   for (let i = 0; i < L.COOL_TICKS; i++) g.step();
@@ -441,20 +442,20 @@ test('Team Slayer: a kill of an enemy scores for the killer\'s side, a death by 
 });
 
 test('Team Slayer: the target is TS_PER a fighter on the larger side, at least TS_MIN; over on the tick a side reaches it; at the clock the side ahead, or a draw; places and MX_TEAMWIN', async () => {
-  assert.equal(u32(await room(L.M_SLAYER, 2), L.AH_TARGET), L.TS_MIN);
+  assert.equal(u32(await room(L.M_SLAYER, 2), L.AH_TARGET), AC.TS_MIN);
   const big = await room(L.M_SLAYER, 13);
-  assert.deepEqual([teamN(big), u32(big, L.AH_TARGET)], [[7, 6], 7 * L.TS_PER]);
+  assert.deepEqual([teamN(big), u32(big, L.AH_TARGET)], [[7, 6], 7 * AC.TS_PER]);
   // the target: blue reaches it on a kill
   const g = await room(L.M_SLAYER, 4);
   loadout(g, 1, L.W_SWORD);
-  g.dv.setUint32(L.AH_SCORE + 4, L.TS_MIN - 1, true);
+  g.dv.setUint32(L.AH_SCORE + 4, AC.TS_MIN - 1, true);
   g.dv.setUint32(L.AH_SCORE, 30, true);
   for (let i = 0; i < L.COOL_TICKS; i++) g.step();
   const kills = [3, 5, 6, 1];
   for (let p = 0; p < 4; p++) g.dv.setUint16(rec(p) + L.A_KILLS, kills[p], true);
   let from = g.v.fxCount();
   melee(g, 1, 0);
-  assert.deepEqual([g.v.hole().state, scores(g), u32(g, L.AH_TEAMWIN)], [L.H_OVER, [30, L.TS_MIN], 2], 'over on its tick, blue\'s');
+  assert.deepEqual([g.v.hole().state, scores(g), u32(g, L.AH_TEAMWIN)], [L.H_OVER, [30, AC.TS_MIN], 2], 'over on its tick, blue\'s');
   assert.deepEqual(fxs(g.v, L.FX_MODE, L.MX_TEAMWIN, from).map((f) => f.shot), [2]);
   // blue (1 with 6 kills, 3 with 1) above red (2 with 6, 0 with 3)
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.fighter(p).place), [4, 1, 3, 2]);
@@ -476,7 +477,7 @@ test('Team Slayer: the target is TS_PER a fighter on the larger side, at least T
   assert.deepEqual([0, 1, 2, 3].map((p) => s.v.fighter(p).place), [3, 1, 2, 4]);
   // the next match starts from zero
   untilPlay(s);
-  assert.deepEqual([scores(s), u32(s, L.AH_TEAMWIN), u32(s, L.AH_TARGET)], [[0, 0], 0, L.TS_MIN]);
+  assert.deepEqual([scores(s), u32(s, L.AH_TEAMWIN), u32(s, L.AH_TARGET)], [[0, 0], 0, AC.TS_MIN]);
 });
 
 test('a pickup drops any press still waiting, and a trigger held across it never swings; a click after a still tick, or Q, does', async () => {

@@ -9,6 +9,7 @@ import { makeMacros } from '../src/macros.mjs';
 import { playParty, partySeed } from '../tools/genparty.mjs';
 import { MG } from '../client/mg/index.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/thinice.mjs'; // TI_*: the minigame's own constants
 
 const TURN = 16384;
 const THIN = L.MG_THINICE + 1;
@@ -60,7 +61,23 @@ test('the layout: the header between golf\'s and Fireplace\'s, the state between
   const ids = [L.MG_THINICE, L.MG_COLOR, L.MG_SWEEP, L.MG_LIGHT, L.MG_BOMBS, L.MG_WALL, L.MG_PADS, L.MG_HILL, L.MG_POTATO, L.MG_COINS, L.MG_PAINT, L.MG_RACE, L.MG_CHUTE, L.MG_TAG];
   assert.deepEqual(ids, [...Array(L.NMG).keys()]);
   assert.deepEqual(L.MINIGAMES.map((m) => m.prefix), ['ti', 'cc', 'sw', 'rl', 'bo', 'wl', 'mp', 'kh', 'hp', 'cr', 'pp', 'rc', 'fc', 'tg']);
-  assert.equal(L.TI_FX_CRACK, L.FX_MG + 4 * L.MG_THINICE);
+  assert.equal(MC.TI_FX_CRACK, L.FX_MG + 4 * L.MG_THINICE);
+});
+
+test('MG_CONSTS: every minigame\'s constants, none named twice or after a layout name; the layout\'s own names held under V8\'s dictionary line', async () => {
+  const seen = new Map();
+  for (const m of L.MINIGAMES) {
+    for (const [k, v] of Object.entries(await import(`../src/mg/${m.key}.mjs`))) {
+      assert.ok(!seen.has(k), `${k} in ${m.key} and ${seen.get(k)}`);
+      assert.ok(!(k in L), `${k} in ${m.key} and layout.mjs`);
+      assert.deepEqual(L.MG_CONSTS[k], v);
+      seen.set(k, m.key);
+    }
+  }
+  assert.equal(Object.keys(L.MG_CONSTS).length, seen.size);
+  // past about 1,020 exports V8 keeps a module namespace as a dictionary, and
+  // every L.NAME read in the bot host, the relay and a page's frame slows 14 times
+  assert.ok(Object.keys(L).length < 800, `layout.mjs exports ${Object.keys(L).length} names`);
 });
 
 test('(!mg type hook args...): an if-chain on PG_GAME over every minigame, the last its else', () => {
@@ -326,20 +343,20 @@ test('the prediction matches the confirmed ball bit for bit: into play off the c
   // cracked a lap before, drops through and lands on the layer below
   let k = 0;
   const circling = () => partyWord({ yaw: (TURN / 4 + k * 40) & (TURN - 1), move: 1, hop: k++ % 150 === 60 ? 1 : 0 });
-  for (let n = 0; n < 40 && !(g.v.partier(0).ground && g.v.partier(0).pos[1] === PLAT_Y - L.TI_GAP); n++) {
+  for (let n = 0; n < 40 && !(g.v.partier(0).ground && g.v.partier(0).pos[1] === PLAT_Y - MC.TI_GAP); n++) {
     assert.ok(predicted(g, Array.from({ length: 25 }, circling)) >= 25);
   }
   let b = g.v.partier(0);
-  assert.ok(b.ground && b.pos[1] === PLAT_Y - L.TI_GAP, `a layer down at ${b.pos[1]} after ${k} ticks`);
+  assert.ok(b.ground && b.pos[1] === PLAT_Y - MC.TI_GAP, `a layer down at ${b.pos[1]} after ${k} ticks`);
   assert.ok(k > 300, 'after a lap');
   // standing still: the tile under it cracks, holds, drops, and it falls another layer and lands
-  for (let n = 0; n < 40 && !(g.v.partier(0).ground && g.v.partier(0).pos[1] === PLAT_Y - 2 * L.TI_GAP); n++) {
+  for (let n = 0; n < 40 && !(g.v.partier(0).ground && g.v.partier(0).pos[1] === PLAT_Y - 2 * MC.TI_GAP); n++) {
     assert.ok(predicted(g, Array.from({ length: 10 }, () => partyWord({ yaw: 0 }))) >= 10);
   }
   b = g.v.partier(0);
-  assert.ok(b.ground && b.pos[1] === PLAT_Y - 2 * L.TI_GAP, `the last layer at ${b.pos[1]}`);
+  assert.ok(b.ground && b.pos[1] === PLAT_Y - 2 * MC.TI_GAP, `the last layer at ${b.pos[1]}`);
   // and through the last one, going out (not yet counted out)
-  assert.ok(predicted(g, Array.from({ length: L.TI_HOLD + 110 }, () => partyWord({ yaw: 0 }))) >= L.TI_HOLD + 110);
+  assert.ok(predicted(g, Array.from({ length: MC.TI_HOLD + 110 }, () => partyWord({ yaw: 0 }))) >= MC.TI_HOLD + 110);
   b = g.v.partier(0);
   assert.ok(b.falling && !b.out, `going out, at ${b.pos[1]}`);
 });
@@ -355,15 +372,15 @@ test('the hex grid: hexAt and hexCentre mirror the sim\'s, each cell\'s centre i
   assert.equal(hexCentre(0, 1, 2)[1], L.B_CX + 3);
   // the sim's own cells for Thin Ice's tiles agree: every tile's centre is on the disc
   const g = await room({ n: 8, play: false });
-  const rad = g.dv.getFloat32(L.PG_H + L.TI_RAD, true);
+  const rad = g.dv.getFloat32(L.PG_H + MC.TI_RAD, true);
   let tiles = 0;
-  for (let r = -L.TI_N; r <= L.TI_N; r++) for (let q = -L.TI_N; q <= L.TI_N; q++) {
-    const on = g.dv.getUint32(L.PG_BIG + 4 * ((r + L.TI_N) * L.TI_W + q + L.TI_N), true) === 1;
-    const [x, z] = hexCentre(q, r, L.TI_S);
+  for (let r = -MC.TI_N; r <= MC.TI_N; r++) for (let q = -MC.TI_N; q <= MC.TI_N; q++) {
+    const on = g.dv.getUint32(L.PG_BIG + 4 * ((r + MC.TI_N) * MC.TI_W + q + MC.TI_N), true) === 1;
+    const [x, z] = hexCentre(q, r, MC.TI_S);
     assert.equal(on, Math.hypot(x - L.B_CX, z - L.B_CX) <= rad + 1e-4, `tile ${q},${r}`);
     tiles += on;
   }
-  assert.equal(tiles, g.dv.getUint32(L.PG_H + L.TI_COUNT, true));
+  assert.equal(tiles, g.dv.getUint32(L.PG_H + MC.TI_COUNT, true));
   assert.equal(hash32(1, 2, 3), hash32(1, 2, 3));
   const k = seed(g.v, 5);
   assert.ok(k >= 0 && k < 2 ** 32);
@@ -423,8 +440,11 @@ test('rounds of AI balls on the debug build, no trap: Thin Ice, then the rotatio
   // Thin Ice forced (through the seed), a ball leaving and coming back
   const ti = await playParty({ bytes, mg: L.MG_THINICE, bots: 12, ticks: 5000, leaveAt: 1200 });
   assert.ok(ti.rounds >= 1 && ti.games.every((g) => g === L.MG_THINICE), `${ti.rounds} rounds of ${ti.games}`);
-  // seed 9's rotation opens on Thin Ice, then whatever the PRNG picks next
-  const rot = await playParty({ bytes, seed: 9, bots: 12, ticks: 6500, leaveAt: 1500 });
+  // a rotation that opens on Thin Ice, then whatever the PRNG picks next (seed 9's, with fourteen minigames:
+  // which seed opens on it moves as minigames are added, so it is looked for)
+  let seed = 9;
+  while ((await playParty({ bytes, seed, bots: 12, ticks: 800 })).games[0] !== L.MG_THINICE) seed++;
+  const rot = await playParty({ bytes, seed, bots: 12, ticks: 6500, leaveAt: 1500 });
   assert.ok(rot.games.length >= 2 && rot.games[0] === L.MG_THINICE && rot.games[1] !== L.MG_THINICE, `minigames ${rot.games}`);
   assert.equal(partySeed(5, 3), (0xa7030005) >>> 0);
   for (const [tag, r, ticks] of [['ti', ti, 5000], ['rot', rot, 6500]]) {

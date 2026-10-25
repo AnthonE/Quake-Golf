@@ -305,7 +305,8 @@ carrying) and each mode in its own files, `src/am/<key>.wat` (four hooks,
 called through the `(!am)` macro while the mode is on: `start` as play
 begins, `tick` every tick of play, `kill` on a death, and `bar`, asked
 before a fighter spawns at a spawn point), `src/am/<key>.mjs` (its
-constants and its state's fields), `client/am/<key>.mjs` (how it draws, its
+constants and its state's fields, gathered into `AM_CONSTS` for the assembler
+and out of `layout.mjs`'s namespace, as the minigames' are), `client/am/<key>.mjs` (how it draws, its
 HUD lines, news and board columns, and what the AI fighter goes for) and
 `test/arena-<key>.test.mjs`. A side is a bit of the fighter's flags, `PF_BLUE` (64), and a carrier
 another, `PF_CARRY` (128), so the prediction runs your own swing as the
@@ -362,7 +363,7 @@ every hill it comes to, both sides scoring (45 to 78, 62 to 80), and a lone
 fighter of either side gets onto each of the six hills in 4 to 30 s and stays
 on it (all the time on the field, the roofs and the cave, 61 to 100% on the
 rocks' 5 x 3 m tops).
-`test/arena-client.test.mjs` (10): the readers (nobody red in a Fiesta), the
+`test/arena-client.test.mjs` (11): the readers (nobody red in a Fiesta), the
 kit's modules and their news, the waypoints landing where the shader's
 projection puts them, routes through Blood Gulch's doors from every spawn
 to every objective with no leg into a wall, a body's width clear, roles.
@@ -559,7 +560,8 @@ node net/play.mjs --fireplace --bots 0   # just people
 ```
 
 Click (or Enter) to sit down; then each game's own controls. `?bot=1` sits a
-guest at the controls; `?watch=1` spectates; F goes fullscreen.
+guest at the controls; `?watch=1` spectates; F goes fullscreen; T, while the
+room is in view, changes its theme (`?theme=<id>` picks one).
 
 **How it fits on the engine.** `build/fireplace/game.wasm` is golf, the arena,
 bumper balls and party in one module: `tools/asm.mjs` expands each exactly as
@@ -607,7 +609,7 @@ of the game on now. The room (`client/room-render.mjs`) is drawn like the
 cheese, solved per pixel: a few dozen boxes, two pumpkins and the antenna's
 rods, lit by the fire (it flickers, and its shadow is cast through the
 firebox's mouth), by the TV in the colour of the game on it, and by the snow
-light. The flames are a short march through the firebox. While the room is in
+light, every colour the theme's. The flames are a short march through the firebox. While the room is in
 view the game draws into a texture that the TV shows through a curved CRT with
 scanlines and a shadow mask, and those fade as the camera closes in, so the
 zoom's last frame is the game as it draws itself; then the page shows the
@@ -615,6 +617,31 @@ game's own canvas. The TV's cards (the title, the standings, what's next, the
 arena by its mode: "NEXT: ARENA INFECTION") are drawn in the games' 3x5 font.
 `client/fireplace-bot.mjs` is a guest: a brain for each game (party's is
 `client/party-bot.mjs`'s Partier), asked for the one that's on.
+
+**Themes.** A theme is a reskin of the room, local to whoever picks it: one
+JSON file in `client/themes/` naming any of the room's 29 colours (the brick,
+the wallpaper's stripes, the rug's yarns, the fire, the night through the
+window...), the weather at the window (`snow`, `rain`, `clear`) and what
+stands on the mantel (`pumpkins`, `baubles`, `none`). It is data, never code,
+and only the room's shader reads it (a uniform of its own, `client/themes.mjs`
+`pack()`), so no sim, net or other page sees it and a theme can't desync
+anything. Grandma's (`grandma.json`) writes out every default: against the
+renderer as it was before themes, no pixel of the couch view differs by more
+than 2 levels in 255 outside the mantel, where the pumpkins now show (they had
+sat inside the brick pillars). `npm run build` checks every file and bundles
+them into `build/themes.json` for the picker; the page reads the theme's own
+file, so an edit shows on a reload. `client/room.html` is the room alone, for
+making one: it reads the file every second and shows a mistake instead of
+drawing it. `node tools/theme-shots.mjs` draws each into
+`traces/themes/<id>.png` (CI keeps them), and `elo.json` credits each on the
+store (`node tools/elo.mjs`). CONTRIBUTING.md is the guide, for themes and
+minigames both.
+
+```sh
+node tools/themes.mjs new <id> <github-login>   # a theme at Grandma's colours, to edit
+node tools/serve.mjs                            # then /client/room.html?theme=<id>
+node --test test/themes.test.mjs
+```
 
 **Results.** `test/fireplace.test.mjs` (9 tests, 57 s here): the prefixer; one
 module with every export; the playlist on the debug build from bumper balls
@@ -852,16 +879,25 @@ the rotation, joins, the ball's roll over any stage, outs, places and points.
 bumper.wat's ball, power-ups, bumps and blasts stay; its cheese and its round
 are behind `#if !PARTY`, so bumper balls' own build is bit for bit what it was.
 Each minigame is its own file, `src/mg/<key>.wat` (its constants in
-`src/mg/<key>.mjs`, re-exported by `src/layout.mjs`), and supplies nine
-hooks under its prefix: `setup` lays the stage out for the balls in,
-`spawn` places them, `start` and `tick` run its world, `over` ends it early,
-`out` hears of a ball going out, and `begin` (one ball's own start as play
-starts), `ground` (the top of what's solid under a point) and `push`
-(kinematic hazards on one ball) run on either bank, the confirmed world or
-the prediction. The `(!mg)` macro calls the one on now.
+`src/mg/<key>.mjs`, gathered into `src/layout.mjs`'s `MG_CONSTS` for the
+assembler), and supplies nine hooks under its prefix: `setup` lays the
+stage out for the balls in, `spawn` places them, `start` and `tick` run its
+world, `over` ends it early, `out` hears of a ball going out, and `begin`
+(one ball's own start as play starts), `ground` (the top of what's solid
+under a point) and `push` (kinematic hazards on one ball) run on either bank,
+the confirmed world or the prediction. The `(!mg)` macro calls the one on now.
 State lives in 112 bytes of the header (in the prediction's copy), 7.75 KiB
 past the projectiles and the 448 KiB golf keeps its balls in, all hashed and
 in every keyframe.
+
+A new one starts from `node tools/new-mg.mjs <key> <prefix> "<NAME>"`: it
+writes the four files a minigame has (a sumo ring: a round platform sized for
+the crowd, bumps on, the last ball on wins) and appends it to the five lists
+that name them all (`MINIGAMES` and its constants in `src/layout.mjs`, the
+`#include` in `src/party.wat`, `client/mg/index.mjs`, the registry check in
+`test/party.test.mjs`). As written it builds, its two tests pass, and so does
+`npm test` with it in; golf, the arena and bumper balls keep their bytes.
+CONTRIBUTING.md takes it from there.
 
 Every stage moves on a schedule: what a ball meets (a falling tile, a bar,
 a wall, a fruit, a bomb's blast, a hill) is a function of the tick, the round's

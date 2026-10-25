@@ -6,11 +6,12 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/hill.mjs'; // KH_*: the minigame's own constants
 import hill, { stage, zoneAt, up, groundAt, reach, worth } from '../client/mg/hill.mjs';
 
 const C = L.B_CX;
 const TICK = 0.008;
-const P = L.KH_PERIOD;
+const P = MC.KH_PERIOD;
 
 // A room of n balls on King of the Hill, on the debug build (a NaN traps),
 // stepped into play unless asked not to.
@@ -30,7 +31,7 @@ const rec = (p) => L.PLAYERS + p * L.PSIZE;
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.KH_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.KH_LEN, true);
 }
 // Ball p at (x, z) on the ground the next step plays on (or at y), rolling at (vx, vz).
 function put(g, p, x, z, { y = null, vx = 0, vz = 0, ground = true } = {}) {
@@ -55,17 +56,17 @@ test('the stage for 1, 8, 64 and 256: a disc and its hills sized for the crowd, 
     const g = await room(n, { play: false, seed: n });
     const r = g.v.party();
     const st = stage(g.v);
-    assert.deepEqual([r.kind, r.len, r.respawn], [L.PK_SCORE, L.KH_LEN, L.KH_RESPAWN]);
-    const rad = Math.min(L.KH_R0 + L.KH_RK * Math.sqrt(n), L.KH_RMAX), z = L.KH_Z0 + L.KH_ZK * Math.sqrt(n);
+    assert.deepEqual([r.kind, r.len, r.respawn], [L.PK_SCORE, MC.KH_LEN, MC.KH_RESPAWN]);
+    const rad = Math.min(MC.KH_R0 + MC.KH_RK * Math.sqrt(n), MC.KH_RMAX), z = MC.KH_Z0 + MC.KH_ZK * Math.sqrt(n);
     assert.ok(Math.abs(r.size - rad) < 1e-4 && Math.abs(st.rad - rad) < 1e-4, `${r.size} m for ${n}`);
-    assert.ok(Math.abs(st.z - z) < 1e-4 && Math.abs(st.F - L.KH_FOOT * z) < 1e-4 && Math.abs(st.H - L.KH_HIGH * st.F) < 1e-4);
-    assert.ok(Math.abs(st.top - L.KH_TOPK * z) < 1e-4);
+    assert.ok(Math.abs(st.z - z) < 1e-4 && Math.abs(st.F - MC.KH_FOOT * z) < 1e-4 && Math.abs(st.H - MC.KH_HIGH * st.F) < 1e-4);
+    assert.ok(Math.abs(st.top - MC.KH_TOPK * z) < 1e-4);
     assert.ok(r.size > last, 'grows with the crowd');
     last = r.size;
     assert.equal(st.nh, nh, `${nh} hills a zone for ${n}`);
     // every hill near enough the middle that its hidden half stays under the floor
     const rs = Math.max(0, rad - 1.2 * st.F - 1);
-    for (let j = 0; j < L.KH_ZONES; j++) {
+    for (let j = 0; j < MC.KH_ZONES; j++) {
       for (const s of st.spots[j]) assert.ok(dist(s, [C, C]) <= rs + 0.02, `${n}: zone ${j}'s hill ${dist(s, [C, C]).toFixed(2)} m out, at most ${rs.toFixed(2)}`);
       for (let i = 0; i < nh; i++) for (let q = i + 1; q < nh; q++) assert.ok(dist(st.spots[j][i], st.spots[j][q]) >= 1.69 * st.F, `${n}: zone ${j}'s hills apart`);
       if (j > 0) {
@@ -147,7 +148,7 @@ test('a point a tick on the ground in the zone, two on its top, none outside it 
   assert.deepEqual([0, 1, 2, 3].map((p) => score(g, p) - before[p]), [2, 1, 0, 0]);
   assert.deepEqual([worth(st, 100, sx, sz), worth(st, 100, sx + 0.7 * st.z, sz), worth(st, 100, sx, sz - st.z - 0.5)], [2, 1, 0]);
   // 0.8 of the zone out: in as it opens, out once it has shrunk past it
-  assert.ok(Math.abs(reach(st, P - 1) - st.z * (1 - L.KH_SHRINK * (P - 1) / P)) < 1e-4);
+  assert.ok(Math.abs(reach(st, P - 1) - st.z * (1 - MC.KH_SHRINK * (P - 1) / P)) < 1e-4);
   for (const [t, want] of [[5, 1], [P - 10, 0]]) {
     at(g, t);
     put(g, 0, sx + 0.8 * st.z, sz);
@@ -162,18 +163,18 @@ test('every 15 s the zone moves on: the next hill swells 3 s ahead, the old one 
   const g = await room(2);
   const st = stage(g.v);
   const [ax, az] = st.spots[0][0], [bx, bz] = st.spots[1][0];
-  assert.ok(groundAt(st, P, bx, bz) - groundAt(st, P - L.KH_RISE - 1, bx, bz) > 0.2 * st.H, 'the next swells');
+  assert.ok(groundAt(st, P, bx, bz) - groundAt(st, P - MC.KH_RISE - 1, bx, bz) > 0.2 * st.H, 'the next swells');
   assert.ok(Math.abs(groundAt(st, P, bx, bz) - (PLAT_Y + st.H)) < 1e-4);
-  assert.equal(up(1, P - L.KH_RISE), 0);
+  assert.equal(up(1, P - MC.KH_RISE), 0);
   assert.equal(up(1, P), 1);
-  assert.equal(up(0, P + L.KH_RISE), 0);
-  assert.ok(up(1, P - L.KH_RISE / 2) > 0.45 && up(1, P - L.KH_RISE / 2) < 0.55);
-  at(g, P - L.KH_RISE - 2);
+  assert.equal(up(0, P + MC.KH_RISE), 0);
+  assert.ok(up(1, P - MC.KH_RISE / 2) > 0.45 && up(1, P - MC.KH_RISE / 2) < 0.55);
+  at(g, P - MC.KH_RISE - 2);
   put(g, 0, ax, az);
   put(g, 1, C + st.rad - 2, C);
   const fx0 = g.v.fxCount();
   let rode = true, y0 = Infinity;
-  for (let t = P - L.KH_RISE - 2; t < P + L.KH_RISE + 5; t++) {
+  for (let t = P - MC.KH_RISE - 2; t < P + MC.KH_RISE + 5; t++) {
     g.step([[L.EV_INPUT, 0, partyWord({ yaw: 0 })]]);
     const b = g.v.partier(0);
     if (t >= P) { rode &&= b.ground; assert.ok(b.pos[1] <= y0 + 1e-4, 'down with it'); y0 = b.pos[1]; }
@@ -181,18 +182,18 @@ test('every 15 s the zone moves on: the next hill swells 3 s ahead, the old one 
   assert.ok(rode, 'on the ground as its hill sank');
   assert.ok(g.v.partier(0).pos[1] < PLAT_Y + 0.5 * st.H, 'down off its top');
   assert.ok(g.v.fxCount() > fx0);
-  const next = fxs(g.v, L.KH_FX_NEXT).filter((f) => f.size === 1);
-  const move = fxs(g.v, L.KH_FX_MOVE).filter((f) => f.size === 1);
+  const next = fxs(g.v, MC.KH_FX_NEXT).filter((f) => f.size === 1);
+  const move = fxs(g.v, MC.KH_FX_MOVE).filter((f) => f.size === 1);
   assert.equal(next.length, 1);
   assert.equal(move.length, 1);
   const T = g.v.party().start;
   // (the clock was moved back past tick 0: the sim's u32 ticks wrap)
-  assert.deepEqual([(next[0].tick - T) | 0, next[0].pos[0], next[0].pos[2], next[0].pos[1]], [P - L.KH_RISE, bx, bz, PLAT_Y]);
+  assert.deepEqual([(next[0].tick - T) | 0, next[0].pos[0], next[0].pos[2], next[0].pos[1]], [P - MC.KH_RISE, bx, bz, PLAT_Y]);
   assert.equal((move[0].tick - T) | 0, P);
   assert.ok(Math.abs(move[0].pos[1] - (PLAT_Y + st.H)) < 1e-4, 'on the new top');
   assert.equal(zoneAt(P - 1), 0);
   assert.equal(zoneAt(P), 1);
-  assert.equal(zoneAt(L.KH_LEN + 5), L.KH_ZONES - 1);
+  assert.equal(zoneAt(MC.KH_LEN + 5), MC.KH_ZONES - 1);
 });
 
 test('off the rim a ball is down 2 s, then back on the disc off the open hills, falling in, its points kept', async () => {
@@ -209,7 +210,7 @@ test('off the rim a ball is down 2 s, then back on the disc off the open hills, 
   const down = g.v.partier(0).outAt;
   while (g.v.partier(0).out && k++ < 800) g.step();
   const b = g.v.partier(0);
-  assert.equal(g.v.tick - 1 - down, L.KH_RESPAWN, 'back after 2 s');
+  assert.equal(g.v.tick - 1 - down, MC.KH_RESPAWN, 'back after 2 s');
   assert.equal(score(g, 0), 321, 'its points kept');
   assert.ok(dist([b.pos[0], b.pos[2]], [C, C]) <= st.rad - 1.5 + 1e-3, 'on the disc');
   for (const s of st.spots[zoneAt(g.v.party().t)]) assert.ok(dist([b.pos[0], b.pos[2]], s) >= st.F + 1.5 - 1e-3, 'off the open hill');
@@ -217,7 +218,7 @@ test('off the rim a ball is down 2 s, then back on the disc off the open hills, 
 });
 
 // Power-up i of the open zone: { kind, state, pos }.
-const orb = (g, i) => { const o = L.PG_S + L.KH_ORBS + 16 * i; return { kind: g.v.u8[o + 12], state: g.v.u8[o + 13], pos: [0, 4, 8].map((k) => g.dv.getFloat32(o + k, true)) }; };
+const orb = (g, i) => { const o = L.PG_S + MC.KH_ORBS + 16 * i; return { kind: g.v.u8[o + 12], state: g.v.u8[o + 13], pos: [0, 4, 8].map((k) => g.dv.getFloat32(o + k, true)) }; };
 
 test('4 s into a zone a power-up drops onto each top and lands; the first ball onto it takes it and can use it; the zone moving on takes the rest', async () => {
   const g = await room(2);
@@ -225,7 +226,7 @@ test('4 s into a zone a power-up drops onto each top and lands; the first ball o
   const [sx, sz] = st.spots[0][0];
   put(g, 0, C + st.rad - 2, C);
   put(g, 1, C - st.rad + 2, C);
-  at(g, L.KH_ORB_AT - 1);
+  at(g, MC.KH_ORB_AT - 1);
   g.step();
   assert.equal(orb(g, 0).kind, 0, 'nothing before');
   g.step();
@@ -233,11 +234,11 @@ test('4 s into a zone a power-up drops onto each top and lands; the first ball o
   assert.ok([L.PU_POW, L.PU_MEGA, L.PU_DASH, L.PU_SPRING].includes(o.kind), `a ${L.PU_NAMES[o.kind]}`);
   assert.equal(o.state, 1, 'falling');
   assert.deepEqual([o.pos[0], o.pos[2]], [sx, sz], 'over the top');
-  const f = fxs(g.v, L.KH_FX_ORB).pop();
+  const f = fxs(g.v, MC.KH_FX_ORB).pop();
   assert.ok(f && f.size === o.kind && Math.abs(f.pos[1] - (PLAT_Y + st.H)) < 1e-4, 'its FX at the top it lands on');
   let k = 0;
   while (orb(g, 0).state === 1 && k++ < 400) g.step();
-  assert.ok(Math.abs(k - (L.KH_ORB_Y / 10) * 125) < 5, `landed ${k} ticks on`);
+  assert.ok(Math.abs(k - (MC.KH_ORB_Y / 10) * 125) < 5, `landed ${k} ticks on`);
   assert.ok(Math.abs(orb(g, 0).pos[1] - (PLAT_Y + st.H + 0.6)) < 1e-3, 'on the top');
   // ball 1 rolls onto it and takes it
   put(g, 1, sx - 1.2, sz);
@@ -254,7 +255,7 @@ test('4 s into a zone a power-up drops onto each top and lands; the first ball o
   assert.equal(g.v.partier(1).item, 0, 'used');
   assert.ok(g.v.partier(0).vel[0] > 5, `P1 shoved off by the POW: ${g.v.partier(0).vel[0].toFixed(1)} m/s`);
   // the next zone's, left where it lands, goes as that zone ends
-  at(g, P + L.KH_ORB_AT);
+  at(g, P + MC.KH_ORB_AT);
   put(g, 0, C + st.rad - 2, C);
   put(g, 1, C - st.rad + 2, C);
   g.step();
@@ -264,7 +265,7 @@ test('4 s into a zone a power-up drops onto each top and lands; the first ball o
   assert.equal(orb(g, 0).kind, 0, 'gone with its zone');
   // every kind it hands out is one of the four
   const kinds = new Set();
-  for (let j = 0; j < 40; j++) { at(g, L.KH_ORB_AT); g.step(); kinds.add(orb(g, 0).kind); }
+  for (let j = 0; j < 40; j++) { at(g, MC.KH_ORB_AT); g.step(); kinds.add(orb(g, 0).kind); }
   assert.deepEqual([...kinds].sort(), [L.PU_MEGA, L.PU_DASH, L.PU_POW, L.PU_SPRING].sort());
 });
 
@@ -272,13 +273,13 @@ test('the leader: the most points of the room, a tie keeping who had it; KH_FX_L
   const g = await room(3);
   const st = stage(g.v);
   for (let p = 0; p < 3; p++) put(g, p, C + (p - 1) * 6, C + st.rad - 3);
-  const lead = () => g.v.dv.getUint32(L.PG_H + L.KH_LEAD, true);
+  const lead = () => g.v.dv.getUint32(L.PG_H + MC.KH_LEAD, true);
   assert.equal(lead(), 0xffff, 'nobody before a point');
-  const n0 = fxs(g.v, L.KH_FX_LEAD).length;
+  const n0 = fxs(g.v, MC.KH_FX_LEAD).length;
   setScore(g, 0, 10); setScore(g, 1, 5);
   g.step();
   assert.equal(lead(), 0);
-  let f = fxs(g.v, L.KH_FX_LEAD);
+  let f = fxs(g.v, MC.KH_FX_LEAD);
   assert.equal(f.length, n0 + 1);
   assert.deepEqual([f.at(-1).owner, f.at(-1).shot, f.at(-1).size], [0, 0xffff, 10]);
   setScore(g, 1, 10);
@@ -287,41 +288,41 @@ test('the leader: the most points of the room, a tie keeping who had it; KH_FX_L
   setScore(g, 1, 11);
   g.step();
   assert.equal(lead(), 1, 'past it takes it');
-  assert.equal(fxs(g.v, L.KH_FX_LEAD).length, n0 + 1, 'but no FX within a second of the last');
-  for (let k = 0; k < L.KH_LEADGAP; k++) g.step();
+  assert.equal(fxs(g.v, MC.KH_FX_LEAD).length, n0 + 1, 'but no FX within a second of the last');
+  for (let k = 0; k < MC.KH_LEADGAP; k++) g.step();
   setScore(g, 2, 50);
   g.step();
-  f = fxs(g.v, L.KH_FX_LEAD);
+  f = fxs(g.v, MC.KH_FX_LEAD);
   assert.equal(lead(), 2);
   assert.deepEqual([f.length, f.at(-1).owner, f.at(-1).shot], [n0 + 2, 2, 1]);
 });
 
 test('a full room: slot 255 is a ball like any, not nobody: it takes the lead from nobody, and a tie for the first point goes by slot order', async () => {
   const g = await room(256, { seed: 256 });
-  const lead = () => g.v.dv.getUint32(L.PG_H + L.KH_LEAD, true);
+  const lead = () => g.v.dv.getUint32(L.PG_H + MC.KH_LEAD, true);
   const zero = () => { for (let p = 0; p < 256; p++) setScore(g, p, 0); };
   assert.ok(g.v.partier(255).live, 'slot 255 in');
   zero();
   g.step();
   assert.equal(lead(), 0xffff, 'nobody before a point: no crown');
   assert.equal(stage(g.v).lead < L.NPLAYER, false);
-  const n0 = fxs(g.v, L.KH_FX_LEAD).length;
+  const n0 = fxs(g.v, MC.KH_FX_LEAD).length;
   // slot 255's first point: its lead, from nobody
   setScore(g, 255, 1);
   g.step();
   assert.equal(lead(), 255);
-  let f = fxs(g.v, L.KH_FX_LEAD);
+  let f = fxs(g.v, MC.KH_FX_LEAD);
   assert.equal(f.length, n0 + 1, 'YOU TAKE THE LEAD for slot 255');
   assert.deepEqual([f.at(-1).owner, f.at(-1).shot, f.at(-1).size], [255, 0xffff, 1]);
   // back to nobody; a second on, 254 and 255 score on one tick: 254's, by slot order, from nobody
   zero();
   g.step();
   assert.equal(lead(), 0xffff);
-  for (let k = 0; k < L.KH_LEADGAP; k++) g.step();
+  for (let k = 0; k < MC.KH_LEADGAP; k++) g.step();
   setScore(g, 254, 1); setScore(g, 255, 1);
   g.step();
   assert.equal(lead(), 254);
-  f = fxs(g.v, L.KH_FX_LEAD);
+  f = fxs(g.v, MC.KH_FX_LEAD);
   assert.equal(f.length, n0 + 2);
   assert.deepEqual([f.at(-1).owner, f.at(-1).shot], [254, 0xffff], 'from nobody, not from slot 255');
 });
@@ -330,7 +331,7 @@ test('the round ends at 90 s placed by points: the most wins, ties share', async
   for (const [s, places, pts, winner] of [[[300, 200, 100], [1, 2, 3], [10, 5, 1], 0], [[300, 300, 100], [1, 1, 3], [10, 10, 1], 255]]) {
     const g = await room(3);
     const st = stage(g.v);
-    at(g, L.KH_LEN - 3);
+    at(g, MC.KH_LEN - 3);
     for (let p = 0; p < 3; p++) { put(g, p, C + (p - 1) * 6, C + st.rad - 3); setScore(g, p, s[p]); }
     let k = 0;
     while (g.v.hole().state === L.H_PLAY && k++ < 10) g.step();
@@ -357,9 +358,9 @@ test('the prediction matches the confirmed ball bit for bit, its score too: up a
   put(g, 0, ax, az);
   assert.ok(predicted(g, Array.from({ length: 160 }, () => partyWord({ yaw: 0 }))) >= 160);
   // standing on the floor where the next hill swells: lifted as it rises
-  at(g, 2 * P - L.KH_RISE - 20);
+  at(g, 2 * P - MC.KH_RISE - 20);
   const [cx2, cz2] = st.spots[2][0];
-  const t0 = 2 * P - L.KH_RISE - 20;
+  const t0 = 2 * P - MC.KH_RISE - 20;
   const spot = [0.3, 0.5, 0.7, 0.9].flatMap((f) => [0, 1, 2, 3, 4, 5].map((a) => [cx2 + f * st.z * Math.cos(a), cz2 + f * st.z * Math.sin(a)]))
     .find(([x, z]) => groundAt(st, t0, x, z) === PLAT_Y && dist([x, z], [C + st.rad - 2, C]) > 3);
   assert.ok(spot, 'floor on the next hill\'s top');
@@ -371,7 +372,7 @@ test('the prediction matches the confirmed ball bit for bit, its score too: up a
 for (const [balls, sd] of [[8, 3], [64, 5]]) {
   test(`a round of ${balls} AI balls (the Partier, this brain) on the debug build: no trap, played to the clock, the points spread, a winner; equal on 1 and 4 threads`, async () => {
     let start = -1, over = -1, places = null, pts = null, scores = null, maxIn = 0, trap = 0;
-    const ticks = L.P_COUNT + L.KH_LEN + 80 + balls;
+    const ticks = L.P_COUNT + MC.KH_LEN + 80 + balls;
     const { log, sim } = await playParty({ bytes: partyBytes(true), seed: sd, mg: L.MG_HILL, bots: balls, ticks, delay: 6, onTick: (t, s, v) => {
       if (s.error().code) trap = s.error().code;
       const g = v.party();
@@ -391,12 +392,12 @@ for (const [balls, sd] of [[8, 3], [64, 5]]) {
     } });
     assert.equal(trap, 0, 'no trap');
     assert.ok(over > 0, 'the round ended');
-    assert.equal(over - start, L.KH_LEN, 'on the clock');
+    assert.equal(over - start, MC.KH_LEN, 'on the clock');
     assert.ok(places.every((x) => x >= 1 && x <= balls), `places ${places}`);
     assert.ok(pts.every((x) => x >= 1 && x <= 10), `points ${pts}`);
     assert.ok(places.includes(1) && pts.includes(10), 'somebody won');
     const hi = Math.max(...scores), lo = Math.min(...scores), mean = scores.reduce((a, b) => a + b, 0) / balls;
-    assert.ok(hi > 1.3 * mean && mean > 0.08 * L.KH_LEN, `scores ${lo}..${hi}, mean ${mean.toFixed(0)}`);
+    assert.ok(hi > 1.3 * mean && mean > 0.08 * MC.KH_LEN, `scores ${lo}..${hi}, mean ${mean.toFixed(0)}`);
     assert.ok(maxIn >= Math.min(balls, 4), `${maxIn} in a zone at once`);
     const v = new View(sim.memory.buffer);
     assert.equal(v.party().game, L.MG_HILL);
@@ -418,7 +419,7 @@ test('the client module: draws every moment of a zone, frames the disc, writes i
     const out = { scene: new Scene(24000), solid: [], glow: [], beams: [], decals: [], casters: [], paint: null };
     const lines = [];
     const hctx = { put: (x, y, s, c) => lines.push([y, s, c]), centre: (y, s, c) => lines.push([y, s, c]), right: (y, s, c) => lines.push([y, s, c]), rows: 44, C: {}, slot: 0, now: 0 };
-    for (const t of [10, P / 2, P - L.KH_RISE + 100, P - 60, P + 100, 3 * P + 10, L.KH_LEN - 5]) {
+    for (const t of [10, P / 2, P - MC.KH_RISE + 100, P - 60, P + 100, 3 * P + 10, MC.KH_LEN - 5]) {
       at(g, t);
       g.step();
       out.scene.clear(); out.decals.length = 0; out.beams.length = 0; out.glow.length = 0; lines.length = 0;

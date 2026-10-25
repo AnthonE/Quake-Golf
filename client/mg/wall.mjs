@@ -9,6 +9,7 @@
 // tick from there, so what is drawn and what the bots steer by is what the
 // sim does.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/wall.mjs'; // WL_*: the minigame's own constants
 import { PLAT_Y, B_RAD, hash32 } from '../../src/party-view.mjs';
 import { LOOK, SPRITE } from '../party-render.mjs';
 import { C } from '../font.mjs';
@@ -32,21 +33,21 @@ let memo = null;
 // in the countdown laid the round out again.
 export function table(view) {
   const dv = view.dv, o = view.bank || 0;
-  const h = dv.getFloat32(L.PG_H + L.WL_HALF + o, true), nw = Math.min(L.WL_NMAX, dv.getUint32(L.PG_H + L.WL_NW + o, true));
+  const h = dv.getFloat32(L.PG_H + MC.WL_HALF + o, true), nw = Math.min(MC.WL_NMAX, dv.getUint32(L.PG_H + MC.WL_NW + o, true));
   const seed = dv.getUint32(L.HDR_SEED + o, true), hole = dv.getUint32(L.HDR_HOLE + o, true);
-  const a0 = L.PG_S + L.WL_TABLE;
-  const sig = (dv.getUint32(a0 + L.WL_GAPS, true) ^ Math.imul(dv.getUint32(a0 + L.WL_PH, true) + 1, 0x9e3779b9)
-    ^ (nw ? dv.getUint32(a0 + (nw - 1) * L.WL_WSIZE + L.WL_GAPS, true) : 0)) >>> 0;
+  const a0 = L.PG_S + MC.WL_TABLE;
+  const sig = (dv.getUint32(a0 + MC.WL_GAPS, true) ^ Math.imul(dv.getUint32(a0 + MC.WL_PH, true) + 1, 0x9e3779b9)
+    ^ (nw ? dv.getUint32(a0 + (nw - 1) * MC.WL_WSIZE + MC.WL_GAPS, true) : 0)) >>> 0;
   if (memo && memo.h === h && memo.nw === nw && memo.seed === seed && memo.hole === hole && memo.sig === sig) return memo;
   const walls = [];
   for (let w = 0; w < nw; w++) {
-    const a = a0 + w * L.WL_WSIZE;
+    const a = a0 + w * MC.WL_WSIZE;
     const u = (k) => dv.getUint32(a + k, true), f = (k) => dv.getFloat32(a + k, true);
-    const k = Math.min(L.WL_KMAX, u(L.WL_K)), side = u(L.WL_SIDE) & 3;
+    const k = Math.min(MC.WL_KMAX, u(MC.WL_K)), side = u(MC.WL_SIDE) & 3;
     const gaps = [];
-    for (let j = 0; j < k; j++) gaps.push(f(L.WL_GAPS + 4 * j));
-    walls.push({ w, start: u(L.WL_START), go: u(L.WL_GO), end: u(L.WL_END), side, ux: WAYS[side][0], uz: WAYS[side][1], v: f(L.WL_V), g: f(L.WL_G), k, gaps,
-      a: f(L.WL_A), ph: u(L.WL_PH), s0: Math.fround(-h - L.WL_LEAD), colour: COLOURS[w % COLOURS.length] });
+    for (let j = 0; j < k; j++) gaps.push(f(MC.WL_GAPS + 4 * j));
+    walls.push({ w, start: u(MC.WL_START), go: u(MC.WL_GO), end: u(MC.WL_END), side, ux: WAYS[side][0], uz: WAYS[side][1], v: f(MC.WL_V), g: f(MC.WL_G), k, gaps,
+      a: f(MC.WL_A), ph: u(MC.WL_PH), s0: Math.fround(-h - MC.WL_LEAD), colour: COLOURS[w % COLOURS.length] });
   }
   memo = { h, nw, seed, hole, sig, cx: dv.getFloat32(L.PG_CX + o, true), walls };
   return memo;
@@ -54,9 +55,9 @@ export function table(view) {
 // Wall W's leading face t ticks into play (fractions too), m along its way from the stage's centre ($wl_face).
 export const face = (W, t) => (t <= W.go ? W.s0 : W.s0 + (t - W.go) * TICK * W.v);
 // How far its gaps are off their centres t ticks into play ($wl_sway).
-export const sway = (W, t) => (W.a ? W.a * Math.sin((2 * Math.PI * (W.ph + L.WL_SWAYK * Math.max(0, t - W.go))) / TURN) : 0);
+export const sway = (W, t) => (W.a ? W.a * Math.sin((2 * Math.PI * (W.ph + MC.WL_SWAYK * Math.max(0, t - W.go))) / TURN) : 0);
 // The tick into play the middle of wall W's slab passes u, along its way.
-export const over = (W, u) => W.go + (u + L.WL_T / 2 - W.s0) / (W.v * TICK);
+export const over = (W, u) => W.go + (u + MC.WL_T / 2 - W.s0) / (W.v * TICK);
 // Where gap j of wall W is across it as the wall goes over u: its lane on the floor.
 export const laneAt = (W, j, u) => W.gaps[j] + sway(W, over(W, u));
 // (x, z) in wall W's frame, [u along its way, v across it], and back.
@@ -82,7 +83,7 @@ export const onStage = (T, t) => T.walls.filter((W) => W.start <= t && t < W.end
 export function blocked(T, W, x, z, t, r = B_RAD) {
   if (t < W.start || t >= W.end) return false;
   const [u, v] = toWall(T, W, x, z), s = face(W, t);
-  return u - r < s && u + r > s - L.WL_T && gapAt(W, v, t) < 0;
+  return u - r < s && u + r > s - MC.WL_T && gapAt(W, v, t) < 0;
 }
 // How it stands with wall W for a ball at (x, z) t ticks into play: the
 // seconds until the face reaches it (0 if it has), whether it's by now behind
@@ -91,13 +92,13 @@ export function blocked(T, W, x, z, t, r = B_RAD) {
 export function meet(T, W, x, z, t, r = B_RAD) {
   const [u, v] = toWall(T, W, x, z);
   const s = face(W, t);
-  const past = u + r <= s - L.WL_T;
+  const past = u + r <= s - MC.WL_T;
   let eta = 0;
   if (!past && u - r > s) eta = t < W.go ? (W.go - t) * TICK + (u - r - s) / W.v : (u - r - s) / W.v;
   return { u, v, s, eta, past, now: gapAt(W, v, t), gap: gapAt(W, v, Math.max(t, over(W, u))) };
 }
 // The walls slot p has seen go by this round (WL_PASSED, the confirmed world's).
-export const passed = (view, p) => view.u8[L.PG_S + L.WL_PASSED + p];
+export const passed = (view, p) => view.u8[L.PG_S + MC.WL_PASSED + p];
 
 // Ticks into play to draw at (fractional): the prediction's clock in play, 0
 // through the countdown (the first wall waits at its edge), frozen where the
@@ -332,7 +333,7 @@ export default {
         if (!m.past && m.eta < soonest) { soonest = m.eta; next = W.w; }
       }
     }
-    const HH = (L.WL_HIGH + L.WL_DEEP) / 2, YC = PLAT_Y + (L.WL_HIGH - L.WL_DEEP) / 2;
+    const HH = (MC.WL_HIGH + MC.WL_DEEP) / 2, YC = PLAT_Y + (MC.WL_HIGH - MC.WL_DEEP) / 2;
     for (const W of live) {
       const s = face(W, tp), off = sway(W, tp);
       const rise = W.w === 0 ? 1 : clamp((tp - W.start) / RISE, 0, 1), sink = clamp((tp - (W.end - SINK)) / SINK, 0, 1);
@@ -340,13 +341,13 @@ export default {
       const col = W.colour, seed = (W.w * 131) % 4096;
       // the blocks, a darker cap along each
       blocksAt(T, W, tp).forEach(([lo, hi], i) => {
-        wbox(sc, T, W, s - L.WL_T / 2, YC + dy, (lo + hi) / 2, L.WL_T / 2, HH, (hi - lo) / 2, col, LOOK.RUBBER, 0, 0, 1, (seed + i * 17) % 4096);
-        wbox(sc, T, W, s - L.WL_T / 2, PLAT_Y + L.WL_HIGH + 0.08 + dy, (lo + hi) / 2, L.WL_T / 2 + 0.06, 0.08, (hi - lo) / 2 + 0.02, col.map((c) => c * 0.55), LOOK.PLASTIC, 0, 0, 1, (seed + i * 17 + 5) % 4096);
+        wbox(sc, T, W, s - MC.WL_T / 2, YC + dy, (lo + hi) / 2, MC.WL_T / 2, HH, (hi - lo) / 2, col, LOOK.RUBBER, 0, 0, 1, (seed + i * 17) % 4096);
+        wbox(sc, T, W, s - MC.WL_T / 2, PLAT_Y + MC.WL_HIGH + 0.08 + dy, (lo + hi) / 2, MC.WL_T / 2 + 0.06, 0.08, (hi - lo) / 2 + 0.02, col.map((c) => c * 0.55), LOOK.PLASTIC, 0, 0, 1, (seed + i * 17 + 5) % 4096);
       });
       // the gaps: posts lit at their edges
       const glow = 1.5 + 0.8 * (W.w === next ? 0.5 + 0.5 * Math.sin(now * 8) : 0);
       for (const c of W.gaps) for (const e of [c + off - W.g / 2, c + off + W.g / 2]) {
-        wbox(sc, T, W, s - L.WL_T / 2, YC + 0.06 + dy, e, L.WL_T / 2 + 0.05, HH + 0.06, 0.1, POST, LOOK.GLOW, glow, 0.2);
+        wbox(sc, T, W, s - MC.WL_T / 2, YC + 0.06 + dy, e, MC.WL_T / 2 + 0.05, HH + 0.06, 0.1, POST, LOOK.GLOW, glow, 0.2);
       }
       // the lanes the gaps will sweep, from the face to the far edge (a swaying wall's in short pieces, snaking)
       const u0 = Math.max(s + 0.1, -h + 0.05);
@@ -406,7 +407,7 @@ export default {
     const W = T?.walls[f.shot & 255];
     const me = ctx.slot >= 0 && ctx.view ? ctx.view.bumper(ctx.slot) : null;
     const playing = me?.live && !me.out;
-    if (f.kind === L.WL_FX_SHOW && W) {
+    if (f.kind === MC.WL_FX_SHOW && W) {
       // where it comes from, as you face
       let where = `FROM THE ${FROM[W.side]}`;
       if (playing) {
@@ -416,13 +417,13 @@ export default {
       }
       ctx.banner?.(`WALL ${W.w + 1}  ${where}${W.a ? '  SWAYING' : ''}`, W.a ? C.PURPLE : W.w === 0 ? C.YELLOW : C.ORANGE, 1400);
       ctx.sound?.tick?.();
-    } else if (f.kind === L.WL_FX_GO) {
+    } else if (f.kind === MC.WL_FX_GO) {
       ctx.sound?.land?.(Math.min(24, 240 / ((ctx.dist ?? 0) + 10)));
-    } else if (f.kind === L.WL_FX_PIN) {
+    } else if (f.kind === MC.WL_FX_PIN) {
       const mine = f.owner === ctx.slot;
       if (mine || (ctx.dist ?? 0) < 25) ctx.sound?.boing?.(f.size, mine ? 0 : ctx.dist ?? 0);
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.2, color: [1, 0.9, 0.6, 0.8], kind: SPRITE.SPARK, life: 260 });
-    } else if (f.kind === L.WL_FX_GONE) {
+    } else if (f.kind === MC.WL_FX_GONE) {
       if (playing) ctx.sound?.tick?.();
     }
   },
@@ -472,7 +473,7 @@ export default {
         if (W.start > t) break;
         if (t >= W.end) continue;
         const [u, v] = toWall(T, W, x, z), s = face(W, t);
-        if (u + B_RAD <= s - L.WL_T || u - B_RAD >= s + 1.5 || gapAt(W, v, t) >= 0) continue;
+        if (u + B_RAD <= s - MC.WL_T || u - B_RAD >= s + 1.5 || gapAt(W, v, t) >= 0) continue;
         if (u - B_RAD < s) return 0.9;
         if (t >= W.go) d = Math.max(d, 0.5);
       }

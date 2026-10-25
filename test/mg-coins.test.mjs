@@ -6,11 +6,12 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/coins.mjs'; // CR_*: the minigame's own constants
 import coinsMg, { coins, coinAt, bumpers, jackpot, jackAt } from '../client/mg/coins.mjs';
 
 const C = L.B_CX;
 const TICK = 0.008;
-const YL = Math.fround(PLAT_Y + L.CR_CY);
+const YL = Math.fround(PLAT_Y + MC.CR_CY);
 
 // A room of n balls on Coin Rush, on the debug build (a NaN traps), stepped into play unless asked not to.
 async function room(n = 2, { play = true, seed = 7 } = {}) {
@@ -41,33 +42,33 @@ const setScore = (g, p, s) => g.dv.setUint16(rec(p) + L.PG_SCORE, s, true);
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.CR_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.CR_LEN, true);
 }
 const playT = (g) => g.v.party().t;
 const fxs = (v, kind, from = 0) => { const out = []; for (let k = from; k < v.fxCount(); k++) { const f = v.fx(k); if (f.kind === kind) out.push(f); } return out; };
-const live = (g) => g.dv.getUint32(L.PG_H + L.CR_LIVE, true);
-const R = (g) => g.dv.getFloat32(L.PG_H + L.CR_RAD, true);
+const live = (g) => g.dv.getUint32(L.PG_H + MC.CR_LIVE, true);
+const R = (g) => g.dv.getFloat32(L.PG_H + MC.CR_RAD, true);
 // Coin record c as the sim keeps it.
 const coinRec = (g, c) => {
-  const a = L.PG_BIG + L.CR_COINS + c * L.CR_CSIZE, d = g.dv;
-  return { c, x: d.getFloat32(a + L.CR_C_X, true), z: d.getFloat32(a + L.CR_C_Z, true), x0: d.getFloat32(a + L.CR_C_X0, true), y0: d.getFloat32(a + L.CR_C_Y0, true),
-    z0: d.getFloat32(a + L.CR_C_Z0, true), h: d.getFloat32(a + L.CR_C_H, true), t0: d.getUint32(a + L.CR_C_T0, true), air: d.getUint16(a + L.CR_C_AIR, true),
-    v: g.v.u8[a + L.CR_C_V], kind: g.v.u8[a + L.CR_C_KIND] };
+  const a = L.PG_BIG + MC.CR_COINS + c * MC.CR_CSIZE, d = g.dv;
+  return { c, x: d.getFloat32(a + MC.CR_C_X, true), z: d.getFloat32(a + MC.CR_C_Z, true), x0: d.getFloat32(a + MC.CR_C_X0, true), y0: d.getFloat32(a + MC.CR_C_Y0, true),
+    z0: d.getFloat32(a + MC.CR_C_Z0, true), h: d.getFloat32(a + MC.CR_C_H, true), t0: d.getUint32(a + MC.CR_C_T0, true), air: d.getUint16(a + MC.CR_C_AIR, true),
+    v: g.v.u8[a + MC.CR_C_V], kind: g.v.u8[a + MC.CR_C_KIND] };
 };
-const allCoins = (g) => { const out = []; for (let c = 0; c < L.CR_MAX; c++) { const k = coinRec(g, c); if (k.v) out.push(k); } return out; };
+const allCoins = (g) => { const out = []; for (let c = 0; c < MC.CR_MAX; c++) { const k = coinRec(g, c); if (k.v) out.push(k); } return out; };
 // Every coin gone, and coin c lying at (x, z) since a while, worth v (or as given).
 function clearCoins(g) {
-  g.sim.u8.fill(0, L.PG_BIG + L.CR_COINS, L.PG_BIG + L.CR_COINS + L.CR_MAX * L.CR_CSIZE);
-  g.dv.setUint32(L.PG_H + L.CR_LIVE, 0, true);
+  g.sim.u8.fill(0, L.PG_BIG + MC.CR_COINS, L.PG_BIG + MC.CR_COINS + MC.CR_MAX * MC.CR_CSIZE);
+  g.dv.setUint32(L.PG_H + MC.CR_LIVE, 0, true);
 }
 // No more rain: the count of coins in told it's past CR_RAINCAP (nothing else reads it).
-const noRain = (g) => g.dv.setUint32(L.PG_H + L.CR_LIVE, 1 << 20, true);
-function putCoin(g, c, x, z, { v = 1, kind = L.CR_KRAIN, t0 = g.v.tick - 100, air = 10, x0 = x, y0 = YL, z0 = z, h = 0 } = {}) {
-  const a = L.PG_BIG + L.CR_COINS + c * L.CR_CSIZE, d = g.dv;
-  if (!g.v.u8[a + L.CR_C_V]) d.setUint32(L.PG_H + L.CR_LIVE, live(g) + 1, true);
-  d.setFloat32(a + L.CR_C_X, x, true); d.setFloat32(a + L.CR_C_Z, z, true);
-  d.setFloat32(a + L.CR_C_X0, x0, true); d.setFloat32(a + L.CR_C_Y0, y0, true); d.setFloat32(a + L.CR_C_Z0, z0, true); d.setFloat32(a + L.CR_C_H, h, true);
-  d.setUint32(a + L.CR_C_T0, t0, true); d.setUint16(a + L.CR_C_AIR, air, true); d.setUint8(a + L.CR_C_V, v); d.setUint8(a + L.CR_C_KIND, kind);
+const noRain = (g) => g.dv.setUint32(L.PG_H + MC.CR_LIVE, 1 << 20, true);
+function putCoin(g, c, x, z, { v = 1, kind = MC.CR_KRAIN, t0 = g.v.tick - 100, air = 10, x0 = x, y0 = YL, z0 = z, h = 0 } = {}) {
+  const a = L.PG_BIG + MC.CR_COINS + c * MC.CR_CSIZE, d = g.dv;
+  if (!g.v.u8[a + MC.CR_C_V]) d.setUint32(L.PG_H + MC.CR_LIVE, live(g) + 1, true);
+  d.setFloat32(a + MC.CR_C_X, x, true); d.setFloat32(a + MC.CR_C_Z, z, true);
+  d.setFloat32(a + MC.CR_C_X0, x0, true); d.setFloat32(a + MC.CR_C_Y0, y0, true); d.setFloat32(a + MC.CR_C_Z0, z0, true); d.setFloat32(a + MC.CR_C_H, h, true);
+  d.setUint32(a + MC.CR_C_T0, t0, true); d.setUint16(a + MC.CR_C_AIR, air, true); d.setUint8(a + MC.CR_C_V, v); d.setUint8(a + MC.CR_C_KIND, kind);
 }
 // A way out from the centre to the rim clear of every bumper by 3 m: [ux, uz].
 function clearWay(g) {
@@ -83,7 +84,7 @@ function clearWay(g) {
   return best;
 }
 // Does coin k lie at least CR_BR + 0.5 from every post's axis (where a ball can reach it, and it shows)?
-const clearOfPosts = (g, k) => bumpers(g.v).every((b) => Math.hypot(k.x - b.x, k.z - b.z) >= L.CR_BR + 0.5 - 1e-3);
+const clearOfPosts = (g, k) => bumpers(g.v).every((b) => Math.hypot(k.x - b.x, k.z - b.z) >= MC.CR_BR + 0.5 - 1e-3);
 // The coins made on tick t of kind (rain coins land everywhere meanwhile).
 const madeAt = (g, t, kind) => allCoins(g).filter((k) => k.t0 === t && k.kind === kind);
 // The prediction against the confirmed world, as helpers.mjs's predicted(),
@@ -118,26 +119,26 @@ test('the stage for 1, 8, 64 and 256: a disc sized for the crowd, its bumpers on
   for (const n of [1, 8, 64, 256]) {
     const g = await room(n, { play: false, seed: n });
     const r = g.v.party();
-    const rad = Math.min(L.CR_R0 + L.CR_RK * Math.sqrt(n), L.CR_RMAX);
+    const rad = Math.min(MC.CR_R0 + MC.CR_RK * Math.sqrt(n), MC.CR_RMAX);
     assert.equal(r.game, L.MG_COINS);
     assert.ok(Math.abs(r.size - rad) < 1e-4, `${r.size} m for ${n}`);
     assert.ok(r.size > last, 'grows with the crowd');
     last = r.size;
     assert.equal(R(g), r.size);
-    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.drag, r.hop, r.respawn], [L.PK_SCORE, L.CR_LEN, PLAT_Y, Math.fround(L.CR_IDLE), Math.fround(Number(L.BPHYS.B_DRAG)), 6, 250]);
+    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.drag, r.hop, r.respawn], [L.PK_SCORE, MC.CR_LEN, PLAT_Y, Math.fround(MC.CR_IDLE), Math.fround(Number(L.BPHYS.B_DRAG)), 6, 250]);
     const bs = bumpers(g.v);
-    assert.equal(bs.length, Math.max(L.CR_NBMIN, Math.min(L.CR_NBMAX, Math.floor(Math.fround(r.size * r.size) / L.CR_BAREA))), `${bs.length} bumpers`);
+    assert.equal(bs.length, Math.max(MC.CR_NBMIN, Math.min(MC.CR_NBMAX, Math.floor(Math.fround(r.size * r.size) / MC.CR_BAREA))), `${bs.length} bumpers`);
     for (const b of bs) {
-      assert.ok(Math.hypot(b.x - C, b.z - C) < r.size * L.CR_BRING, 'over the middle of the disc');
+      assert.ok(Math.hypot(b.x - C, b.z - C) < r.size * MC.CR_BRING, 'over the middle of the disc');
       assert.deepEqual([b.litAt, b.hits], [0, 0], 'lit');
-      for (const o of bs) if (o !== b) assert.ok(Math.hypot(b.x - o.x, b.z - o.z) > 2 * L.CR_BR + 2.5, 'apart');
+      for (const o of bs) if (o !== b) assert.ok(Math.hypot(b.x - o.x, b.z - o.z) > 2 * MC.CR_BR + 2.5, 'apart');
     }
     for (let p = 0; p < n; p++) {
       const b = g.v.partier(p);
       assert.equal(b.pos[1], PLAT_Y, 'on the floor');
       assert.ok(b.ground && !b.out);
-      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) <= r.size * L.CR_SPAWN + 1e-3, 'on the middle of the disc');
-      for (const o of bs) assert.ok(Math.hypot(b.pos[0] - o.x, b.pos[2] - o.z) >= L.CR_BR + 1.5 - 1e-3, `${n}: P${p + 1} clear of the bumpers`);
+      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) <= r.size * MC.CR_SPAWN + 1e-3, 'on the middle of the disc');
+      for (const o of bs) assert.ok(Math.hypot(b.pos[0] - o.x, b.pos[2] - o.z) >= MC.CR_BR + 1.5 - 1e-3, `${n}: P${p + 1} clear of the bumpers`);
     }
     assert.equal(live(g), 0, 'no coins before play');
   }
@@ -151,43 +152,43 @@ test('the rain: a wave every 0.256 s of a coin per 10 balls and one more, fallin
   while (playT(g) <= 32 * 80) {
     const t = playT(g);
     g.step();
-    const now = allCoins(g).filter((k) => k.t0 === g.v.tick - 1 && k.kind === L.CR_KRAIN);
+    const now = allCoins(g).filter((k) => k.t0 === g.v.tick - 1 && k.kind === MC.CR_KRAIN);
     if (now.length) { waves.push([t, now.length]); all.push(...now); }
     seen++;
   }
   assert.ok(waves.length >= 79, `${waves.length} waves`);
   for (const [t, n] of waves) {
-    assert.equal(t % L.CR_EVERY, 0, `a wave at ${t}`);
-    assert.equal(n, 1 + Math.floor(30 / L.CR_RAINN));
+    assert.equal(t % MC.CR_EVERY, 0, `a wave at ${t}`);
+    assert.equal(n, 1 + Math.floor(30 / MC.CR_RAINN));
   }
   for (const k of all) {
-    assert.deepEqual([k.x0, k.z0, k.y0, k.air], [k.x, k.z, Math.fround(PLAT_Y + L.CR_RAINH), L.CR_RAINAIR]);
-    assert.ok(Math.abs(k.h - (L.CR_RAINH - L.CR_CY) / 4) < 1e-5, 'falling from rest');
-    assert.ok(Math.hypot(k.x - C, k.z - C) <= R(g) - L.CR_RIM + 1e-3, 'on the disc, in off the rim');
+    assert.deepEqual([k.x0, k.z0, k.y0, k.air], [k.x, k.z, Math.fround(PLAT_Y + MC.CR_RAINH), MC.CR_RAINAIR]);
+    assert.ok(Math.abs(k.h - (MC.CR_RAINH - MC.CR_CY) / 4) < 1e-5, 'falling from rest');
+    assert.ok(Math.hypot(k.x - C, k.z - C) <= R(g) - MC.CR_RIM + 1e-3, 'on the disc, in off the rim');
     assert.ok(clearOfPosts(g, k), 'out of the bumpers');
-    assert.ok(k.v === 1 || k.v === L.CR_BIGV);
+    assert.ok(k.v === 1 || k.v === MC.CR_BIGV);
     // from rest: the first tenth of its fall is a hundredth of the height
     assert.ok(Math.abs(coinAt(k, k.t0 + k.air / 10)[1] - (k.y0 - (k.y0 - YL) / 100)) < 1e-3);
     assert.equal(coinAt(k, k.t0 + k.air)[1], YL);
   }
-  const big = all.filter((k) => k.v === L.CR_BIGV).length / all.length;
+  const big = all.filter((k) => k.v === MC.CR_BIGV).length / all.length;
   assert.ok(big > 1 / 40 && big < 1 / 8, `${(big * 100).toFixed(1)}% big`);
   // the frenzy: twice as often, richer
-  at(g, L.CR_FRENZY);
+  at(g, MC.CR_FRENZY);
   clearCoins(g);
   const fw = [], fall = [];
-  while (playT(g) < L.CR_FRENZY + 16 * 60) {
+  while (playT(g) < MC.CR_FRENZY + 16 * 60) {
     const t = playT(g);
     g.step();
-    const now = allCoins(g).filter((k) => k.t0 === g.v.tick - 1 && k.kind === L.CR_KRAIN);
+    const now = allCoins(g).filter((k) => k.t0 === g.v.tick - 1 && k.kind === MC.CR_KRAIN);
     if (now.length) { fw.push(t); fall.push(...now); }
   }
-  assert.ok(fw.length >= 59 && fw.every((t) => t % L.CR_EVERYF === 0), `${fw.length} waves in the frenzy`);
-  const fbig = fall.filter((k) => k.v === L.CR_BIGV).length / fall.length;
+  assert.ok(fw.length >= 59 && fw.every((t) => t % MC.CR_EVERYF === 0), `${fw.length} waves in the frenzy`);
+  const fbig = fall.filter((k) => k.v === MC.CR_BIGV).length / fall.length;
   assert.ok(fbig > 1 / 12 && fbig < 1 / 3, `${(fbig * 100).toFixed(1)}% big in the frenzy`);
   // no rain past CR_RAINCAP coins in: the rest kept for knocks, spills and jackpots
   clearCoins(g);
-  for (let c = 0; c < L.CR_RAINCAP; c++) putCoin(g, c, C + 100, C, { t0: g.v.tick });
+  for (let c = 0; c < MC.CR_RAINCAP; c++) putCoin(g, c, C + 100, C, { t0: g.v.tick });
   for (let k = 0; k < 40; k++) g.step();
   assert.equal(allCoins(g).filter((k) => k.t0 > g.v.tick - 40).length, 0, 'none');
 });
@@ -198,7 +199,7 @@ test('a coin lies 10 s where it fell, then goes', async () => {
   noRain(g);
   const t0 = g.v.tick;
   putCoin(g, 5, C + 3, C + 12, { t0, air: 50, x0: C + 3, y0: PLAT_Y + 10, z0: C + 12, h: 2 });
-  while (g.v.tick < t0 + 50 + L.CR_LIFE) { g.step(); assert.equal(coinRec(g, 5).v, 1, `there ${g.v.tick - t0}`); }
+  while (g.v.tick < t0 + 50 + MC.CR_LIFE) { g.step(); assert.equal(coinRec(g, 5).v, 1, `there ${g.v.tick - t0}`); }
   g.step();
   assert.equal(coinRec(g, 5).v, 0, 'gone');
 });
@@ -224,8 +225,8 @@ test('taking: the first ball by slot that rolls within reach of a coin takes it,
   assert.equal(score(g, 0), 1);
   const b = g.v.partier(0);
   const d = Math.hypot(b.pos[0] - cx, b.pos[1] + 1 - YL, b.pos[2] - cz);
-  assert.ok(d < 1 + L.CR_REACH && d > 1 + L.CR_REACH - 0.15, `taken at ${d.toFixed(2)} m, as it came within reach`);
-  const [f] = fxs(g.v, L.CR_FX_TAKE, k0);
+  assert.ok(d < 1 + MC.CR_REACH && d > 1 + MC.CR_REACH - 0.15, `taken at ${d.toFixed(2)} m, as it came within reach`);
+  const [f] = fxs(g.v, MC.CR_FX_TAKE, k0);
   assert.deepEqual([f.owner, f.shot, f.size, f.pos[1]], [0, 7, 1, YL]);
   assert.ok(Math.abs(f.pos[0] - cx) < 1e-4 && Math.abs(f.pos[2] - cz) < 1e-4);
   // two in reach on one tick: the lower slot's (P1 still now, its keys let go)
@@ -233,30 +234,30 @@ test('taking: the first ball by slot that rolls within reach of a coin takes it,
   g.step([[L.EV_INPUT, 0, partyWord({})]]);
   put(g, 0, ...on(2));
   const [bx, bz] = on(8);
-  putCoin(g, 9, bx, bz, { v: L.CR_BIGV });
+  putCoin(g, 9, bx, bz, { v: MC.CR_BIGV });
   put(g, 2, ...on(8, 0.9));
   put(g, 1, ...on(8, -0.9));
   g.step();
-  assert.deepEqual([coinRec(g, 9).v, score(g, 1), score(g, 2)], [0, L.CR_BIGV, 0], 'P2, not P3');
+  assert.deepEqual([coinRec(g, 9).v, score(g, 1), score(g, 2)], [0, MC.CR_BIGV, 0], 'P2, not P3');
   // a coin falling over a ball isn't in reach till it's low
   put(g, 2, ...on(r - 3, -1.2));
   put(g, 1, bx, bz);
   const t0 = g.v.tick;
-  putCoin(g, 11, bx, bz, { t0, air: L.CR_RAINAIR, y0: PLAT_Y + L.CR_RAINH, h: (L.CR_RAINH - L.CR_CY) / 4 });
+  putCoin(g, 11, bx, bz, { t0, air: MC.CR_RAINAIR, y0: PLAT_Y + MC.CR_RAINH, h: (MC.CR_RAINH - MC.CR_CY) / 4 });
   const drop = coinRec(g, 11);
   while (coinRec(g, 11).v) {
     g.step();
-    if (coinRec(g, 11).v) assert.ok(coinAt(drop, g.v.tick - 1)[1] > PLAT_Y + 1 + 1 + L.CR_REACH - 0.01, 'still out of reach');
+    if (coinRec(g, 11).v) assert.ok(coinAt(drop, g.v.tick - 1)[1] > PLAT_Y + 1 + 1 + MC.CR_REACH - 0.01, 'still out of reach');
   }
   const caught = g.v.tick - 1 - t0;
-  assert.ok(caught > L.CR_RAINAIR - 20 && caught < L.CR_RAINAIR, `caught ${caught} ticks into its fall`);
-  assert.ok(coinAt(drop, g.v.tick - 1)[1] < PLAT_Y + 1 + 1 + L.CR_REACH, 'as it came within reach');
-  assert.equal(score(g, 1), L.CR_BIGV + 1);
+  assert.ok(caught > MC.CR_RAINAIR - 20 && caught < MC.CR_RAINAIR, `caught ${caught} ticks into its fall`);
+  assert.ok(coinAt(drop, g.v.tick - 1)[1] < PLAT_Y + 1 + 1 + MC.CR_REACH, 'as it came within reach');
+  assert.equal(score(g, 1), MC.CR_BIGV + 1);
   // knocked loose: anyone's only CR_LOOSE ticks after it was thrown
   const t1 = g.v.tick;
-  putCoin(g, 12, bx, bz, { t0: t1, air: 70, kind: L.CR_KLOOSE });
+  putCoin(g, 12, bx, bz, { t0: t1, air: 70, kind: MC.CR_KLOOSE });
   while (coinRec(g, 12).v) g.step();
-  assert.equal(g.v.tick - 1 - t1, L.CR_LOOSE);
+  assert.equal(g.v.tick - 1 - t1, MC.CR_LOOSE);
 });
 test('a hard bump knocks up to 3 of the hit ball\'s coins loose to land a few metres off; the hitter keeps its own; a soft one, or one too soon after, knocks none', async () => {
   const g = await room(2);
@@ -274,7 +275,7 @@ test('a hard bump knocks up to 3 of the hit ball\'s coins loose to land a few me
     put(g, 0, ...on(6 + gap), { vx: -ux * v, vz: -uz * v });
     const k = g.v.fxCount();
     for (let n = 0; n < 8; n++) g.step();
-    return fxs(g.v, L.CR_FX_LOSE, k);
+    return fxs(g.v, MC.CR_FX_LOSE, k);
   };
   const [f, ...more] = ram(10);
   assert.equal(more.length, 0);
@@ -284,25 +285,25 @@ test('a hard bump knocks up to 3 of the hit ball\'s coins loose to land a few me
   const loose = allCoins(g);
   assert.equal(loose.length, 3);
   for (const k of loose) {
-    assert.deepEqual([k.kind, k.v, k.t0, k.x0, k.z0], [L.CR_KLOOSE, 1, f.tick, f.pos[0], f.pos[2]]);
+    assert.deepEqual([k.kind, k.v, k.t0, k.x0, k.z0], [MC.CR_KLOOSE, 1, f.tick, f.pos[0], f.pos[2]]);
     const d = Math.hypot(k.x - k.x0, k.z - k.z0);
-    assert.ok(d >= L.CR_KNOCKR0 - 1e-3 && d <= Math.hypot(L.CR_KNOCKR0 + L.CR_KNOCKRK, L.CR_KNOCKR0 + L.CR_KNOCKRK), `${d.toFixed(2)} m off`);
+    assert.ok(d >= MC.CR_KNOCKR0 - 1e-3 && d <= Math.hypot(MC.CR_KNOCKR0 + MC.CR_KNOCKRK, MC.CR_KNOCKR0 + MC.CR_KNOCKRK), `${d.toFixed(2)} m off`);
   }
   // hit again at once: the grace
   assert.equal(ram(10).length, 0);
   assert.equal(score(g, 1), 7, 'nothing more inside CR_GRACE');
-  for (let k = 0; k < L.CR_GRACE; k++) g.step();
+  for (let k = 0; k < MC.CR_GRACE; k++) g.step();
   // 5 m/s: one coin
   assert.equal(ram(5, 2.1).length, 1);
   assert.equal(score(g, 1), 6, 'one at 5 m/s');
-  for (let k = 0; k < L.CR_GRACE; k++) g.step();
+  for (let k = 0; k < MC.CR_GRACE; k++) g.step();
   // 2.5 m/s: a bump, not a hard one: none
   const k1 = g.v.fxCount();
   assert.equal(ram(2.5, 2.05).length, 0);
   assert.equal(score(g, 1), 6, 'none at 2.5 m/s');
   assert.ok(fxs(g.v, L.FX_BUMP, k1).length === 0 && g.dv.getUint16(rec(1) + L.B_HITT, true) > 0, 'a bump, not a hard one');
   // a ball with no coins loses none and throws none
-  for (let k = 0; k < L.CR_GRACE; k++) g.step();
+  for (let k = 0; k < MC.CR_GRACE; k++) g.step();
   setScore(g, 1, 0);
   assert.equal(ram(10).length, 0);
   assert.equal(allCoins(g).length, 0);
@@ -313,8 +314,8 @@ test('a post\'s throw is no hard bump: a ball thrown off a post on the tick anot
   clearCoins(g);
   noRain(g);
   const [b] = bumpers(g.v);
-  g.dv.setUint32(L.PG_S + L.CR_BUMP + 8, 1 << 30, true); // dark: no pay
-  const rr = L.CR_BR + 1;
+  g.dv.setUint32(L.PG_S + MC.CR_BUMP + 8, 1 << 30, true); // dark: no pay
+  const rr = MC.CR_BR + 1;
   // P1 rolling into the post at 5 m/s, a hair off it; P2 alongside, rolling into P1 at 1 m/s
   const go = (v0, touch) => {
     put(g, 0, b.x - rr - 0.02, b.z, { vx: v0 });
@@ -322,17 +323,17 @@ test('a post\'s throw is no hard bump: a ball thrown off a post on the tick anot
     else put(g, 1, b.x - 20, b.z + 20);
     put(g, 2, b.x - 20, b.z - 20);
     for (const p of [0, 1]) {
-      const a = L.PG_S + L.CR_BALL + p * L.CR_BSIZE;
-      g.dv.setFloat32(a + L.CR_B_VX, g.dv.getFloat32(rec(p) + L.P_VX, true), true);
-      g.dv.setFloat32(a + L.CR_B_VZ, g.dv.getFloat32(rec(p) + L.P_VZ, true), true);
-      g.dv.setUint16(a + L.CR_B_BUMPS, g.dv.getUint16(rec(p) + L.B_BUMPS, true), true);
-      g.dv.setUint32(a + L.CR_B_SAFE, 0, true);
+      const a = L.PG_S + MC.CR_BALL + p * MC.CR_BSIZE;
+      g.dv.setFloat32(a + MC.CR_B_VX, g.dv.getFloat32(rec(p) + L.P_VX, true), true);
+      g.dv.setFloat32(a + MC.CR_B_VZ, g.dv.getFloat32(rec(p) + L.P_VZ, true), true);
+      g.dv.setUint16(a + MC.CR_B_BUMPS, g.dv.getUint16(rec(p) + L.B_BUMPS, true), true);
+      g.dv.setUint32(a + MC.CR_B_SAFE, 0, true);
     }
     setScore(g, 0, 10);
     const bumps = [0, 1].map((p) => g.v.partier(p).bumps);
     const k = g.v.fxCount();
     g.step();
-    return { lost: fxs(g.v, L.CR_FX_LOSE, k).length, thrown: (g.v.partier(0).m & 15) === 1 && g.v.partier(0).m >>> 4 === ((g.v.tick - 1) & 0x0fffffff),
+    return { lost: fxs(g.v, MC.CR_FX_LOSE, k).length, thrown: (g.v.partier(0).m & 15) === 1 && g.v.partier(0).m >>> 4 === ((g.v.tick - 1) & 0x0fffffff),
       hit: g.v.partier(0).hitFor === L.CREDIT_TICKS - 1, hard: [0, 1].some((p) => g.v.partier(p).bumps !== bumps[p]) };
   };
   const both = go(5, true);
@@ -351,31 +352,31 @@ test('no coin lands in a bumper, where no ball reaches it or sees it: a jackpot\
   clearCoins(g);
   noRain(g);
   for (let p = 0; p < 30; p++) put(g, p, C + 300 + 3 * p, C, { y: PLAT_Y + 50, ground: false });
-  g.dv.setFloat32(L.PG_H + L.CR_JX, bs[0].x, true);
-  g.dv.setFloat32(L.PG_H + L.CR_JZ, bs[0].z, true);
-  g.dv.setUint32(L.PG_H + L.CR_JK, 1, true);
-  at(g, L.CR_JACK0);
+  g.dv.setFloat32(L.PG_H + MC.CR_JX, bs[0].x, true);
+  g.dv.setFloat32(L.PG_H + MC.CR_JZ, bs[0].z, true);
+  g.dv.setUint32(L.PG_H + MC.CR_JK, 1, true);
+  at(g, MC.CR_JACK0);
   g.step();
-  const jack = allCoins(g).filter((k) => k.kind === L.CR_KJACK);
-  assert.equal(jack.length, L.CR_JACKN0 + 30 / L.CR_JACKNK);
+  const jack = allCoins(g).filter((k) => k.kind === MC.CR_KJACK);
+  assert.equal(jack.length, MC.CR_JACKN0 + 30 / MC.CR_JACKNK);
   assert.ok(jack.every((k) => clearOfPosts(g, k)), 'the fountain\'s coins out of the post');
   // knocks: P1 still by bumper 1, rammed by P2 from outside it at 10 m/s, again and again
   const [b] = bs.slice(1);
   const ux = (b.x - C) / Math.hypot(b.x - C, b.z - C), uz = (b.z - C) / Math.hypot(b.x - C, b.z - C);
-  assert.ok(Math.hypot(b.x - C, b.z - C) + L.CR_BR + 1 + 0.3 + 2.3 < R(g) - 2, 'room outside it');
-  g.dv.setUint32(L.PG_S + L.CR_BUMP + 16 + 8, 1 << 30, true); // dark: no pay
+  assert.ok(Math.hypot(b.x - C, b.z - C) + MC.CR_BR + 1 + 0.3 + 2.3 < R(g) - 2, 'room outside it');
+  g.dv.setUint32(L.PG_S + MC.CR_BUMP + 16 + 8, 1 << 30, true); // dark: no pay
   let knocked = 0;
   for (let k = 0; k < 20; k++) {
     clearCoins(g);
     noRain(g);
-    const a = L.CR_BR + 1 + 0.3;
+    const a = MC.CR_BR + 1 + 0.3;
     for (let p = 2; p < 30; p++) put(g, p, C + 300 + 3 * p, C, { y: PLAT_Y + 50, ground: false });
     put(g, 0, b.x + ux * a, b.z + uz * a);
     put(g, 1, b.x + ux * (a + 2.3), b.z + uz * (a + 2.3), { vx: -ux * 10, vz: -uz * 10 });
     setScore(g, 0, 10);
-    g.dv.setUint32(L.PG_S + L.CR_BALL + L.CR_B_SAFE, 0, true);
+    g.dv.setUint32(L.PG_S + MC.CR_BALL + MC.CR_B_SAFE, 0, true);
     for (let n = 0; n < 6; n++) g.step();
-    const loose = allCoins(g).filter((c) => c.kind === L.CR_KLOOSE);
+    const loose = allCoins(g).filter((c) => c.kind === MC.CR_KLOOSE);
     knocked += loose.length;
     for (const c of loose) assert.ok(clearOfPosts(g, c), `knock ${k}: (${c.x.toFixed(2)}, ${c.z.toFixed(2)}) out of the posts`);
   }
@@ -396,20 +397,20 @@ test('off the rim: half your coins gone, spilled back in where you went over as 
   while (!g.v.partier(0).falling && n++ < 100) g.step();
   assert.ok(g.v.partier(0).falling, 'over the rim');
   assert.equal(score(g, 0), 23 - 11, 'half gone (rounded down), on the tick it starts to fall');
-  const [f] = fxs(g.v, L.CR_FX_LOSE, k0);
+  const [f] = fxs(g.v, MC.CR_FX_LOSE, k0);
   assert.deepEqual([f.owner, f.shot, f.size], [0, 11, 1]);
   assert.ok(Math.abs(Math.hypot(f.pos[0] - C, f.pos[2] - C) - (r - 0.3)) < 1e-3, 'from the rim');
   assert.ok((f.pos[0] - C) * ux + (f.pos[2] - C) * uz > r - 0.4, 'where it went over');
   const spilt = allCoins(g);
   assert.deepEqual(spilt.map((k) => k.v).sort(), [1, 5, 5], 'two big and one small: all 11');
   for (const k of spilt) {
-    assert.deepEqual([k.kind, k.t0, k.x0, k.z0], [L.CR_KLOOSE, f.tick, f.pos[0], f.pos[2]]);
-    assert.ok(Math.hypot(k.x - C, k.z - C) <= r - L.CR_RIM + 1e-3, 'back on the disc');
+    assert.deepEqual([k.kind, k.t0, k.x0, k.z0], [MC.CR_KLOOSE, f.tick, f.pos[0], f.pos[2]]);
+    assert.ok(Math.hypot(k.x - C, k.z - C) <= r - MC.CR_RIM + 1e-3, 'back on the disc');
     assert.ok(Math.hypot(k.x - f.pos[0], k.z - f.pos[2]) < 9, 'near where it went');
   }
   // one spill a fall
   for (let k = 0; k < 20; k++) g.step();
-  assert.equal(fxs(g.v, L.CR_FX_LOSE, k0).length, 1);
+  assert.equal(fxs(g.v, MC.CR_FX_LOSE, k0).length, 1);
   while (!g.v.partier(0).out) g.step();
   const t0 = g.v.tick - 1;
   while (g.v.partier(0).out) g.step();
@@ -422,7 +423,7 @@ test('off the rim: half your coins gone, spilled back in where you went over as 
   put(g, 0, C + ux * (r - 1), C + uz * (r - 1), { vx: ux * 6, vz: uz * 6 });
   while (!g.v.partier(0).falling) g.step();
   assert.equal(score(g, 0), 100);
-  assert.deepEqual(allCoins(g).map((k) => k.v), Array(L.CR_SPILLMAX).fill(5), '60 of the 100 back, the rest the sea\'s');
+  assert.deepEqual(allCoins(g).map((k) => k.v), Array(MC.CR_SPILLMAX).fill(5), '60 of the 100 back, the rest the sea\'s');
   while (g.v.partier(0).out || g.v.partier(0).falling || !g.v.partier(0).ground) g.step();
   clearCoins(g);
   noRain(g);
@@ -441,38 +442,38 @@ test('bumpers: one rolled into throws the ball off at 8 m/s or more; a lit one p
   const [wx, wz] = clearWay(g);
   put(g, 1, C + wx * 8, C + wz * 8);
   // P1 rolls at 5 m/s straight at bumper 0's middle
-  const go = () => put(g, 0, b.x - ux * (L.CR_BR + 2), b.z - uz * (L.CR_BR + 2), { vx: ux * 5, vz: uz * 5 });
+  const go = () => put(g, 0, b.x - ux * (MC.CR_BR + 2), b.z - uz * (MC.CR_BR + 2), { vx: ux * 5, vz: uz * 5 });
   go();
   const k0 = g.v.fxCount();
   let n = 0;
-  while (!fxs(g.v, L.CR_FX_BUMP, k0).length && n++ < 60) g.step();
-  const [f] = fxs(g.v, L.CR_FX_BUMP, k0);
+  while (!fxs(g.v, MC.CR_FX_BUMP, k0).length && n++ < 60) g.step();
+  const [f] = fxs(g.v, MC.CR_FX_BUMP, k0);
   assert.deepEqual([f.owner, f.shot], [0, 0]);
-  assert.ok(f.size >= L.CR_KICK);
+  assert.ok(f.size >= MC.CR_KICK);
   const p = g.v.partier(0);
   const out = Math.hypot(p.pos[0] - b.x, p.pos[2] - b.z);
-  assert.ok(out >= L.CR_BR + 1, `outside it (${out.toFixed(3)} m)`);
+  assert.ok(out >= MC.CR_BR + 1, `outside it (${out.toFixed(3)} m)`);
   const vn = (p.vel[0] * (p.pos[0] - b.x) + p.vel[2] * (p.pos[2] - b.z)) / out;
-  assert.ok(vn >= L.CR_KICK - 0.2, `thrown off at ${vn.toFixed(2)} m/s`);
-  assert.equal(score(g, 0), L.CR_BPAY, 'paid');
+  assert.ok(vn >= MC.CR_KICK - 0.2, `thrown off at ${vn.toFixed(2)} m/s`);
+  assert.equal(score(g, 0), MC.CR_BPAY, 'paid');
   const tp = playT(g) - 1;
-  assert.equal(bumpers(g.v)[0].litAt, tp + L.CR_BDARK, 'dark');
+  assert.equal(bumpers(g.v)[0].litAt, tp + MC.CR_BDARK, 'dark');
   assert.equal(bumpers(g.v)[0].hits, 1);
-  const pay = fxs(g.v, L.CR_FX_TAKE, k0);
-  assert.deepEqual(pay.map((x) => [x.owner, x.shot, x.size]), [[0, L.CR_MAX, L.CR_BPAY]]);
+  const pay = fxs(g.v, MC.CR_FX_TAKE, k0);
+  assert.deepEqual(pay.map((x) => [x.owner, x.shot, x.size]), [[0, MC.CR_MAX, MC.CR_BPAY]]);
   // again at once: thrown, not paid
   go();
   n = 0;
   const k1 = g.v.fxCount();
-  while (!fxs(g.v, L.CR_FX_BUMP, k1).length && n++ < 60) g.step();
-  assert.ok(fxs(g.v, L.CR_FX_BUMP, k1).length);
-  assert.equal(score(g, 0), L.CR_BPAY, 'dark: no pay');
+  while (!fxs(g.v, MC.CR_FX_BUMP, k1).length && n++ < 60) g.step();
+  assert.ok(fxs(g.v, MC.CR_FX_BUMP, k1).length);
+  assert.equal(score(g, 0), MC.CR_BPAY, 'dark: no pay');
   // lit again 5 s on
-  while (playT(g) < tp + L.CR_BDARK) g.step();
+  while (playT(g) < tp + MC.CR_BDARK) g.step();
   go();
   n = 0;
-  while (score(g, 0) === L.CR_BPAY && n++ < 60) g.step();
-  assert.equal(score(g, 0), 2 * L.CR_BPAY, 'paid again');
+  while (score(g, 0) === MC.CR_BPAY && n++ < 60) g.step();
+  assert.equal(score(g, 0), 2 * MC.CR_BPAY, 'paid again');
 });
 
 test('the clock: five jackpots called 3 s ahead at spots clear of the bumpers, each a fountain of coins; the frenzy at 60 s; placed by coins at 75 s', async () => {
@@ -487,46 +488,46 @@ test('the clock: five jackpots called 3 s ahead at spots clear of the bumpers, e
     g.step();
     for (; seen < g.v.fxCount(); seen++) {
       const f = g.v.fx(seen);
-      if (f.kind !== L.CR_FX_CALL) continue;
+      if (f.kind !== MC.CR_FX_CALL) continue;
       calls.push([t, f.shot, f.size]);
       if (f.shot === 0) {
         const r = R(g);
-        assert.ok(Math.hypot(f.pos[0] - C, f.pos[2] - C) <= r * L.CR_JACKIN + 1e-3, 'over the middle');
-        for (const b of bumpers(g.v)) assert.ok(Math.hypot(f.pos[0] - b.x, f.pos[2] - b.z) >= L.CR_BR + 2 - 1e-3, 'clear of the bumpers');
-        assert.deepEqual([g.dv.getFloat32(L.PG_H + L.CR_JX, true), g.dv.getFloat32(L.PG_H + L.CR_JZ, true)], [f.pos[0], f.pos[2]]);
+        assert.ok(Math.hypot(f.pos[0] - C, f.pos[2] - C) <= r * MC.CR_JACKIN + 1e-3, 'over the middle');
+        for (const b of bumpers(g.v)) assert.ok(Math.hypot(f.pos[0] - b.x, f.pos[2] - b.z) >= MC.CR_BR + 2 - 1e-3, 'clear of the bumpers');
+        assert.deepEqual([g.dv.getFloat32(L.PG_H + MC.CR_JX, true), g.dv.getFloat32(L.PG_H + MC.CR_JZ, true)], [f.pos[0], f.pos[2]]);
         const jp = jackpot(g.v, t);
-        assert.ok(jp.called && jp.at === t + L.CR_JACKW, 'the client sees it called');
+        assert.ok(jp.called && jp.at === t + MC.CR_JACKW, 'the client sees it called');
       }
       if (f.shot === 1 && !erupted) {
-        erupted = allCoins(g).filter((k) => k.kind === L.CR_KJACK);
-        const n = L.CR_JACKN0 + Math.floor(3 / L.CR_JACKNK);
+        erupted = allCoins(g).filter((k) => k.kind === MC.CR_KJACK);
+        const n = MC.CR_JACKN0 + Math.floor(3 / MC.CR_JACKNK);
         assert.equal(f.size, n);
         assert.equal(erupted.length, n);
-        const r = L.CR_JACKR0 + L.CR_JACKRK * Math.sqrt(n);
+        const r = MC.CR_JACKR0 + MC.CR_JACKRK * Math.sqrt(n);
         erupted.forEach((k, i) => {
           assert.deepEqual([k.x0, k.z0], [f.pos[0], f.pos[2]], 'thrown up from its spot');
           assert.ok(Math.hypot(k.x - f.pos[0], k.z - f.pos[2]) <= r + 1e-3, 'landing round it');
-          assert.ok(k.t0 >= f.tick && k.t0 < f.tick + L.CR_JACKSPAN, 'over CR_JACKSPAN');
+          assert.ok(k.t0 >= f.tick && k.t0 < f.tick + MC.CR_JACKSPAN, 'over CR_JACKSPAN');
         });
-        assert.equal(erupted.filter((k) => k.v === L.CR_BIGV).length, Math.floor(n / L.CR_JACKBIG));
+        assert.equal(erupted.filter((k) => k.v === MC.CR_BIGV).length, Math.floor(n / MC.CR_JACKBIG));
       }
     }
   }
   const want = [];
-  for (let j = 0; jackAt(j) < L.CR_LEN; j++) want.push([jackAt(j) - L.CR_JACKW, 0, 0], [jackAt(j), 1, L.CR_JACKN0]);
-  want.push([L.CR_FRENZY, 2, 0]);
+  for (let j = 0; jackAt(j) < MC.CR_LEN; j++) want.push([jackAt(j) - MC.CR_JACKW, 0, 0], [jackAt(j), 1, MC.CR_JACKN0]);
+  want.push([MC.CR_FRENZY, 2, 0]);
   want.sort((a, b) => a[0] - b[0]);
   assert.deepEqual(calls, want);
   assert.equal(want.filter((c) => c[1] === 1).length, 5, 'five jackpots');
   assert.equal(g.v.party().state, L.H_OVER, 'over at the time');
-  assert.equal(g.v.party().t, L.CR_LEN + 1);
+  assert.equal(g.v.party().t, MC.CR_LEN + 1);
 });
 
 test('placing: by coins when the clock runs out, ties sharing', async () => {
   const g = await room(4);
   clearCoins(g);
   noRain(g);
-  at(g, L.CR_LEN - 2);
+  at(g, MC.CR_LEN - 2);
   for (const [p, s] of [[0, 12], [1, 40], [2, 12], [3, 3]]) setScore(g, p, s);
   // still, in the middle, clear of the bumpers and each other
   for (let p = 0; p < 4; p++) put(g, p, C + 2.5 * Math.cos(p * Math.PI / 2), C + 2.5 * Math.sin(p * Math.PI / 2));
@@ -552,7 +553,7 @@ test('the prediction matches the confirmed ball bit for bit (but its score): thr
     ...Array.from({ length: 200 }, (_, k) => partyWord({ yaw: yaw(ux, uz), hop: k % 60 === 20 ? 1 : 0 }))];
   const k0 = g.v.fxCount();
   assert.ok(predicted(g, words) >= words.length);
-  assert.ok(fxs(g.v, L.CR_FX_BUMP, k0).some((f) => f.owner === 0), 'thrown off a bumper');
+  assert.ok(fxs(g.v, MC.CR_FX_BUMP, k0).some((f) => f.owner === 0), 'thrown off a bumper');
   // B: coins strewn on its way along the clear way, taken as it rolls, hopping (the score the confirmed world's alone)
   clearCoins(g);
   noRain(g);
@@ -582,10 +583,10 @@ for (const [balls, ticks] of [[8, 10400], [64, 10500]]) {
       assert.equal(s.error().code, 0, 'no trap');
       for (; seen < v.fxCount(); seen++) {
         const f = v.fx(seen);
-        if (f.kind === L.CR_FX_TAKE && f.shot < L.CR_MAX) { stats.takes++; stats.takers.add(f.owner); }
-        if (f.kind === L.CR_FX_TAKE && f.shot >= L.CR_MAX) stats.pays++;
-        if (f.kind === L.CR_FX_LOSE) stats.lost += f.shot;
-        if (f.kind === L.CR_FX_CALL && f.shot === 1) stats.jacks++;
+        if (f.kind === MC.CR_FX_TAKE && f.shot < MC.CR_MAX) { stats.takes++; stats.takers.add(f.owner); }
+        if (f.kind === MC.CR_FX_TAKE && f.shot >= MC.CR_MAX) stats.pays++;
+        if (f.kind === MC.CR_FX_LOSE) stats.lost += f.shot;
+        if (f.kind === MC.CR_FX_CALL && f.shot === 1) stats.jacks++;
       }
       const g = v.party();
       if (stats.start < 0 && g.state === L.H_PLAY) stats.start = t;
@@ -599,7 +600,7 @@ for (const [balls, ticks] of [[8, 10400], [64, 10500]]) {
     } });
     assert.equal(sim.error().code, 0);
     assert.ok(stats.over > 0, 'the round ended');
-    assert.equal(stats.over - stats.start, L.CR_LEN, 'at the time');
+    assert.equal(stats.over - stats.start, MC.CR_LEN, 'at the time');
     assert.ok(stats.takes > balls * 10, `${stats.takes} coins taken`);
     assert.equal(stats.takers.size, balls, 'by every ball');
     assert.equal(stats.jacks, 5);
@@ -621,8 +622,8 @@ for (const [balls, ticks] of [[8, 10400], [64, 10500]]) {
 
 test('the client module: draws every phase, frames the disc, writes its HUD lines; its coins are where the sim takes them, its brain sees the rim', async () => {
   const { Scene } = await import('../client/party-render.mjs');
-  assert.equal(L.CR_FX_TAKE, L.FX_MG + 4 * L.MG_COINS);
-  assert.deepEqual([L.CR_FX_LOSE, L.CR_FX_CALL, L.CR_FX_BUMP], [L.CR_FX_TAKE + 1, L.CR_FX_TAKE + 2, L.CR_FX_TAKE + 3]);
+  assert.equal(MC.CR_FX_TAKE, L.FX_MG + 4 * L.MG_COINS);
+  assert.deepEqual([MC.CR_FX_LOSE, MC.CR_FX_CALL, MC.CR_FX_BUMP], [MC.CR_FX_TAKE + 1, MC.CR_FX_TAKE + 2, MC.CR_FX_TAKE + 3]);
   assert.ok(coinsMg.hint.length <= 70);
   assert.equal(coinsMg.id, L.MG_COINS);
   const g = await room(6, { seed: 41, play: false });
@@ -642,7 +643,7 @@ test('the client module: draws every phase, frames the disc, writes its HUD line
   assert.equal(coinsMg.env, 'sunset');
   while (g.v.hole().state !== L.H_PLAY) g.step();
   // play: a jackpot called, coins falling and lying
-  at(g, L.CR_JACK0 - L.CR_JACKW - 1);
+  at(g, MC.CR_JACK0 - MC.CR_JACKW - 1);
   for (let k = 0; k < 160; k++) g.step();
   o = out();
   lines.length = 0;
@@ -656,7 +657,7 @@ test('the client module: draws every phase, frames the disc, writes its HUD line
   assert.ok(/JACKPOT IN \d\.\d/.test(text) && /FRENZY IN/.test(text) && /OF 6/.test(text), text);
   for (const l of lines) assert.ok(l[1].length <= 80);
   // the frenzy: night
-  at(g, L.CR_FRENZY + 10);
+  at(g, MC.CR_FRENZY + 10);
   g.step();
   o = out();
   coinsMg.draw(g.v, { tick: g.v.tick, dt: 0, ptick: g.v.tick, now: 2000, slot: 0 }, o);
@@ -672,13 +673,13 @@ test('the client module: draws every phase, frames the disc, writes its HUD line
     for (let p = 0; p < 6; p++) {
       const bx = C + 4 * Math.cos(p * 1.05), bz = C + 4 * Math.sin(p * 1.05);
       put(g, p, bx, bz);
-      putCoin(g, 30 + p, bx + 0.4, bz, { t0: g.v.tick, air: 40 + 7 * p, x0: bx + 4, y0: PLAT_Y + 2.5 + round, z0: bz - 1, h: 1.5, kind: L.CR_KRAIN });
+      putCoin(g, 30 + p, bx + 0.4, bz, { t0: g.v.tick, air: 40 + 7 * p, x0: bx + 4, y0: PLAT_Y + 2.5 + round, z0: bz - 1, h: 1.5, kind: MC.CR_KRAIN });
       thrown.push(coinRec(g, 30 + p));
     }
     for (let k = 0; k < 90; k++) g.step();
     for (; seen < g.v.fxCount(); seen++) {
       const f = g.v.fx(seen);
-      if (f.kind !== L.CR_FX_TAKE || f.shot >= L.CR_MAX) continue;
+      if (f.kind !== MC.CR_FX_TAKE || f.shot >= MC.CR_MAX) continue;
       const k0 = thrown.find((c) => c.c === f.shot);
       if (!k0) continue;
       const p = coinAt(k0, f.tick);

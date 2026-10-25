@@ -8,10 +8,11 @@
 // fighter goes for the hill, whatever its role (a hill has no home), and
 // holds inside two thirds of its radius.
 import * as L from '../../src/layout.mjs';
+import * as AC from '../../src/am/consts.mjs';
 import { C } from '../font.mjs';
 import { SIDE, SIDE_C, SIDE_RGB } from './sides.mjs';
 
-const H = Number(L.HL_H);
+const H = Number(AC.HL_H);
 const WHO = ['NOBODY', ...SIDE, 'CONTESTED'];
 const WHO_C = [C.WHITE, ...SIDE_C, C.YELLOW];
 const NOBODY_RGB = [0.92, 0.92, 0.88];
@@ -21,12 +22,12 @@ export function hillOf(view) {
   if (!view) return null;
   const d = view.dv, a = L.AO;
   const f = (o) => d.getFloat32(a + o, true);
-  const r = f(L.HL_R);
+  const r = f(AC.HL_R);
   if (!(r > 0)) return null;
   return {
-    at: d.getUint32(a + L.HL_AT, true), moves: d.getUint32(a + L.HL_MOVES, true), pos: [f(L.HL_X), f(L.HL_Y), f(L.HL_Z)], r,
-    hold: d.getUint32(a + L.HL_HOLD, true) & 3, on: [d.getUint32(a + L.HL_ON, true), d.getUint32(a + L.HL_ON + 4, true)],
-    held: [d.getUint16(a + L.HL_HELD, true), d.getUint16(a + L.HL_HELD + 2, true)],
+    at: d.getUint32(a + AC.HL_AT, true), moves: d.getUint32(a + AC.HL_MOVES, true), pos: [f(AC.HL_X), f(AC.HL_Y), f(AC.HL_Z)], r,
+    hold: d.getUint32(a + AC.HL_HOLD, true) & 3, on: [d.getUint32(a + AC.HL_ON, true), d.getUint32(a + AC.HL_ON + 4, true)],
+    held: [d.getUint16(a + AC.HL_HELD, true), d.getUint16(a + AC.HL_HELD + 2, true)],
   };
 }
 
@@ -82,17 +83,17 @@ export default {
     const h = hillOf(ctx.view);
     const mine = ctx.me?.live ? ctx.me.team : -1;
     const ring = (rgb) => ctx.glow({ pos: [f.pos[0], f.pos[1] + 0.3, f.pos[2]], size: h ? h.r : 4, color: [...rgb, 0.8], kind: 6, life: 900, grow: true });
-    if (f.size === L.HL_MX_MOVE) {
+    if (f.size === AC.HL_MX_MOVE) {
       ctx.feed('THE HILL MOVED', C.YELLOW);
       ctx.banner('THE HILL MOVED', C.YELLOW, 2000);
       ring(NOBODY_RGB);
-    } else if (f.size === L.HL_MX_TAKE) {
+    } else if (f.size === AC.HL_MX_TAKE) {
       const side = f.shot - 1;
       if (side !== 0 && side !== 1) return;
       ctx.feed(`${SIDE[side]} HAS THE HILL`, SIDE_C[side]);
       if (mine >= 0) ctx.banner(mine === side ? 'YOUR SIDE HAS THE HILL' : `${SIDE[side]} HAS THE HILL`, SIDE_C[side], 1800);
       ring(SIDE_RGB[side]);
-    } else if (f.size === L.HL_MX_CONTEST) {
+    } else if (f.size === AC.HL_MX_CONTEST) {
       ctx.feed('THE HILL IS CONTESTED', C.YELLOW);
       if (mine >= 0) ctx.banner('THE HILL IS CONTESTED', C.YELLOW, 1500);
       ring([1, 0.85, 0.3]);

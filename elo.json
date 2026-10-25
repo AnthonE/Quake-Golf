@@ -1,0 +1,56 @@
+{
+  "elo": 1,
+  "game": "fireplace",
+  "jobs": [
+    {
+      "id": "fireplace-theme",
+      "title": "a theme for the living room",
+      "what": "A local reskin of Fireplace's room: one JSON file in client/themes (its colours, what stands on the mantel, the weather at the window), no code. node tools/themes.mjs new <id> starts one at Grandma's colours, and client/room.html?theme=<id> shows it as you save.",
+      "deliverable": "PR: accepted into AnthonE/Quake-Golf",
+      "read_first": "CONTRIBUTING.md",
+      "check": "review"
+    },
+    {
+      "id": "fireplace-minigame",
+      "title": "a Party minigame",
+      "what": "A new round for Party, and so for Fireplace. node tools/new-mg.mjs <key> <prefix> \"<NAME>\" writes one that builds and plays (a sumo ring); make it yours. Ideas are in docs/roadmap.md's kits table: Snowball, Full Tilt, Big Fans, Hoop Hop, Pinball. Its tests, the determinism matrix and the online gate must pass in CI.",
+      "deliverable": "PR: accepted into AnthonE/Quake-Golf",
+      "read_first": "CONTRIBUTING.md",
+      "check": "machine"
+    }
+  ],
+  "mods": [
+    {
+      "id": "grandma",
+      "kind": "theme",
+      "name": "Grandma's",
+      "by": "AnthonE",
+      "about": "The living room at grandma's, at night: a fire going, pumpkins on the mantel, snow at the window.",
+      "path": "client/themes/grandma.json"
+    },
+    {
+      "id": "christmas-eve",
+      "kind": "theme",
+      "name": "Christmas Eve",
+      "by": "AnthonE",
+      "about": "Red and cream stripes, a green rug, baubles on the mantel and snow coming down.",
+      "path": "client/themes/christmas-eve.json"
+    },
+    {
+      "id": "haunted",
+      "kind": "theme",
+      "name": "Haunted",
+      "by": "AnthonE",
+      "about": "A green fire, purple walls, pumpkins, and a clear night with a pale moon.",
+      "path": "client/themes/haunted.json"
+    },
+    {
+      "id": "summer-rain",
+      "kind": "theme",
+      "name": "Summer Rain",
+      "by": "AnthonE",
+      "about": "Blue stripes, light oak, nothing on the mantel and rain on the window.",
+      "path": "client/themes/summer-rain.json"
+    }
+  ]
+}

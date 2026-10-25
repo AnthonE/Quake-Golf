@@ -9,12 +9,13 @@
 // and timed on the prediction's clock, so a blast is drawn on the tick your
 // ball feels it.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/bombs.mjs'; // BO_*: the minigame's own constants
 import { PLAT_Y, hexCentre } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const f = Math.fround;
-const S = f(L.BO_S); // the sim's f32 circumradius: hexAt and hexCentre take it, not 1.6
+const S = f(MC.BO_S); // the sim's f32 circumradius: hexAt and hexCentre take it, not 1.6
 const TICK = 0.008;
 const HH = 0.45; // a tile's half height, m
 const DRAWN = 0.95; // a tile's drawn circumradius over the sim's: a seam between tiles
@@ -22,29 +23,29 @@ const WARN = 375; // ticks before the rim takes a tile that it darkens (and shak
 const FALL = 1.5; // s a tile is drawn falling
 const RISE = 60; // ticks a crater's tiles take to rise back
 const BLAST = 70; // ticks a blast is drawn
-const BAND = 2 * 1.5 * L.BO_S; // m a ring of colour is wide: two tiles
+const BAND = 2 * 1.5 * MC.BO_S; // m a ring of colour is wide: two tiles
 // the rings' colours, out from the core, and the core's: cool, so the red of a bomb's zone stands out on them
 const RINGS = [[0.82, 0.88, 0.95], [0.26, 0.46, 0.74]];
 const CORE = [[0.96, 0.96, 0.92], [0.3, 0.68, 0.7]];
 const DOOM = [0.22, 0.2, 0.24]; // a tile the rim is about to take
 const HOT = [1, 0.5, 0.12]; // a tile a big bomb is about to take
 
-const BOMB0 = L.PG_S + L.BO_BOMBS;
-const TILE0 = L.PG_BIG + L.BO_TILES;
+const BOMB0 = L.PG_S + MC.BO_BOMBS;
+const TILE0 = L.PG_BIG + MC.BO_TILES;
 
 // ---- what the sim says: the rim, the waves, the tiles, the bombs
 
 // The rim on tick tp into play ($bo_rim, in doubles: for drawing and steering).
 export function rimAt(r0, tp) {
-  const k = tp - L.BO_CALM;
+  const k = tp - MC.BO_CALM;
   if (k <= 0) return r0;
-  if (k >= L.BO_SHRINK) return L.BO_RMIN;
-  return r0 - (r0 - L.BO_RMIN) * (k / L.BO_SHRINK);
+  if (k >= MC.BO_SHRINK) return MC.BO_RMIN;
+  return r0 - (r0 - MC.BO_RMIN) * (k / MC.BO_SHRINK);
 }
 // $bo_ramp: a to b as tp goes through the shrink.
-export const ramp = (tp, a, b) => a - Math.trunc(((a - b) * Math.max(0, Math.min(L.BO_SHRINK, tp - L.BO_CALM))) / L.BO_SHRINK);
+export const ramp = (tp, a, b) => a - Math.trunc(((a - b) * Math.max(0, Math.min(MC.BO_SHRINK, tp - MC.BO_CALM))) / MC.BO_SHRINK);
 // A cell's byte offset in the tiles ($bo_cell), -1 off the grid.
-export const cellOf = (q, r) => (Math.abs(q) > L.BO_N || Math.abs(r) > L.BO_N ? -1 : ((r + L.BO_N) * L.BO_W + q + L.BO_N) * 8);
+export const cellOf = (q, r) => (Math.abs(q) > MC.BO_N || Math.abs(r) > MC.BO_N ? -1 : ((r + MC.BO_N) * MC.BO_W + q + MC.BO_N) * 8);
 // The tick into play the rim takes the tile at cell a (0 no tile, BO_NEVER never), and the tick its crater opens (0 none).
 export const rimOf = (view, a) => view.dv.getUint16(TILE0 + a + 4, true);
 export const craterOf = (view, a) => view.dv.getUint32(TILE0 + a, true);
@@ -52,18 +53,18 @@ export const craterOf = (view, a) => view.dv.getUint32(TILE0 + a, true);
 export function holds(view, a, t, tp) {
   if (a < 0 || tp >= rimOf(view, a)) return false;
   const c = craterOf(view, a);
-  return !c || ((t - c) >>> 0) >= L.BO_HOLE;
+  return !c || ((t - c) >>> 0) >= MC.BO_HOLE;
 }
 // The bombs on the board: { k, x, z, land, fall, big, who (slot aimed at or -1), r }.
 export function bombsOf(view) {
   const out = [];
-  for (let k = 0; k < L.BO_NB; k++) {
-    const a = BOMB0 + k * L.BO_BSIZE;
+  for (let k = 0; k < MC.BO_NB; k++) {
+    const a = BOMB0 + k * MC.BO_BSIZE;
     const kind = view.u8[a + 14];
     if (!kind) continue;
     const big = kind === 2;
     out.push({ k, x: view.dv.getFloat32(a, true), z: view.dv.getFloat32(a + 4, true), land: view.dv.getUint32(a + 8, true), fall: view.dv.getUint16(a + 12, true),
-      big, who: view.u8[a + 15] - 1, r: big ? L.BO_BIGR : L.BO_R });
+      big, who: view.u8[a + 15] - 1, r: big ? MC.BO_BIGR : MC.BO_R });
   }
   return out;
 }
@@ -71,20 +72,20 @@ export function bombsOf(view) {
 let memo = null;
 export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
-  const r0 = dv.getFloat32(L.PG_H + L.BO_RAD + o, true), cx = dv.getFloat32(L.PG_CX + o, true);
+  const r0 = dv.getFloat32(L.PG_H + MC.BO_RAD + o, true), cx = dv.getFloat32(L.PG_CX + o, true);
   const s = dv.getUint32(L.HDR_SEED + o, true), h = dv.getUint32(L.HDR_HOLE + o, true);
   const m = memo;
   if (m && m.r0 === r0 && m.cx === cx && m.s === s && m.h === h && m.tiles.length) return m;
   const tiles = [];
   if (r0 > 0) {
-    for (let r = -L.BO_N; r <= L.BO_N; r++) for (let q = -L.BO_N; q <= L.BO_N; q++) {
+    for (let r = -MC.BO_N; r <= MC.BO_N; r++) for (let q = -MC.BO_N; q <= MC.BO_N; q++) {
       const a = cellOf(q, r);
       const rim = rimOf(view, a);
       if (!rim) continue;
       const [x, z] = hexCentre(q, r, S, cx);
       const rho = Math.hypot(x - cx, z - cx);
       const band = Math.floor(rho / BAND) & 1;
-      tiles.push({ q, r, a, x, z, rho, rim, ang: Math.atan2(z - cx, x - cx), wob: ((q * 7 + r * 13) & 15) / 16, rgb: rho <= L.BO_RMIN ? CORE[band] : RINGS[band] });
+      tiles.push({ q, r, a, x, z, rho, rim, ang: Math.atan2(z - cx, x - cx), wob: ((q * 7 + r * 13) & 15) / 16, rgb: rho <= MC.BO_RMIN ? CORE[band] : RINGS[band] });
     }
   }
   memo = { r0, cx, s, h, tiles, thrown: new Map() };
@@ -142,7 +143,7 @@ function world(view) {
   }
   const buf = view.dv.buffer;
   view._bo = { tick: view.tick, bank: view.bank, o, bombs, bx, bz, br, bw, land, shown, head, next, dense,
-    u16: new Uint16Array(buf, TILE0, L.BO_W * L.BO_W * 4), u32: new Uint32Array(buf, TILE0, L.BO_W * L.BO_W * 2),
+    u16: new Uint16Array(buf, TILE0, MC.BO_W * MC.BO_W * 4), u32: new Uint32Array(buf, TILE0, MC.BO_W * MC.BO_W * 2),
     start: g.start, playing: g.state === L.H_PLAY, st };
   return view._bo;
 }
@@ -164,7 +165,7 @@ const slotOf = (me) => (typeof me === 'number' ? me : me?.slot ?? -1);
 const REACT = new Uint8Array(L.NPLAYER).fill(20);
 // The tile cell under (x, z), in doubles (steering never minds a point right on an edge picking its neighbour).
 function cellAt(x, z, cx) {
-  const u = (x - cx) / L.BO_S, w = (z - cx) / L.BO_S;
+  const u = (x - cx) / MC.BO_S, w = (z - cx) / MC.BO_S;
   const fq = u * 0.5773502691896258 - w / 3, fr = w * 0.6666666666666666, fs = -fq - fr;
   let q = Math.round(fq), r = Math.round(fr);
   const s = Math.round(fs), dq = Math.abs(q - fq), dr = Math.abs(r - fr), ds = Math.abs(s - fs);
@@ -182,7 +183,7 @@ function danger(view, x, z, t, slot) {
   const a = cellAt(x, z, cx);
   // holds(), from the world's own views of the tiles
   const rim = a < 0 ? 0 : w.u16[(a >> 1) + 2], c = a < 0 ? 0 : w.u32[a >> 2];
-  if (tp >= rim || (c && ((t - c) >>> 0) < L.BO_HOLE)) return 1;
+  if (tp >= rim || (c && ((t - c) >>> 0) < MC.BO_HOLE)) return 1;
   let d = 0;
   if (rim - tp < 40) d = 0.7;
   if (c && c - t > 0 && c - t < 40) d = Math.max(d, 0.8);
@@ -230,8 +231,8 @@ export default {
     const sc = out.scene;
     const y0 = PLAT_Y - HH;
     // the column the disc stands on, down into the sea
-    sc.cyl(st.cx, PLAT_Y - 2 * HH - 22, st.cx, L.BO_RMIN * 0.62, 22, 0.42, 0.36, 0.36, LOOK.MATTE);
-    sc.cyl(st.cx, PLAT_Y - 2 * HH - 1.2, st.cx, L.BO_RMIN * 0.9, 1.2, 0.5, 0.42, 0.4, LOOK.MATTE);
+    sc.cyl(st.cx, PLAT_Y - 2 * HH - 22, st.cx, MC.BO_RMIN * 0.62, 22, 0.42, 0.36, 0.36, LOOK.MATTE);
+    sc.cyl(st.cx, PLAT_Y - 2 * HH - 1.2, st.cx, MC.BO_RMIN * 0.9, 1.2, 0.5, 0.42, 0.4, LOOK.MATTE);
     const bombs = tp >= 0 ? bombsOf(view) : [];
     // the big ones by the tick they land (a crater's cells hold it; a wave's land together), so a
     // crater's tiles fly away from the nearest of theirs, kept for the cell (st.thrown) while they
@@ -250,12 +251,12 @@ export default {
       const c = craterOf(view, T.a);
       const since = c ? now - c : -1e9;
       const key = c * 8192 + (T.a >> 3);
-      if (since >= 0 && since < L.BO_HOLE) {
+      if (since >= 0 && since < MC.BO_HOLE) {
         // blown out from the blast, then gone, then rising back in the last RISE ticks
         if (since * TICK < FALL) {
           let o = st.thrown.get(key);
           if (!o) {
-            let near = (L.BO_CRATER + S) ** 2;
+            let near = (MC.BO_CRATER + S) ** 2;
             for (const b of bigs.get(c) || []) { const e = (T.x - b.x) ** 2 + (T.z - b.z) ** 2; if (e <= near) { near = e; o = [b.x, b.z]; } }
             if (o) st.thrown.set(key, o);
           }
@@ -264,11 +265,11 @@ export default {
           const vh = 5 + 3 * T.wob, vu = 9 + 4 * T.wob;
           tile(sc, T.x + (ox / n) * vh * a, y0 + vu * a - 0.5 * 30 * a * a, T.z + (oz / n) * vh * a, a * (T.wob - 0.5) * 9, shade(T.rgb, DOOM, 0.6), LOOK.MATTE, 0, 0, 1 - a / FALL);
         }
-        const up = (L.BO_HOLE - since) / RISE;
+        const up = (MC.BO_HOLE - since) / RISE;
         if (up < 1) tile(sc, T.x, y0 - 4 * up * up, T.z, 0, T.rgb, LOOK.PLASTIC, 0, 0, 1 - 0.8 * up);
         continue;
       }
-      if (since >= L.BO_HOLE) st.thrown.delete(key);
+      if (since >= MC.BO_HOLE) st.thrown.delete(key);
       let rgb = T.rgb, look = LOOK.PLASTIC, ga = 0, dx = 0, dz = 0, dy = 0;
       if (left < WARN) {
         // about to go with the rim: darker, sinking a little, shaking in the last half second
@@ -295,11 +296,11 @@ export default {
       if (left > 0) {
         const u = Math.max(0, Math.min(1, 1 - left / b.fall));
         const r = b.big ? 0.95 : 0.6;
-        const y = PLAT_Y + L.BO_HEIGHT * (1 - u * u);
+        const y = PLAT_Y + MC.BO_HEIGHT * (1 - u * u);
         const zone = b.big ? [1, 0.55, 0.1] : [1, 0.16, 0.12];
         out.decals?.push({ pos: [b.x, PLAT_Y + 0.04, b.z], radius: b.r, width: 0.35, color: [...zone, 0.35 + 0.55 * u], kind: DECAL.ZONE });
         out.decals?.push({ pos: [b.x, PLAT_Y + 0.06, b.z], radius: Math.max(0.5, b.r * (1 - u)), width: 0.28, color: [1, 0.95, 0.75, 0.5 + 0.5 * u], kind: DECAL.RING });
-        if (b.big) out.decals?.push({ pos: [b.x, PLAT_Y + 0.08, b.z], radius: L.BO_CRATER + S * 0.8, width: 0.2, color: [1, 0.8, 0.3, 0.4 + 0.5 * u], kind: DECAL.TARGET });
+        if (b.big) out.decals?.push({ pos: [b.x, PLAT_Y + 0.08, b.z], radius: MC.BO_CRATER + S * 0.8, width: 0.2, color: [1, 0.8, 0.3, 0.4 + 0.5 * u], kind: DECAL.TARGET });
         // black until its last 0.3 s, then red-hot as it comes down
         const hotness = Math.max(0, 1 - left / 38);
         out.solid.push({ pos: [b.x, y + r, b.z], size: r, color: b.big ? [0.22, 0.2, 0.24, 1] : [0.1, 0.1, 0.12, 1], kind: SPRITE.BOMB, roll: hotness, minpx: 2 });
@@ -342,19 +343,19 @@ export default {
 
   fx(fx, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(fx.pos) : ctx.dist ?? 0;
-    if (fx.kind === L.BO_FX_BOOM) {
+    if (fx.kind === MC.BO_FX_BOOM) {
       ctx.sound?.blast?.(d, fx.size);
-    } else if (fx.kind === L.BO_FX_BIG) {
+    } else if (fx.kind === MC.BO_FX_BIG) {
       // aimed (shot's 256) at you: owner 255 alone is nobody's, or slot 255's
       if (ctx.slot >= 0 && (fx.shot & 0x100) && fx.owner === ctx.slot) ctx.banner?.('BIG BOMB ON YOU  RUN', C.RED, 1400);
       else if (d < 18) ctx.banner?.('BIG BOMB', C.ORANGE, 1000);
-    } else if (fx.kind === L.BO_FX_WAVE) {
+    } else if (fx.kind === MC.BO_FX_WAVE) {
       if (d < 120) ctx.sound?.tick?.();
       // the first wave past the calm, and past the big ones' start, say so
       const g = ctx.view?.party?.();
-      const tp = g ? (fx.tick - g.start) | 0 : 0, gap = ramp(tp, L.BO_GAP0, L.BO_GAP1);
-      if (tp >= L.BO_CALM && tp - gap < L.BO_CALM) ctx.banner?.('THE EDGE IS CRUMBLING', C.ORANGE, 1800);
-      else if (tp >= L.BO_BIGFROM && tp - gap < L.BO_BIGFROM) ctx.banner?.('BIG BOMBS BLOW HOLES', C.ORANGE, 1800);
+      const tp = g ? (fx.tick - g.start) | 0 : 0, gap = ramp(tp, MC.BO_GAP0, MC.BO_GAP1);
+      if (tp >= MC.BO_CALM && tp - gap < MC.BO_CALM) ctx.banner?.('THE EDGE IS CRUMBLING', C.ORANGE, 1800);
+      else if (tp >= MC.BO_BIGFROM && tp - gap < MC.BO_BIGFROM) ctx.banner?.('BIG BOMBS BLOW HOLES', C.ORANGE, 1800);
     }
   },
 
@@ -364,8 +365,8 @@ export default {
     if (g.state !== L.H_PLAY) return;
     const st = stage(view);
     if (!(st.r0 > 0)) return;
-    const w = view.dv.getUint32(L.PG_H + L.BO_WAVE, true), n = view.dv.getUint32(L.PG_H + L.BO_LAST, true);
-    const gap = view.dv.getUint32(L.PG_H + L.BO_GAP, true) || L.BO_GAP0;
+    const w = view.dv.getUint32(L.PG_H + MC.BO_WAVE, true), n = view.dv.getUint32(L.PG_H + MC.BO_LAST, true);
+    const gap = view.dv.getUint32(L.PG_H + MC.BO_GAP, true) || MC.BO_GAP0;
     if (w) ctx.right(3, `WAVE ${w}  ${n} ${n === 1 ? 'BOMB' : 'BOMBS'}  EVERY ${(gap * TICK).toFixed(1)}S`, C.GREY);
     else ctx.right(3, 'WATCH THE SKY  BOMBS LAND IN THE RINGS', C.ORANGE);
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);

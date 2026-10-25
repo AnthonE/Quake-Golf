@@ -9,12 +9,13 @@
 // the leaders' colours, yours, the rest. The grid, counts and bombs are read
 // straight from the sim (src/mg/paint.mjs's layout).
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/paint.mjs'; // PP_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
-const N = L.PP_N;
+const N = MC.PP_N;
 const LID = 0.6; // the floor's half height, m
 const TIN = 7; // the tin's side, m down from the lid
 const DRIPS = 40; // runs of paint round the tin's side
@@ -29,8 +30,8 @@ const ball = (view, me) => (typeof me === 'number' ? view.partier(me) : me);
 export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
   return {
-    rad: dv.getFloat32(L.PG_H + L.PP_RAD + o, true), x0: dv.getFloat32(L.PG_H + L.PP_X0 + o, true), cs: dv.getFloat32(L.PG_H + L.PP_CS + o, true),
-    total: dv.getUint32(L.PG_H + L.PP_TOTAL + o, true), orbs: dv.getUint32(L.PG_H + L.PP_ORBS + o, true), cx: dv.getFloat32(L.PG_CX + o, true),
+    rad: dv.getFloat32(L.PG_H + MC.PP_RAD + o, true), x0: dv.getFloat32(L.PG_H + MC.PP_X0 + o, true), cs: dv.getFloat32(L.PG_H + MC.PP_CS + o, true),
+    total: dv.getUint32(L.PG_H + MC.PP_TOTAL + o, true), orbs: dv.getUint32(L.PG_H + MC.PP_ORBS + o, true), cx: dv.getFloat32(L.PG_CX + o, true),
     len: dv.getUint32(L.PG_LEN + o, true),
   };
 }
@@ -39,7 +40,7 @@ const GRIDS = new WeakMap();
 export function grid(view) {
   const buf = view.dv.buffer;
   let g = GRIDS.get(buf);
-  if (!g) GRIDS.set(buf, (g = new Uint16Array(buf, L.PG_BIG + L.PP_CELLS, N * N)));
+  if (!g) GRIDS.set(buf, (g = new Uint16Array(buf, L.PG_BIG + MC.PP_CELLS, N * N)));
   return g;
 }
 // The cell under (x, z), or -1 off the grid.
@@ -48,14 +49,14 @@ export function cellAt(st, x, z) {
   return i < 0 || j < 0 || i >= N || j >= N ? -1 : j * N + i;
 }
 // The cells slot p holds (PP_CNT, of which PG_SCORE is the copy).
-export const cells = (view, p) => view.dv.getUint16(L.PG_S + L.PP_CNT + 2 * p, true);
+export const cells = (view, p) => view.dv.getUint16(L.PG_S + MC.PP_CNT + 2 * p, true);
 // Bomb j: where it is, the tick into play it lands, its bursts so far.
 export function orb(view, j) {
-  const o = L.PG_S + L.PP_ORB + j * L.PP_ORB_SIZE, dv = view.dv;
+  const o = L.PG_S + MC.PP_ORB + j * MC.PP_ORB_SIZE, dv = view.dv;
   return { x: dv.getFloat32(o, true), z: dv.getFloat32(o + 4, true), at: dv.getUint32(o + 8, true), bursts: dv.getUint32(o + 12, true) };
 }
 // Is the round in its rush on tick t into play?
-export const rushing = (st, t) => t >= st.len - L.PP_RUSH;
+export const rushing = (st, t) => t >= st.len - MC.PP_RUSH;
 
 // Ticks into play to draw at (fractional), or -1 before play; frozen where the round ended.
 function playTime(view, g, ctx, pred) {
@@ -98,7 +99,7 @@ function stamp(st, g, p, x, z, r) {
     const dz = (j + 0.5) * st.cs + st.x0 - z;
     for (let i = i0; i <= i1; i++) {
       const dx = (i + 0.5) * st.cs + st.x0 - x;
-      if (dx * dx + dz * dz <= r2 && g[j * N + i] !== L.PP_OFF) src[j * N + i] = v;
+      if (dx * dx + dz * dz <= r2 && g[j * N + i] !== MC.PP_OFF) src[j * N + i] = v;
     }
   }
 }
@@ -115,7 +116,7 @@ function quarters(i, j) {
 export function paintLayer(view, st, ctx, play) {
   palette(ctx?.slot ?? -1);
   const g = grid(view);
-  for (let c = 0; c < N * N; c++) { const v = g[c]; src[c] = v === 0 || v === L.PP_OFF ? 0 : idx(v - 1); }
+  for (let c = 0; c < N * N; c++) { const v = g[c]; src[c] = v === 0 || v === MC.PP_OFF ? 0 : idx(v - 1); }
   // your ball's paint on the ticks it has rolled that the confirmed world hasn't yet (the prediction's track)
   if (play && ctx?.pme && !ctx.pme.out && ctx.pview && ctx.slot >= 0) {
     const t0 = view.tick, t1 = ctx.pview.tick, start = view.dv.getUint32(L.HDR_START, true);
@@ -125,7 +126,7 @@ export function paintLayer(view, st, ctx, play) {
       if (tk <= t0 || tk > t1) break;
       const y = view.dv.getFloat32(o + 4, true);
       if (Math.abs(y - PLAT_Y) > 0.01) continue;
-      stamp(st, g, ctx.slot, view.dv.getFloat32(o, true), view.dv.getFloat32(o + 8, true), rushing(st, (tk - start) | 0) ? L.PP_RUSH_BRUSH : L.PP_BRUSH);
+      stamp(st, g, ctx.slot, view.dv.getFloat32(o, true), view.dv.getFloat32(o + 8, true), rushing(st, (tk - start) | 0) ? MC.PP_RUSH_BRUSH : MC.PP_BRUSH);
     }
   }
   let changed = 0;
@@ -150,7 +151,7 @@ export function paintLayer(view, st, ctx, play) {
 function reach(ctx, b) {
   const m = ctx?.pme;
   if (!m || m.out || !m.live) return false;
-  const dx = m.pos[0] - b.x, dy = m.pos[1] + m.radius - (PLAT_Y + L.PP_ORB_Y), dz = m.pos[2] - b.z, lim = m.radius + L.PP_ORB_R;
+  const dx = m.pos[0] - b.x, dy = m.pos[1] + m.radius - (PLAT_Y + MC.PP_ORB_Y), dz = m.pos[2] - b.z, lim = m.radius + MC.PP_ORB_R;
   return dx * dx + dy * dy + dz * dz < lim * lim;
 }
 
@@ -209,7 +210,7 @@ function worth(st, g, p, x, z) {
     const c = cellAt(st, x + dx, z + dz);
     if (c < 0) continue;
     const v = g[c];
-    if (v === L.PP_OFF || v === mine) continue;
+    if (v === MC.PP_OFF || v === mine) continue;
     s += v ? 1.25 : 1;
   }
   return s;
@@ -237,7 +238,7 @@ export default {
       const a = (k / DRIPS) * 2 * Math.PI + 0.37;
       const c = cellAt(st, cx + Math.cos(a) * (R - 0.6), cx + Math.sin(a) * (R - 0.6));
       const v = c >= 0 ? gr[c] : 0;
-      if (!v || v === L.PP_OFF) continue;
+      if (!v || v === MC.PP_OFF) continue;
       const col = slotColor(v - 1);
       const len = 0.8 + 2.2 * (((k * 2654435761) >>> 0) % 97) / 97;
       const rr = R * 0.985 + 0.05, x = cx + Math.cos(a) * rr, z = cx + Math.sin(a) * rr;
@@ -248,7 +249,7 @@ export default {
     const tp = playTime(view, g, ctx, true);
     const t = Math.max(0, tp);
     const rush = tp >= 0 && rushing(st, t);
-    const splat = rush ? L.PP_RUSH_SPLAT : L.PP_SPLAT;
+    const splat = rush ? MC.PP_RUSH_SPLAT : MC.PP_SPLAT;
     for (let j = 0; j < st.orbs; j++) {
       const b = orb(view, j);
       const left = (b.at - t) * TICK;
@@ -258,14 +259,14 @@ export default {
         const pulse = 0.5 + 0.5 * Math.sin(now * (6 + 10 / (left + 0.5)));
         out.decals?.push({ pos: [b.x, PLAT_Y + 0.04, b.z], radius: splat, width: 0.3, color: [1, 1, 1, 0.25 + 0.35 * pulse * Math.min(1, 3 / (left + 0.5))], kind: DECAL.TARGET });
         if (left < FALL) {
-          const y = PLAT_Y + L.PP_ORB_Y + 70 * left * left;
+          const y = PLAT_Y + MC.PP_ORB_Y + 70 * left * left;
           sc.sphere(b.x, y, b.z, 0.75, ...rgb, LOOK.PLASTIC);
           out.casters?.push([b.x, y, b.z, -0.75]);
         }
         continue;
       }
       const bob = 0.15 * Math.sin(now * 3 + j);
-      const y = PLAT_Y + L.PP_ORB_Y + bob;
+      const y = PLAT_Y + MC.PP_ORB_Y + bob;
       // your own ball in reach of it: gone at once (the confirmed world bursts it a round trip on)
       if (reach(ctx, b)) continue;
       sc.sphere(b.x, y, b.z, 0.75, ...rgb, LOOK.PLASTIC);
@@ -303,20 +304,20 @@ export default {
 
   fx(f, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(f.pos) : ctx.dist ?? 0;
-    if (f.kind === L.PP_FX_SPLAT) {
+    if (f.kind === MC.PP_FX_SPLAT) {
       const col = slotColor(f.owner);
       const mine = f.owner === ctx.slot;
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.3, f.pos[2]], size: f.size * 1.2, color: [...col, 0.9], kind: SPRITE.RING, life: 600, grow: true });
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 3, color: [...col, 1], kind: SPRITE.FLASH, life: 350, grow: true });
       if (mine || d < 30) ctx.sound?.blast?.(mine ? 0 : d, 4);
       if (mine) { ctx.banner?.('SPLAT!', C.GREEN, 1200); ctx.sound?.pickup?.(); }
-    } else if (f.kind === L.PP_FX_ORB) {
+    } else if (f.kind === MC.PP_FX_ORB) {
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.2, f.pos[2]], size: 2.2, color: [1, 1, 1, 0.6], kind: SPRITE.RING, life: 400, grow: true });
       if (d < 25) ctx.sound?.land?.(Math.min(14, 160 / (d + 10)));
-    } else if (f.kind === L.PP_FX_RUSH) {
+    } else if (f.kind === MC.PP_FX_RUSH) {
       ctx.banner?.('FINAL 10 SECONDS  BIGGER BRUSHES', C.ORANGE, 2500);
       ctx.sound?.count?.(0);
-    } else if (f.kind === L.PP_FX_LEAD) {
+    } else if (f.kind === MC.PP_FX_LEAD) {
       if (f.owner === ctx.slot) ctx.banner?.('YOU TAKE THE LEAD', C.GREEN, 1500);
       else if (f.shot === ctx.slot) ctx.banner?.(`P${f.owner + 1} TAKES THE LEAD`, C.RED, 1500);
     }

@@ -9,6 +9,7 @@
 // little crown. The hills' heights are the sim's (src/mg/hill.wat) worked
 // again here from PG_H and the tick, so the bots steer by what the sim does.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/hill.mjs'; // KH_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL, SHAPE } from '../party-render.mjs';
 import { C } from '../font.mjs';
@@ -32,37 +33,37 @@ export function stage(view) {
   const dv = view.dv, h = L.PG_H + o;
   const g = (k) => dv.getFloat32(h + k, true);
   const cx = dv.getFloat32(L.PG_CX + o, true);
-  const nh = Math.max(1, Math.min(L.KH_HMAX, dv.getUint32(h + L.KH_NH, true)));
+  const nh = Math.max(1, Math.min(MC.KH_HMAX, dv.getUint32(h + MC.KH_NH, true)));
   // spots[zone][hill] = [x, z], as $kh_spot has them (1/64 m from the middle, f32)
   const spots = [];
-  for (let j = 0; j < L.KH_ZONES; j++) {
+  for (let j = 0; j < MC.KH_ZONES; j++) {
     const zone = [];
     for (let i = 0; i < nh; i++) {
-      const a = h + L.KH_SPOT + 4 * (j * L.KH_HMAX + i);
+      const a = h + MC.KH_SPOT + 4 * (j * MC.KH_HMAX + i);
       zone.push([Math.fround(dv.getInt16(a, true) * 0.015625 + cx), Math.fround(dv.getInt16(a + 2, true) * 0.015625 + cx)]);
     }
     spots.push(zone);
   }
-  const F = g(L.KH_F);
+  const F = g(MC.KH_F);
   view._kh = {
     tick: view.tick, o, cx, nh,
-    rad: g(L.KH_RAD), z: g(L.KH_Z), top: g(L.KH_TOP), F, H: g(L.KH_H), ia2: g(L.KH_IA2), A: F / Math.sqrt(0.75),
-    lead: dv.getUint32(h + L.KH_LEAD, true), spots,
+    rad: g(MC.KH_RAD), z: g(MC.KH_Z), top: g(MC.KH_TOP), F, H: g(MC.KH_H), ia2: g(MC.KH_IA2), A: F / Math.sqrt(0.75),
+    lead: dv.getUint32(h + MC.KH_LEAD, true), spots,
   };
   return view._kh;
 }
 
 // The zone open on tick t into play ($kh_zone).
-export const zoneAt = (t) => Math.min(L.KH_ZONES - 1, Math.floor(Math.max(0, t) / L.KH_PERIOD));
+export const zoneAt = (t) => Math.min(MC.KH_ZONES - 1, Math.floor(Math.max(0, t) / MC.KH_PERIOD));
 const ease = (s) => s * s * (3 - 2 * s);
 // How far zone j's hills have risen on tick t into play, t fractional for drawing ($kh_up).
 export function up(j, t) {
-  let a = t - (j * L.KH_PERIOD - L.KH_RISE);
+  let a = t - (j * MC.KH_PERIOD - MC.KH_RISE);
   if (a < 0) return 0;
-  if (a < L.KH_RISE) return ease(a / L.KH_RISE);
-  a -= L.KH_RISE + L.KH_PERIOD;
-  if (a < 0 || j === L.KH_ZONES - 1) return 1;
-  return a < L.KH_RISE ? 1 - ease(a / L.KH_RISE) : 0;
+  if (a < MC.KH_RISE) return ease(a / MC.KH_RISE);
+  a -= MC.KH_RISE + MC.KH_PERIOD;
+  if (a < 0 || j === MC.KH_ZONES - 1) return 1;
+  return a < MC.KH_RISE ? 1 - ease(a / MC.KH_RISE) : 0;
 }
 // A hill's top at (x, z), its centre (sx, sz), risen u, or -Infinity past its foot ($kh_hill).
 export function hillAt(st, [sx, sz], u, x, z) {
@@ -77,14 +78,14 @@ export function groundAt(st, t, x, z) {
   if (dx * dx + dz * dz > st.rad * st.rad) return -Infinity;
   const k = zoneAt(t);
   let top = PLAT_Y;
-  for (let j = Math.max(0, k - 1); j <= Math.min(L.KH_ZONES - 1, k + 1); j++) {
+  for (let j = Math.max(0, k - 1); j <= Math.min(MC.KH_ZONES - 1, k + 1); j++) {
     const u = up(j, t);
     for (const s of st.spots[j]) top = Math.max(top, hillAt(st, s, u, x, z));
   }
   return top;
 }
 // The open zone's radius on tick t into play, shrinking as it goes ($kh_reach).
-export const reach = (st, t) => st.z * (1 - L.KH_SHRINK * Math.min(1, (t - zoneAt(t) * L.KH_PERIOD) / L.KH_PERIOD));
+export const reach = (st, t) => st.z * (1 - MC.KH_SHRINK * Math.min(1, (t - zoneAt(t) * MC.KH_PERIOD) / MC.KH_PERIOD));
 // What (x, z) scores on tick t into play: 2 on a top, 1 in the zone, else 0 (on the ground).
 export function worth(st, t, x, z) {
   const r = reach(st, t);
@@ -100,7 +101,7 @@ function playTime(view, g, ctx) {
   if (g.state === L.H_COUNT) return 0;
   if (g.state !== L.H_PLAY && g.state !== L.H_OVER) return -1;
   let t = typeof ctx?.pt === 'number' && ctx.pt > 0 ? ctx.pt / TICK : typeof ctx?.t === 'number' && ctx.t > 0 ? ctx.t / TICK : g.t;
-  if (g.state === L.H_OVER) t = Math.min(t, L.KH_LEN);
+  if (g.state === L.H_OVER) t = Math.min(t, MC.KH_LEN);
   return Math.max(0, t);
 }
 
@@ -148,9 +149,9 @@ function crowds(view, st) {
   const k = zoneAt(view.party().t);
   const c = view._khc;
   if (c && c.tick === view.tick && c.o === st.o && c.k === k) return c;
-  const n = { tick: view.tick, o: st.o, k, now: new Float64Array(L.KH_HMAX), next: new Float64Array(L.KH_HMAX), all: 0 };
+  const n = { tick: view.tick, o: st.o, k, now: new Float64Array(MC.KH_HMAX), next: new Float64Array(MC.KH_HMAX), all: 0 };
   if (st.nh > 1) {
-    const z2 = st.z * st.z, a = st.spots[k], b = st.spots[Math.min(L.KH_ZONES - 1, k + 1)];
+    const z2 = st.z * st.z, a = st.spots[k], b = st.spots[Math.min(MC.KH_ZONES - 1, k + 1)];
     for (let p = 0; p < L.NPLAYER; p++) {
       const r = L.PLAYERS + view.bank + p * L.PSIZE;
       if ((view.u8[r + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_FALL)) !== L.PF_LIVE) continue;
@@ -202,11 +203,11 @@ function plan(view, me, bot, tick) {
   const mind = mindOf(bot);
   const crowd = crowds(view, st);
   let j = k, i = hillFor(st, mind, b.slot, k, pos[0], pos[1], crowd.k === k ? crowd.now : crowd.next, crowd.all, t);
-  if (k + 1 < L.KH_ZONES) {
+  if (k + 1 < MC.KH_ZONES) {
     const n = hillFor(st, mind, b.slot, k + 1, pos[0], pos[1], crowd.k === k ? crowd.next : crowd.now, crowd.all, t);
     const [nx, nz] = st.spots[k + 1][n];
     const trip = Math.hypot(nx - pos[0], nz - pos[1]) / 8 + 0.3 + 1.2 * (1 - skill) * luck(b.slot, k);
-    if (((k + 1) * L.KH_PERIOD - t) * TICK < trip) { j = k + 1; i = n; }
+    if (((k + 1) * MC.KH_PERIOD - t) * TICK < trip) { j = k + 1; i = n; }
   }
   const [sx, sz] = st.spots[j][i];
   const r = st.top * 0.6 * luck(b.slot, 100 + j), a = 2 * Math.PI * luck(b.slot, 200 + j);
@@ -248,9 +249,9 @@ export default {
     const now = (ctx?.now ?? 0) / 1000;
     const pulse = 0.5 + 0.5 * Math.sin(now * 6);
     const k = zoneAt(tp);
-    const next = k + 1 < L.KH_ZONES && tp >= (k + 1) * L.KH_PERIOD - L.KH_RISE ? k + 1 : -1;
+    const next = k + 1 < MC.KH_ZONES && tp >= (k + 1) * MC.KH_PERIOD - MC.KH_RISE ? k + 1 : -1;
     // the hills up: the last zone's sinking (a duller lawn as they go), the open one's, the next's swelling
-    for (let j = Math.max(0, k - 1); j <= Math.min(L.KH_ZONES - 1, k + 1); j++) {
+    for (let j = Math.max(0, k - 1); j <= Math.min(MC.KH_ZONES - 1, k + 1); j++) {
       const u = up(j, tp);
       if (u <= 0.002) continue;
       const h = st.H * u;
@@ -264,7 +265,7 @@ export default {
     const rz = reach(st, tp);
     const hn = next >= 0 ? st.H * up(next, tp) : 0;
     // the crowns fly over to the next zone's hills in its last second
-    const fly = next >= 0 ? ease(Math.max(0, Math.min(1, (tp - (next * L.KH_PERIOD - 125)) / 125))) : 0;
+    const fly = next >= 0 ? ease(Math.max(0, Math.min(1, (tp - (next * MC.KH_PERIOD - 125)) / 125))) : 0;
     for (let i = 0; i < st.nh; i++) {
       // the open zone: gold dashes round it, the top aglow, a faint beam
       const [sx, sz] = st.spots[k][i];
@@ -300,7 +301,7 @@ export default {
     }
     // the power-ups: a target where one will land and a streak as it falls, then on the top, bobbing
     for (let i = 0; i < st.nh; i++) {
-      const o = L.PG_S + L.KH_ORBS + 16 * i;
+      const o = L.PG_S + MC.KH_ORBS + 16 * i;
       const kind = view.u8[o + 12];
       if (!kind || !PU_RGB[kind]) continue;
       const x = view.dv.getFloat32(o, true), z = view.dv.getFloat32(o + 8, true);
@@ -332,17 +333,17 @@ export default {
 
   fx(f, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(f.pos) : ctx.dist ?? 0;
-    if (f.kind === L.KH_FX_NEXT) {
+    if (f.kind === MC.KH_FX_NEXT) {
       // (the HUD counts it down: no banner over it)
       ctx.sound?.tick?.();
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.3, f.pos[2]], size: 6, color: [...NEXT, 0.8], kind: SPRITE.RING, life: 700, grow: true });
-    } else if (f.kind === L.KH_FX_MOVE) {
+    } else if (f.kind === MC.KH_FX_MOVE) {
       if (f.shot > 0) { ctx.banner?.('NEW HILL', C.YELLOW, 1200); ctx.sound?.pickup?.(); }
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 0.3, f.pos[2]], size: 8, color: [1, 0.85, 0.3, 0.9], kind: SPRITE.RING, life: 800, grow: true });
-    } else if (f.kind === L.KH_FX_ORB) {
+    } else if (f.kind === MC.KH_FX_ORB) {
       if (f.shot === 0) ctx.feed?.(`${L.PU_NAMES[f.size] || 'A POWER-UP'} DROPPING ON THE TOP${ctx.view && stage(ctx.view).nh > 1 ? 'S' : ''}`, C.CYAN);
       if (d < 50 && f.shot === 0) ctx.sound?.tick?.();
-    } else if (f.kind === L.KH_FX_LEAD) {
+    } else if (f.kind === MC.KH_FX_LEAD) {
       if (f.owner === ctx.slot) { ctx.banner?.('YOU TAKE THE LEAD', C.GREEN, 1500); ctx.sound?.pickup?.(); }
       else if (f.shot === ctx.slot) ctx.banner?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} TAKES THE LEAD`, C.RED, 1500);
       else ctx.feed?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} TAKES THE LEAD`, C.YELLOW);
@@ -359,14 +360,14 @@ export default {
     const t = typeof ctx.t === 'number' ? ctx.t / TICK : g.t;
     const k = zoneAt(t);
     const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
-    const left = k + 1 < L.KH_ZONES ? (k + 1) * L.KH_PERIOD - t : -1;
-    ctx.right(3, left >= 0 ? `HILL ${k + 1} OF ${L.KH_ZONES}  MOVES IN ${Math.ceil(left * TICK)}` : `LAST HILL`, C.GREY);
+    const left = k + 1 < MC.KH_ZONES ? (k + 1) * MC.KH_PERIOD - t : -1;
+    ctx.right(3, left >= 0 ? `HILL ${k + 1} OF ${MC.KH_ZONES}  MOVES IN ${Math.ceil(left * TICK)}` : `LAST HILL`, C.GREY);
     const me = mine && mine.slot === ctx.slot ? mine : ctx.me;
     if (me && me.live && !me.out) {
       const w = me.ground ? worth(st, t, me.pos[0], me.pos[2]) : 0;
       ctx.centre(row, w === 2 ? 'ON TOP  +2' : w === 1 ? 'IN THE ZONE  +1' : 'GET TO THE HILL', w === 2 ? C.YELLOW : w === 1 ? C.GREEN : C.WHITE);
     }
-    if (left >= 0 && left <= L.KH_RISE) ctx.centre(row + 1, `THE HILL MOVES  ${Math.ceil(left * TICK)}`, C.ORANGE);
+    if (left >= 0 && left <= MC.KH_RISE) ctx.centre(row + 1, `THE HILL MOVES  ${Math.ceil(left * TICK)}`, C.ORANGE);
   },
 
   brain: {

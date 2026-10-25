@@ -8,6 +8,7 @@ import { compileMap } from '../tools/map.mjs';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import * as L from '../src/layout.mjs';
+import * as AC from '../src/am/consts.mjs';
 import ob, { skullOf } from '../client/am/oddball.mjs';
 import { SIDE_C } from '../client/am/sides.mjs';
 import { C } from '../client/font.mjs';
@@ -61,25 +62,25 @@ const park = (g, p) => put(g, p, 491 + 3 * (p % 8), 528 + 3 * (p >> 3));
 // The skull as AO holds it.
 function skull(g) {
   const f = (o) => g.dv.getFloat32(L.AO + o, true);
-  return { pos: [f(L.OB_POS), f(L.OB_POS + 4), f(L.OB_POS + 8)], state: g.sim.u8[L.AO + L.OB_STATE], carrier: g.sim.u8[L.AO + L.OB_CARRIER],
-    left: g.dv.getUint16(L.AO + L.OB_LEFT, true), spot: [f(L.OB_SPOT), f(L.OB_SPOT + 4), f(L.OB_SPOT + 8)],
-    held: [g.dv.getUint16(L.AO + L.OB_HELD, true), g.dv.getUint16(L.AO + L.OB_HELD + 2, true)], side: g.sim.u8[L.AO + L.OB_SIDE] };
+  return { pos: [f(AC.OB_POS), f(AC.OB_POS + 4), f(AC.OB_POS + 8)], state: g.sim.u8[L.AO + AC.OB_STATE], carrier: g.sim.u8[L.AO + AC.OB_CARRIER],
+    left: g.dv.getUint16(L.AO + AC.OB_LEFT, true), spot: [f(AC.OB_SPOT), f(AC.OB_SPOT + 4), f(AC.OB_SPOT + 8)],
+    held: [g.dv.getUint16(L.AO + AC.OB_HELD, true), g.dv.getUint16(L.AO + AC.OB_HELD + 2, true)], side: g.sim.u8[L.AO + AC.OB_SIDE] };
 }
 // The skull laid down by hand at (x, y, z), `left` ticks to go, nobody carrying it.
 function lay(g, x, y, z, left = 1000) {
   const s = skull(g);
-  if (s.state === L.OB_CARRIED) setCarry(g, s.carrier, false);
-  [x, y, z].forEach((c, k) => g.dv.setFloat32(L.AO + L.OB_POS + 4 * k, c, true));
-  g.sim.u8[L.AO + L.OB_STATE] = L.OB_DROPPED;
-  g.dv.setUint16(L.AO + L.OB_LEFT, left, true);
+  if (s.state === AC.OB_CARRIED) setCarry(g, s.carrier, false);
+  [x, y, z].forEach((c, k) => g.dv.setFloat32(L.AO + AC.OB_POS + 4 * k, c, true));
+  g.sim.u8[L.AO + AC.OB_STATE] = AC.OB_DROPPED;
+  g.dv.setUint16(L.AO + AC.OB_LEFT, left, true);
 }
-const setHeld = (g, side, n) => g.dv.setUint16(L.AO + L.OB_HELD + 2 * side, n, true);
+const setHeld = (g, side, n) => g.dv.setUint16(L.AO + AC.OB_HELD + 2 * side, n, true);
 // p stands on the skull and takes it on the next tick
 function take(g, p) {
   const s = skull(g);
   put(g, p, s.pos[0], s.pos[2], s.pos[1]);
   g.step();
-  assert.deepEqual([skull(g).state, skull(g).carrier, carry(g, p)], [L.OB_CARRIED, p, true], `P${p} takes it`);
+  assert.deepEqual([skull(g).state, skull(g).carrier, carry(g, p)], [AC.OB_CARRIED, p, true], `P${p} takes it`);
 }
 
 // p's two guns, full, with no reload or burst under way
@@ -117,7 +118,7 @@ function fxs(v, kind, size, from = 0) {
   return out;
 }
 // The skull's news from `from` on: [what, owner, shot, x, y, z]
-const news = (g, from) => fxs(g.v, L.FX_MODE, undefined, from).filter((f) => f.size >= L.OB_MX_TAKE && f.size <= L.OB_MX_RESET)
+const news = (g, from) => fxs(g.v, L.FX_MODE, undefined, from).filter((f) => f.size >= AC.OB_MX_TAKE && f.size <= AC.OB_MX_RESET)
   .map((f) => [f.size, f.owner, f.shot, ...f.pos]);
 const endMatch = (g) => { g.dv.setUint32(L.HDR_UNTIL, g.v.tick + 1, true); for (let i = 0; i < 4; i++) g.step(); };
 const untilPlay = (g) => { while (g.v.hole().state !== L.H_PLAY) g.step(); g.step(); };
@@ -188,12 +189,12 @@ test('Oddball: the skull at its spot as play starts (MAP_BALL, at its feet heigh
   const s = skull(g);
   assert.deepEqual([s.spot[0], s.spot[2]], [MAP.ball[0], MAP.ball[1]]);
   assert.ok(Math.abs(s.spot[1] - 19.69) < 0.01 && Math.abs(s.spot[1] - v.height(512, 512)) < 1e-3, `its feet height ${s.spot[1]}`);
-  assert.deepEqual([s.pos, s.state, s.left, s.held], [s.spot, L.OB_HOME, 0, [0, 0]]);
-  assert.deepEqual([u32(g, L.AH_TARGET), scores(g)], [L.OB_TARGET, [0, 0]]);
+  assert.deepEqual([s.pos, s.state, s.left, s.held], [s.spot, AC.OB_HOME, 0, [0, 0]]);
+  assert.deepEqual([u32(g, L.AH_TARGET), scores(g)], [AC.OB_TARGET, [0, 0]]);
   // nobody near it: it stays
   for (const p of [0, 1]) park(g, p);
   for (let i = 0; i < 300; i++) sim.x.step();
-  assert.deepEqual([skull(g).state, skull(g).pos, scores(g)], [L.OB_HOME, s.spot, [0, 0]]);
+  assert.deepEqual([skull(g).state, skull(g).pos, scores(g)], [AC.OB_HOME, s.spot, [0, 0]]);
 });
 
 test('Oddball: taken by the first fighter in slot order alive and not carrying, within OB_TOUCH_R across and OB_TOUCH_H up or down, either side; news at the skull', async () => {
@@ -203,7 +204,7 @@ test('Oddball: taken by the first fighter in slot order alive and not carrying, 
   // 1.55 m across: not near enough
   put(g, 0, spot[0] + 1.55, spot[2]);
   steps(g, 5);
-  assert.equal(skull(g).state, L.OB_HOME);
+  assert.equal(skull(g).state, AC.OB_HOME);
   // all four inside 1.45 m: 0 dead and 2 carrying (by hand) come first in slot order, so blue 1 takes it, not 3
   put(g, 0, spot[0] + 1.45, spot[2]); put(g, 1, spot[0], spot[2] - 1.45); put(g, 2, spot[0] - 1.0, spot[2] + 1.0); put(g, 3, spot[0], spot[2] + 0.5);
   g.dv.setUint8(rec(0) + L.P_FL, fl(g, 0) | L.PF_DEAD); g.dv.setUint16(rec(0) + L.A_RESPAWN, 2000, true);
@@ -212,10 +213,10 @@ test('Oddball: taken by the first fighter in slot order alive and not carrying, 
   let from = g.v.fxCount();
   g.step();
   let s = skull(g);
-  assert.deepEqual([s.state, s.carrier, s.side, carry(g, 1), carry(g, 3)], [L.OB_CARRIED, 1, 1, true, false]);
+  assert.deepEqual([s.state, s.carrier, s.side, carry(g, 1), carry(g, 3)], [AC.OB_CARRIED, 1, 1, true, false]);
   assert.deepEqual([g.v.fighter(1).burst, g.v.fighter(1).reload], [0, 0], 'its burst and reload stopped');
   assert.deepEqual(s.pos, g.v.fighter(1).pos, 'at its carrier\'s feet');
-  assert.deepEqual(news(g, from), [[L.OB_MX_TAKE, 1, 1, ...spot]], 'news where it was taken');
+  assert.deepEqual(news(g, from), [[AC.OB_MX_TAKE, 1, 1, ...spot]], 'news where it was taken');
   // the band: laid 1.95 m over or under a fighter's feet it is taken, 2.05 m it isn't
   setCarry(g, 2, false);
   g.dv.setUint8(rec(0) + L.P_FL, fl(g, 0) & ~L.PF_DEAD);
@@ -226,7 +227,7 @@ test('Oddball: taken by the first fighter in slot order alive and not carrying, 
   for (const [dy, taken] of [[2.05, false], [-2.05, false], [1.95, true], [-1.95, true], [0, true]]) {
     lay(g, 500.5, y + dy, 540.5);
     g.step();
-    assert.equal(skull(g).state === L.OB_CARRIED && skull(g).carrier === 2, taken, `${dy} m`);
+    assert.equal(skull(g).state === AC.OB_CARRIED && skull(g).carrier === 2, taken, `${dy} m`);
   }
   // either side: red 2 has it now; laid by blue 3 alone, 3 takes it
   lay(g, 512, spot[1], 512);
@@ -236,13 +237,13 @@ test('Oddball: taken by the first fighter in slot order alive and not carrying, 
   g.step();
   s = skull(g);
   assert.deepEqual([s.carrier, s.side, carry(g, 3), carry(g, 2)], [3, 1, true, false]);
-  assert.deepEqual(news(g, from).map((n) => n.slice(0, 3)), [[L.OB_MX_TAKE, 3, 1]]);
+  assert.deepEqual(news(g, from).map((n) => n.slice(0, 3)), [[AC.OB_MX_TAKE, 3, 1]]);
   // a slot that has left, standing where it was, is nobody
   lay(g, 512, spot[1], 512);
   park(g, 3);
   put(g, 0, 512, 512);
   g.step([[L.EV_LEAVE, 0]]);
-  assert.equal(skull(g).state, L.OB_DROPPED);
+  assert.equal(skull(g).state, AC.OB_DROPPED);
 });
 
 test('Oddball: carried, it rides at its carrier\'s feet; every OB_POINT ticks a side holds it is a point for the side and one for the carrier then; a side\'s count is kept while the skull changes hands', async () => {
@@ -252,27 +253,27 @@ test('Oddball: carried, it rides at its carrier\'s feet; every OB_POINT ticks a 
   take(g, 0);
   assert.deepEqual([skull(g).held, scores(g)], [[0, 0], [0, 0]], 'the tick it is taken counts nothing');
   // 0 runs: the skull follows tick by tick
-  for (let i = 0; i < L.OB_POINT - 1; i++) {
+  for (let i = 0; i < AC.OB_POINT - 1; i++) {
     g.step([[L.EV_INPUT, 0, arenaWord({ yaw: 4096, move: 1 })]]);
     assert.deepEqual(skull(g).pos, g.v.fighter(0).pos);
   }
   assert.ok(Math.hypot(g.v.fighter(0).pos[0] - 512, g.v.fighter(0).pos[2] - 512) > 3, 'it ran');
-  assert.deepEqual([skull(g).held, scores(g), points(g, 0)], [[L.OB_POINT - 1, 0], [0, 0], 0]);
+  assert.deepEqual([skull(g).held, scores(g), points(g, 0)], [[AC.OB_POINT - 1, 0], [0, 0], 0]);
   g.step([[L.EV_INPUT, 0, arenaWord({ yaw: 4096 })]]);
   assert.deepEqual([skull(g).held, scores(g), points(g, 0)], [[0, 0], [1, 0], 1], 'a point');
   steps(g, 100);
   assert.deepEqual(skull(g).held, [100, 0]);
   // blue 1 kills 0 (its tick counts nothing) and takes it: blue counts from 0, red's 100 kept
   melee(g, 1, 0);
-  assert.deepEqual([g.v.fighter(0).dead, skull(g).state, skull(g).held], [true, L.OB_DROPPED, [100, 0]]);
+  assert.deepEqual([g.v.fighter(0).dead, skull(g).state, skull(g).held], [true, AC.OB_DROPPED, [100, 0]]);
   take(g, 1);
   steps(g, 50);
   assert.deepEqual([skull(g).held, scores(g)], [[100, 50], [1, 0]]);
   // red 2 kills 1 and takes it: 25 more of red's is red's point, and 2's
   melee(g, 2, 1);
   take(g, 2);
-  steps(g, L.OB_POINT - 100 - 1);
-  assert.deepEqual([skull(g).held, scores(g)], [[L.OB_POINT - 1, 50], [1, 0]]);
+  steps(g, AC.OB_POINT - 100 - 1);
+  assert.deepEqual([skull(g).held, scores(g)], [[AC.OB_POINT - 1, 50], [1, 0]]);
   g.step();
   assert.deepEqual([skull(g).held, scores(g)], [[0, 50], [2, 0]]);
   assert.deepEqual([0, 1, 2, 3].map((p) => points(g, p)), [1, 0, 1, 0]);
@@ -296,21 +297,21 @@ test('Oddball: a carrier killed drops it on what is under its feet, OB_RESET to 
   const f0 = g.v.fighter(0);
   let s = skull(g);
   assert.ok(f0.dead && !carry(g, 0));
-  assert.deepEqual([s.state, s.left, s.pos[0], s.pos[2]], [L.OB_DROPPED, L.OB_RESET - 1, f0.pos[0], f0.pos[2]], 'at its feet, a tick gone');
+  assert.deepEqual([s.state, s.left, s.pos[0], s.pos[2]], [AC.OB_DROPPED, AC.OB_RESET - 1, f0.pos[0], f0.pos[2]], 'at its feet, a tick gone');
   assert.ok(Math.abs(s.pos[1] - g.v.height(502, 510)) < 1e-3, 'on the ground');
-  assert.deepEqual(news(g, from), [[L.OB_MX_DROP, 0, 0, ...s.pos]], 'and the killer, 2 m off, didn\'t take it');
+  assert.deepEqual(news(g, from), [[AC.OB_MX_DROP, 0, 0, ...s.pos]], 'and the killer, 2 m off, didn\'t take it');
   // a dead body on it doesn't either
   park(g, 1);
   steps(g, 10);
-  assert.equal(skull(g).state, L.OB_DROPPED);
+  assert.equal(skull(g).state, AC.OB_DROPPED);
   // the killer 1.2 m off takes it on the same tick: blue 3 carries, red 2 kills it
   take(g, 3);
   from = g.v.fxCount();
   melee(g, 2, 3, { gap: 1.2 });
   s = skull(g);
   assert.ok(g.v.fighter(3).dead);
-  assert.deepEqual([s.state, s.carrier, s.side, carry(g, 2)], [L.OB_CARRIED, 2, 0, true]);
-  assert.deepEqual(news(g, from).map((n) => n.slice(0, 3)), [[L.OB_MX_DROP, 3, 1], [L.OB_MX_TAKE, 2, 0]]);
+  assert.deepEqual([s.state, s.carrier, s.side, carry(g, 2)], [AC.OB_CARRIED, 2, 0, true]);
+  assert.deepEqual(news(g, from).map((n) => n.slice(0, 3)), [[AC.OB_MX_DROP, 3, 1], [AC.OB_MX_TAKE, 2, 0]]);
   // a death by its own hand drops it too; in the air, it falls to the ground under it
   while (g.v.fighter(1).dead) g.step();
   park(g, 1);
@@ -318,7 +319,7 @@ test('Oddball: a carrier killed drops it on what is under its feet, OB_RESET to 
   from = g.v.fxCount();
   suicide(g, 2);
   s = skull(g);
-  assert.deepEqual([s.state, news(g, from).map((n) => n.slice(0, 3))], [L.OB_DROPPED, [[L.OB_MX_DROP, 2, 0]]]);
+  assert.deepEqual([s.state, news(g, from).map((n) => n.slice(0, 3))], [AC.OB_DROPPED, [[AC.OB_MX_DROP, 2, 0]]]);
   assert.ok(Math.abs(s.pos[1] - g.v.height(530, 512)) < 1e-3 && g.v.fighter(2).pos[1] > s.pos[1] + 2, `from ${g.v.fighter(2).pos[1]} to ${s.pos[1]}`);
   // on red's roof (a box over the room's floor), it stays on the roof
   while (g.v.fighter(0).dead) g.step();
@@ -329,14 +330,14 @@ test('Oddball: a carrier killed drops it on what is under its feet, OB_RESET to 
   g.step();
   assert.deepEqual([g.v.fighter(0).pos[1], skull(g).pos[1]], [roof, roof], 'it stood on the roof');
   suicide(g, 0);
-  assert.deepEqual([skull(g).state, skull(g).pos], [L.OB_DROPPED, [392, roof, 512]]);
+  assert.deepEqual([skull(g).state, skull(g).pos], [AC.OB_DROPPED, [392, roof, 512]]);
   // another fighter's death leaves it alone
   take(g, 1);
   const was = skull(g);
   while (g.v.fighter(3).dead) g.step();
   put(g, 3, 470, 500);
   suicide(g, 3);
-  assert.deepEqual([skull(g).state, skull(g).carrier], [L.OB_CARRIED, 1]);
+  assert.deepEqual([skull(g).state, skull(g).carrier], [AC.OB_CARRIED, 1]);
   assert.deepEqual(skull(g).side, was.side);
 });
 
@@ -351,19 +352,19 @@ test('Oddball: a carrier that leaves, rejoins, dies unseen or stops carrying dro
   let from = g.v.fxCount();
   g.step([[L.EV_LEAVE, 1]]);
   let s = skull(g);
-  assert.deepEqual([s.state, s.left, s.pos[0], s.pos[2]], [L.OB_DROPPED, L.OB_RESET - 1, where[0], where[2]]);
+  assert.deepEqual([s.state, s.left, s.pos[0], s.pos[2]], [AC.OB_DROPPED, AC.OB_RESET - 1, where[0], where[2]]);
   assert.ok(Math.abs(s.pos[1] - g.v.height(520, 520)) < 1e-3);
-  assert.deepEqual(news(g, from), [[L.OB_MX_DROP, 1, 1, ...s.pos]]);
+  assert.deepEqual(news(g, from), [[AC.OB_MX_DROP, 1, 1, ...s.pos]]);
   // red 2 takes it, leaves and its slot is taken again on one tick
   take(g, 2);
   from = g.v.fxCount();
   g.step([[L.EV_LEAVE, 2], [L.EV_JOIN, 2]]);
-  assert.deepEqual([skull(g).state, carry(g, 2), points(g, 2), news(g, from).map((n) => n.slice(0, 3))], [L.OB_DROPPED, false, 0, [[L.OB_MX_DROP, 2, 0]]]);
+  assert.deepEqual([skull(g).state, carry(g, 2), points(g, 2), news(g, from).map((n) => n.slice(0, 3))], [AC.OB_DROPPED, false, 0, [[AC.OB_MX_DROP, 2, 0]]]);
   // dead with no kill (by hand): dropped, and the carry gone
   take(g, 3);
   g.dv.setUint8(rec(3) + L.P_FL, fl(g, 3) | L.PF_DEAD); g.dv.setUint16(rec(3) + L.A_RESPAWN, 500, true);
   g.step();
-  assert.deepEqual([skull(g).state, carry(g, 3)], [L.OB_DROPPED, false]);
+  assert.deepEqual([skull(g).state, carry(g, 3)], [AC.OB_DROPPED, false]);
   // live and alive, its PF_CARRY gone (by hand) as it is moved off: dropped where it was
   take(g, 0);
   where = last();
@@ -372,13 +373,13 @@ test('Oddball: a carrier that leaves, rejoins, dies unseen or stops carrying dro
   from = g.v.fxCount();
   g.step();
   s = skull(g);
-  assert.deepEqual([s.state, s.pos[0], s.pos[2], news(g, from).map((n) => n.slice(0, 3))], [L.OB_DROPPED, where[0], where[2], [[L.OB_MX_DROP, 0, 0]]]);
+  assert.deepEqual([s.state, s.pos[0], s.pos[2], news(g, from).map((n) => n.slice(0, 3))], [AC.OB_DROPPED, where[0], where[2], [[AC.OB_MX_DROP, 0, 0]]]);
   // and with it still standing there, it takes it straight back
   take(g, 0);
   setCarry(g, 0, false);
   from = g.v.fxCount();
   g.step();
-  assert.deepEqual([skull(g).state, carry(g, 0), news(g, from).map((n) => n.slice(0, 3))], [L.OB_CARRIED, true, [[L.OB_MX_DROP, 0, 0], [L.OB_MX_TAKE, 0, 0]]]);
+  assert.deepEqual([skull(g).state, carry(g, 0), news(g, from).map((n) => n.slice(0, 3))], [AC.OB_CARRIED, true, [[AC.OB_MX_DROP, 0, 0], [AC.OB_MX_TAKE, 0, 0]]]);
 });
 
 test('Oddball: a dropped skull goes back to its spot after OB_RESET ticks, counting the one it fell on, unless taken first; at its spot it can be taken at once; the counts kept', async () => {
@@ -390,14 +391,14 @@ test('Oddball: a dropped skull goes back to its spot after OB_RESET ticks, count
   const held = skull(g).held;
   suicide(g, 0);
   const spot = skull(g).spot;
-  assert.deepEqual([skull(g).state, skull(g).left], [L.OB_DROPPED, L.OB_RESET - 1]);
-  steps(g, L.OB_RESET - 2);
-  assert.deepEqual([skull(g).state, skull(g).left], [L.OB_DROPPED, 1], 'a tick to go');
+  assert.deepEqual([skull(g).state, skull(g).left], [AC.OB_DROPPED, AC.OB_RESET - 1]);
+  steps(g, AC.OB_RESET - 2);
+  assert.deepEqual([skull(g).state, skull(g).left], [AC.OB_DROPPED, 1], 'a tick to go');
   let from = g.v.fxCount();
   g.step();
   let s = skull(g);
-  assert.deepEqual([s.state, s.pos, s.left, s.held], [L.OB_HOME, spot, 0, held], 'back, the counts kept');
-  assert.deepEqual(news(g, from), [[L.OB_MX_RESET, 255, 0, ...spot]], 'news at its spot, nobody\'s');
+  assert.deepEqual([s.state, s.pos, s.left, s.held], [AC.OB_HOME, spot, 0, held], 'back, the counts kept');
+  assert.deepEqual(news(g, from), [[AC.OB_MX_RESET, 255, 0, ...spot]], 'news at its spot, nobody\'s');
   // dropped and taken before its time: it stays with its carrier past it
   take(g, 1);
   put(g, 1, 530, 500);
@@ -406,18 +407,18 @@ test('Oddball: a dropped skull goes back to its spot after OB_RESET ticks, count
   steps(g, 1000);
   park(g, 0);
   take(g, 0);
-  steps(g, L.OB_RESET);
-  assert.deepEqual([skull(g).state, skull(g).carrier], [L.OB_CARRIED, 0]);
+  steps(g, AC.OB_RESET);
+  assert.deepEqual([skull(g).state, skull(g).carrier], [AC.OB_CARRIED, 0]);
   // dropped again; someone on its spot as it comes back takes it on that tick
   suicide(g, 0);
-  steps(g, L.OB_RESET - 2);
+  steps(g, AC.OB_RESET - 2);
   while (g.v.fighter(1).dead) g.step();
   put(g, 1, spot[0], spot[2], spot[1]);
   from = g.v.fxCount();
   g.step();
   s = skull(g);
-  assert.deepEqual([s.state, s.carrier], [L.OB_CARRIED, 1]);
-  assert.deepEqual(news(g, from).map((n) => n.slice(0, 3)), [[L.OB_MX_RESET, 255, 0], [L.OB_MX_TAKE, 1, 1]]);
+  assert.deepEqual([s.state, s.carrier], [AC.OB_CARRIED, 1]);
+  assert.deepEqual(news(g, from).map((n) => n.slice(0, 3)), [[AC.OB_MX_RESET, 255, 0], [AC.OB_MX_TAKE, 1, 1]]);
 });
 
 test('Oddball: joins and leaves mid-objective: a join goes to the side with fewer and can take a dropped skull; a carrier leaving keeps its side\'s count for the next', async () => {
@@ -434,9 +435,9 @@ test('Oddball: joins and leaves mid-objective: a join goes to the side with fewe
   assert.deepEqual([skull(g).carrier, skull(g).held], [1, [0, 62]]);
   // the carrier leaves; the joiner takes it and finishes blue's second
   g.step([[L.EV_LEAVE, 1]]);
-  assert.deepEqual([skull(g).state, skull(g).held], [L.OB_DROPPED, [0, 62]]);
+  assert.deepEqual([skull(g).state, skull(g).held], [AC.OB_DROPPED, [0, 62]]);
   take(g, 3);
-  steps(g, L.OB_POINT - 62 - 1);
+  steps(g, AC.OB_POINT - 62 - 1);
   assert.deepEqual(scores(g), [0, 0]);
   g.step();
   assert.deepEqual([scores(g), skull(g).held, points(g, 3)], [[0, 1], [0, 0], 1]);
@@ -448,26 +449,26 @@ test('Oddball: joins and leaves mid-objective: a join goes to the side with fewe
 test('Oddball: over on the tick a side reaches OB_TARGET; at the clock the side ahead, or a draw; places by the side, then MR_POINTS, then kills; the next match starts from zero', async () => {
   const g = await room(4); // 0 and 2 red, 1 and 3 blue
   take(g, 1);
-  g.dv.setUint32(L.AH_SCORE + 4, L.OB_TARGET - 1, true);
+  g.dv.setUint32(L.AH_SCORE + 4, AC.OB_TARGET - 1, true);
   g.dv.setUint32(L.AH_SCORE, 60, true);
-  setHeld(g, 1, L.OB_POINT - 2);
+  setHeld(g, 1, AC.OB_POINT - 2);
   [5, 9, 7, 2].forEach((n, p) => setPoints(g, p, n));
   [9, 0, 1, 4].forEach((k, p) => g.dv.setUint16(rec(p) + L.A_KILLS, k, true));
   g.step();
   assert.equal(g.v.hole().state, L.H_PLAY, 'a tick short');
   let from = g.v.fxCount();
   g.step();
-  assert.deepEqual([g.v.hole().state, scores(g), u32(g, L.AH_TEAMWIN)], [L.H_OVER, [60, L.OB_TARGET], 2], 'over on its tick, blue\'s');
+  assert.deepEqual([g.v.hole().state, scores(g), u32(g, L.AH_TEAMWIN)], [L.H_OVER, [60, AC.OB_TARGET], 2], 'over on its tick, blue\'s');
   assert.deepEqual(fxs(g.v, L.FX_MODE, L.MX_TEAMWIN, from).map((f) => f.shot), [2]);
   assert.deepEqual([0, 1, 2, 3].map((p) => points(g, p)), [5, 10, 7, 2]);
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.fighter(p).place), [4, 1, 3, 2], 'blue first (1 then 3), then red by points');
   // over, nothing counts
   steps(g, 300);
-  assert.deepEqual([scores(g), skull(g).held], [[60, L.OB_TARGET], [0, 0]]);
+  assert.deepEqual([scores(g), skull(g).held], [[60, AC.OB_TARGET], [0, 0]]);
   // the next match: the skull at its spot, nobody carrying, the counts and scores 0
   nextPlay(g);
   let s = skull(g);
-  assert.deepEqual([scores(g), u32(g, L.AH_TEAMWIN), u32(g, L.AH_TARGET), s.state, s.pos, s.held], [[0, 0], 0, L.OB_TARGET, L.OB_HOME, s.spot, [0, 0]]);
+  assert.deepEqual([scores(g), u32(g, L.AH_TEAMWIN), u32(g, L.AH_TARGET), s.state, s.pos, s.held], [[0, 0], 0, AC.OB_TARGET, AC.OB_HOME, s.spot, [0, 0]]);
   assert.ok([0, 1, 2, 3].every((p) => !carry(g, p) && points(g, p) === 0));
   // the clock: red ahead by one; red's 0 and 2 level on points, 2 with more kills
   const r = await room(4);
@@ -506,7 +507,7 @@ test('Oddball: a carrier\'s runs, jumps, turns, clicks, swings and frames predic
   const f = g.v.fighter(0);
   assert.ok(f.shots - shots >= 4, `${f.shots - shots} swings`);
   assert.deepEqual([followed, carry(g, 0), f.grens, f.mag[0]], [400, true, 2, L.ARMS[L.W_AR].mag]);
-  assert.deepEqual([scores(g)[0] * L.OB_POINT + skull(g).held[0], points(g, 0)], [held + 400, Math.floor((held + 400) / L.OB_POINT)]);
+  assert.deepEqual([scores(g)[0] * AC.OB_POINT + skull(g).held[0], points(g, 0)], [held + 400, Math.floor((held + 400) / AC.OB_POINT)]);
 });
 
 test('a Fiesta after an Oddball match: its region exactly a Fiesta\'s (the mode header, the skull, the records, no pads, no sides, nothing carried)', async () => {
@@ -520,7 +521,7 @@ test('a Fiesta after an Oddball match: its region exactly a Fiesta\'s (the mode 
   for (let p = 0; p < 4; p++) park(g, p);
   lay(g, 512, skull(g).spot[1], 512);
   take(g, 2);
-  setHeld(g, 0, L.OB_POINT - 1); setHeld(g, 1, 77);
+  setHeld(g, 0, AC.OB_POINT - 1); setHeld(g, 1, 77);
   g.step();
   suicide(g, 2);
   take(g, 3);
@@ -555,7 +556,7 @@ test('Oddball\'s client module: the skull as AO has it; drawn where it lies, ove
   const cv = new View(memory.buffer);
   assert.equal(cv.hole().state, L.H_COUNT);
   const early = skullOf(cv);
-  assert.deepEqual([early.state, early.carrier, early.pos[0], early.pos[2]], [L.OB_HOME, -1, 512, 512]);
+  assert.deepEqual([early.state, early.carrier, early.pos[0], early.pos[2]], [AC.OB_HOME, -1, 512, 512]);
   assert.ok(Math.abs(early.pos[1] - 19.69) < 0.01);
 
   const g = await room(4); // 0 and 2 red, 1 and 3 blue
@@ -632,18 +633,18 @@ test('Oddball\'s client module: the skull as AO has it; drawn where it lies, ove
   const nctx = (slot) => ({ slot, me: v.fighter(slot), name: (p) => (p === slot ? 'YOU' : `P${p + 1}`), team: (p) => (p < L.NPLAYER ? team(g, p) : -1),
     feed: (s, col) => feed.push([s, col]), banner: (s, col) => banners.push([s, col]), glow: (x) => glows.push(x), sound: { pickup() {} }, dist: 10, C, now: 0, view: v });
   const f = (size, owner, shot) => ({ tick: v.tick, kind: L.FX_MODE, owner, shot, pos: [512, 20, 512], size });
-  ob.news(f(L.OB_MX_TAKE, 1, 1), nctx(0));
-  ob.news(f(L.OB_MX_TAKE, 1, 1), nctx(1));
-  ob.news(f(L.OB_MX_TAKE, 1, 1), nctx(3));
-  ob.news(f(L.OB_MX_DROP, 1, 1), nctx(0));
-  ob.news(f(L.OB_MX_RESET, 255, 0), nctx(0));
+  ob.news(f(AC.OB_MX_TAKE, 1, 1), nctx(0));
+  ob.news(f(AC.OB_MX_TAKE, 1, 1), nctx(1));
+  ob.news(f(AC.OB_MX_TAKE, 1, 1), nctx(3));
+  ob.news(f(AC.OB_MX_DROP, 1, 1), nctx(0));
+  ob.news(f(AC.OB_MX_RESET, 255, 0), nctx(0));
   assert.deepEqual(feed, [['P2 TOOK THE SKULL', C.CYAN], ['YOU TOOK THE SKULL', C.CYAN], ['P2 TOOK THE SKULL', C.CYAN], ['P2 DROPPED THE SKULL', C.CYAN], ['THE SKULL IS BACK', C.WHITE]]);
   assert.deepEqual(banners, [['BLUE HAS THE SKULL', C.CYAN], ['YOU HAVE THE SKULL', C.YELLOW], ['YOUR SIDE HAS THE SKULL', C.CYAN]]);
   assert.equal(glows.length, 5);
   // the board's column: seconds carrying it
   setPoints(g, 2, 17);
   assert.deepEqual(ob.cols.map((k) => [k.head, k.get(v.fighter(2))]), [['SKULL', '17']]);
-  assert.deepEqual(ob.state(v).skull, { state: L.OB_DROPPED, carrier: -1, side: 1, held: skullOf(v).held, left: 1000 });
+  assert.deepEqual(ob.state(v).skull, { state: AC.OB_DROPPED, carrier: -1, side: 1, held: skullOf(v).held, left: 1000 });
 });
 
 test('Oddball with 8 and 16 AI fighters: the skull taken, carried, dropped and scored for by both sides in 20,000 ticks; no trap on the debug build, the same hash on every tick on 1 and 4 threads', async (t) => {
@@ -658,9 +659,9 @@ test('Oddball with 8 and 16 AI fighters: the skull taken, carried, dropped and s
         for (let k = Math.max(k0, v.fxCount() - L.FX_MAX); k < v.fxCount(); k++) {
           const f = v.fx(k);
           if (f.kind !== L.FX_MODE) continue;
-          if (f.size === L.OB_MX_TAKE) takes[f.shot]++;
-          if (f.size === L.OB_MX_DROP) drops[f.shot]++;
-          if (f.size === L.OB_MX_RESET) resets++;
+          if (f.size === AC.OB_MX_TAKE) takes[f.shot]++;
+          if (f.size === AC.OB_MX_DROP) drops[f.shot]++;
+          if (f.size === AC.OB_MX_RESET) resets++;
         }
         k0 = v.fxCount();
         const score = [v.dv.getUint32(L.AH_SCORE, true), v.dv.getUint32(L.AH_SCORE + 4, true)];

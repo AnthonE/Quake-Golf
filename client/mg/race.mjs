@@ -8,6 +8,7 @@
 // the tick, so what you dodge is where the sim has it). $rc_at is worked again
 // here in doubles: the brain steers by it, nothing is fed back.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/race.mjs'; // RC_*: the minigame's own constants
 import { LOOK, SPRITE, COLS } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
@@ -22,20 +23,20 @@ const RAIL_T = 0.16; // a rail's half thickness
 
 // Each section's two tones, a band of slabs each; its kerbs stay red and white.
 const TONE = {
-  [L.RCS_START]: [[0.9, 0.9, 0.92], [0.78, 0.8, 0.84]],
-  [L.RCS_DROP]: [[0.25, 0.55, 0.95], [0.2, 0.47, 0.86]],
-  [L.RCS_BEND]: [[0.98, 0.62, 0.2], [0.93, 0.54, 0.16]],
-  [L.RCS_JUMP]: [[0.6, 0.3, 0.9], [0.52, 0.25, 0.82]],
-  [L.RCS_FUNNEL]: [[0.2, 0.75, 0.45], [0.16, 0.66, 0.38]],
-  [L.RCS_BUMPERS]: [[0.95, 0.85, 0.3], [0.9, 0.78, 0.24]],
-  [L.RCS_SPINNERS]: [[0.95, 0.4, 0.55], [0.88, 0.33, 0.48]],
-  [L.RCS_SWEEPERS]: [[0.3, 0.8, 0.85], [0.24, 0.71, 0.77]],
-  [L.RCS_FINISH]: [[0.9, 0.9, 0.92], [0.78, 0.8, 0.84]],
+  [MC.RCS_START]: [[0.9, 0.9, 0.92], [0.78, 0.8, 0.84]],
+  [MC.RCS_DROP]: [[0.25, 0.55, 0.95], [0.2, 0.47, 0.86]],
+  [MC.RCS_BEND]: [[0.98, 0.62, 0.2], [0.93, 0.54, 0.16]],
+  [MC.RCS_JUMP]: [[0.6, 0.3, 0.9], [0.52, 0.25, 0.82]],
+  [MC.RCS_FUNNEL]: [[0.2, 0.75, 0.45], [0.16, 0.66, 0.38]],
+  [MC.RCS_BUMPERS]: [[0.95, 0.85, 0.3], [0.9, 0.78, 0.24]],
+  [MC.RCS_SPINNERS]: [[0.95, 0.4, 0.55], [0.88, 0.33, 0.48]],
+  [MC.RCS_SWEEPERS]: [[0.3, 0.8, 0.85], [0.24, 0.71, 0.77]],
+  [MC.RCS_FINISH]: [[0.9, 0.9, 0.92], [0.78, 0.8, 0.84]],
 };
 export const SECTION = ['START', 'DROP', 'BEND', 'JUMP', 'FUNNEL', 'BUMPERS', 'SPINNERS', 'SWEEPERS', 'FINISH'];
 
-const pa = (k) => L.PG_S + L.RC_PIECES + k * L.RC_PSIZE;
-const ha = (j) => L.PG_S + L.RC_HAZ + j * L.RC_HSIZE;
+const pa = (k) => L.PG_S + MC.RC_PIECES + k * MC.RC_PSIZE;
+const ha = (j) => L.PG_S + MC.RC_HAZ + j * MC.RC_HSIZE;
 
 // ---- the course, read once a layout
 
@@ -45,23 +46,23 @@ export function course(view) {
   // once a world tick: the brain asks thousands of times a tick
   if (memo && view._rcTick === view.tick && view._rcMemo === memo) return memo;
   const dv = view.dv;
-  const np = dv.getUint32(L.PG_H + L.RC_NPIECE, true), nh = dv.getUint32(L.PG_H + L.RC_NHAZ, true);
-  if (!np || np > L.RC_NP) return null;
+  const np = dv.getUint32(L.PG_H + MC.RC_NPIECE, true), nh = dv.getUint32(L.PG_H + MC.RC_NHAZ, true);
+  if (!np || np > MC.RC_NP) return null;
   const f = (a) => dv.getFloat32(a, true), u = (a) => dv.getUint32(a, true);
   const last = pa(np - 1);
-  const key = `${np} ${nh} ${f(L.PG_H + L.RC_W)} ${f(last + L.RC_P_X)} ${f(last + L.RC_P_Z)} ${f(last + L.RC_P_H0)} ${u(L.HDR_SEED)} ${u(L.HDR_HOLE)}`;
+  const key = `${np} ${nh} ${f(L.PG_H + MC.RC_W)} ${f(last + MC.RC_P_X)} ${f(last + MC.RC_P_Z)} ${f(last + MC.RC_P_H0)} ${u(L.HDR_SEED)} ${u(L.HDR_HOLE)}`;
   view._rcTick = view.tick;
   if (memo?.key === key) { view._rcMemo = memo; return memo; }
   const pieces = [];
   for (let k = 0; k < np; k++) {
     const a = pa(k);
     const P = {
-      k, kind: u(a + L.RC_P_KIND), fl: u(a + L.RC_P_FL), s0: f(a + L.RC_P_S0), len: f(a + L.RC_P_LEN), h0: f(a + L.RC_P_H0), h1: f(a + L.RC_P_H1),
-      w0: f(a + L.RC_P_W0), w1: f(a + L.RC_P_W1), x: f(a + L.RC_P_X), z: f(a + L.RC_P_Z), dx: f(a + L.RC_P_DX), dz: f(a + L.RC_P_DZ), r: f(a + L.RC_P_R),
-      sh: f(a + L.RC_P_SH), turn: f(a + L.RC_P_TURN), bx: f(a + L.RC_P_BX), bz: f(a + L.RC_P_BZ), br2: f(a + L.RC_P_BR2),
-      hz0: u(a + L.RC_P_HZ0), hzn: u(a + L.RC_P_HZN), yaw: dv.getInt32(a + L.RC_P_YAW, true), sweep: u(a + L.RC_P_SWEEP), sec: u(a + L.RC_P_SEC),
+      k, kind: u(a + MC.RC_P_KIND), fl: u(a + MC.RC_P_FL), s0: f(a + MC.RC_P_S0), len: f(a + MC.RC_P_LEN), h0: f(a + MC.RC_P_H0), h1: f(a + MC.RC_P_H1),
+      w0: f(a + MC.RC_P_W0), w1: f(a + MC.RC_P_W1), x: f(a + MC.RC_P_X), z: f(a + MC.RC_P_Z), dx: f(a + MC.RC_P_DX), dz: f(a + MC.RC_P_DZ), r: f(a + MC.RC_P_R),
+      sh: f(a + MC.RC_P_SH), turn: f(a + MC.RC_P_TURN), bx: f(a + MC.RC_P_BX), bz: f(a + MC.RC_P_BZ), br2: f(a + MC.RC_P_BR2),
+      hz0: u(a + MC.RC_P_HZ0), hzn: u(a + MC.RC_P_HZN), yaw: dv.getInt32(a + MC.RC_P_YAW, true), sweep: u(a + MC.RC_P_SWEEP), sec: u(a + MC.RC_P_SEC),
     };
-    if (P.kind === L.RC_ARC) {
+    if (P.kind === MC.RC_ARC) {
       P.phiM = Math.atan2(P.dz, P.dx);
       P.phi = P.sweep * RAD;
       P.phi0 = P.phiM - P.turn * P.phi / 2;
@@ -71,14 +72,14 @@ export function course(view) {
   const hazards = [];
   for (let j = 0; j < nh; j++) {
     const a = ha(j);
-    hazards.push({ j, kind: u(a + L.RC_H_KIND), x: f(a + L.RC_H_X), z: f(a + L.RC_H_Z), y: f(a + L.RC_H_Y), l: f(a + L.RC_H_L), spd: dv.getInt32(a + L.RC_H_SPD, true), ph: dv.getInt32(a + L.RC_H_PH, true), a: f(a + L.RC_H_A), hit: -1e9 });
+    hazards.push({ j, kind: u(a + MC.RC_H_KIND), x: f(a + MC.RC_H_X), z: f(a + MC.RC_H_Z), y: f(a + MC.RC_H_Y), l: f(a + MC.RC_H_L), spd: dv.getInt32(a + MC.RC_H_SPD, true), ph: dv.getInt32(a + MC.RC_H_PH, true), a: f(a + MC.RC_H_A), hit: -1e9 });
   }
   for (const P of pieces) for (let j = P.hz0; j < P.hz0 + P.hzn && j < nh; j++) { hazards[j].piece = P; hazards[j].dx = P.dx; hazards[j].dz = P.dz; }
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const P of pieces) { const r = Math.sqrt(P.br2); x0 = Math.min(x0, P.bx - r); x1 = Math.max(x1, P.bx + r); z0 = Math.min(z0, P.bz - r); z1 = Math.max(z1, P.bz + r); }
-  const checks = pieces.filter((P) => P.fl & L.RCF_CHECK);
+  const checks = pieces.filter((P) => P.fl & MC.RCF_CHECK);
   memo = {
-    key, pieces, hazards, checks, w: f(L.PG_H + L.RC_W), grid: f(L.PG_H + L.RC_GRID), fin: f(L.PG_H + L.RC_FIN), floor: f(L.PG_FLOOR),
+    key, pieces, hazards, checks, w: f(L.PG_H + MC.RC_W), grid: f(L.PG_H + MC.RC_GRID), fin: f(L.PG_H + MC.RC_FIN), floor: f(L.PG_FLOOR),
     top: pieces[0].h0, end: pieces[np - 1].s0 + pieces[np - 1].len, box: [x0, z0, x1, z1], geom: null, last: 0,
   };
   view._rcMemo = memo;
@@ -101,7 +102,7 @@ function try1(P, x, z) {
   if (px * px + pz * pz > P.br2) return null;
   px = x - P.x; pz = z - P.z;
   let f, u, tx, tz;
-  if (P.kind === L.RC_STRAIGHT) {
+  if (P.kind === MC.RC_STRAIGHT) {
     tx = P.dx; tz = P.dz;
     f = (tx * px + tz * pz) / P.len;
     u = tx * pz - tz * px;
@@ -115,13 +116,13 @@ function try1(P, x, z) {
   }
   if (!(f >= 0 && f < 1)) return null;
   const w = P.w0 + (P.w1 - P.w0) * f;
-  if (Math.abs(u) > w + L.RC_MARGIN) return null;
+  if (Math.abs(u) > w + MC.RC_MARGIN) return null;
   return { P, f, u, w, h: P.h0 + (P.h1 - P.h0) * f, tx, tz, s: P.s0 + f * P.len };
 }
 
 // The point g of the way along piece P (by angle on an arc) and u across: [x, y, z] on its middle line's height, and its heading.
 export function along(P, g, u) {
-  if (P.kind === L.RC_STRAIGHT) {
+  if (P.kind === MC.RC_STRAIGHT) {
     const a = g * P.len;
     return [P.x + P.dx * a - P.dz * u, P.h0 + (P.h1 - P.h0) * g, P.z + P.dz * a + P.dx * u, Math.atan2(P.dz, P.dx)];
   }
@@ -145,17 +146,17 @@ function build(c) {
   const cyl = (x, y, z, r, hh, rgb, look = LOOK.MATTE, a = 0, b = 0, alpha = 1) => out.push([1, x, y, z, r, hh, r, 0, ...rgb, look, a, b, alpha]);
   let band = 0;
   for (const P of c.pieces) {
-    const tones = TONE[P.sec] || TONE[L.RCS_DROP];
+    const tones = TONE[P.sec] || TONE[MC.RCS_DROP];
     const wmax = Math.max(P.w0, P.w1);
-    const outer = P.kind === L.RC_ARC ? P.phi * (P.r + wmax) : P.len;
+    const outer = P.kind === MC.RC_ARC ? P.phi * (P.r + wmax) : P.len;
     const n = Math.max(1, Math.ceil(outer / STEP));
-    const pen = P.fl & L.RCF_PEN, start = P.fl & L.RCF_START, gap = P.fl & L.RCF_GAP;
+    const pen = P.fl & MC.RCF_PEN, start = P.fl & MC.RCF_START, gap = P.fl & MC.RCF_GAP;
     for (let i = 0; i < n && !gap; i++) {
       const g = (i + 0.5) / n;
       const w = P.w0 + (P.w1 - P.w0) * g;
       const [x, y, z, yaw] = along(P, g, 0);
       // a slab as long as its step at the outer edge, so an arc's slabs overlap inside and meet outside
-      const half = P.kind === L.RC_ARC ? (P.phi * (P.r + w) / n) / 2 + 0.03 : P.len / n / 2 + 0.03;
+      const half = P.kind === MC.RC_ARC ? (P.phi * (P.r + w) / n) / 2 + 0.03 : P.len / n / 2 + 0.03;
       const tone = tones[Math.floor(band / 3) & 1];
       band++;
       if (pen || start) box(x, y - SLAB, z, half, SLAB, w, yaw, tone, LOOK.CHECKER, 2, 0.35);
@@ -171,15 +172,15 @@ function build(c) {
       }
     }
     // rails (taller round the pen), a post at every other step
-    const railH = pen ? 1.4 : L.RC_RAIL;
-    for (const [flag, side] of [[L.RCF_RAIL_L, 1], [L.RCF_RAIL_R, -1]]) {
+    const railH = pen ? 1.4 : MC.RC_RAIL;
+    for (const [flag, side] of [[MC.RCF_RAIL_L, 1], [MC.RCF_RAIL_R, -1]]) {
       if (!(P.fl & flag)) continue;
       const m = Math.max(1, Math.ceil(outer / 2));
       for (let i = 0; i < m; i++) {
         const g = (i + 0.5) / m;
         const w = P.w0 + (P.w1 - P.w0) * g;
         const [x, y, z, yaw] = along(P, g, side * (w + RAIL_T));
-        const half = (P.kind === L.RC_ARC ? P.phi * (P.r + w) / m : P.len / m) / 2 + 0.02;
+        const half = (P.kind === MC.RC_ARC ? P.phi * (P.r + w) / m : P.len / m) / 2 + 0.02;
         box(x, y + railH / 2, z, half, railH / 2, RAIL_T, yaw, pen ? [0.75, 0.88, 1] : [0.96, 0.96, 0.98], pen ? LOOK.GLOW : LOOK.PLASTIC, pen ? 0.25 : 0, 0, pen ? 0.55 : 1);
         if (!pen && (i & 1) === 0) box(x, y + railH / 2, z, 0.2, railH / 2 + 0.05, 0.22, yaw, [0.85, 0.15, 0.12], LOOK.PLASTIC);
       }
@@ -193,7 +194,7 @@ function build(c) {
       const [x, y, z, yaw] = along(P, 1, 0);
       box(x + P.dx * RAIL_T, y + 0.7, z + P.dz * RAIL_T, RAIL_T, 0.7, P.w1 + 0.3, yaw, [0.75, 0.88, 1], LOOK.GLOW, 0.25, 0, 0.55);
     }
-    if (P.sec === L.RCS_JUMP && !gap && P.h1 > P.h0) {
+    if (P.sec === MC.RCS_JUMP && !gap && P.h1 > P.h0) {
       // the kicker's lip in hazard stripes
       const [x, y, z, yaw] = along(P, 1, 0);
       box(x - P.dx * 0.4, y - 0.12, z - P.dz * 0.4, 0.4, 0.14, P.w1, yaw, [1, 0.8, 0.1], LOOK.HAZARD, 0.5);
@@ -208,7 +209,7 @@ function build(c) {
       }
     }
     // a checkpoint: a line across and a flag each side
-    if ((P.fl & L.RCF_CHECK) && !start) {
+    if ((P.fl & MC.RCF_CHECK) && !start) {
       const [x, y, z, yaw] = along(P, 0, 0);
       box(x, y + 0.02, z, 0.12, 0.03, P.w0 - KERB, yaw, [1, 1, 1], LOOK.GLOW, 0.5, 0, 0.8);
       for (const side of [1, -1]) {
@@ -262,7 +263,7 @@ export function standings(view) {
     const a = L.PLAYERS + p * L.PSIZE;
     if (!(view.u8[a + L.P_FL] & L.PF_LIVE)) continue;
     const score = view.dv.getUint16(a + L.PG_SCORE, true), m = view.dv.getUint32(a + L.PG_M, true);
-    list.push({ slot: p, score, home: score >= L.RC_WIN, dist: m / 100 });
+    list.push({ slot: p, score, home: score >= MC.RC_WIN, dist: m / 100 });
   }
   list.sort((a, b) => (b.home - a.home) || (a.home ? b.score - a.score : b.dist - a.dist) || a.slot - b.slot);
   list.forEach((e, i) => { e.rank = i > 0 && list[i - 1].home === e.home && (e.home ? list[i - 1].score === e.score : false) ? list[i - 1].rank : i + 1; });
@@ -285,10 +286,10 @@ function danger(view, x, z, tick, me) {
   if (!a) return 1;
   const P = a.P, w = a.w;
   // a gap is the way on: think takes a ball at a jump straight over it
-  if (P.fl & L.RCF_GAP) return 0;
+  if (P.fl & MC.RCF_GAP) return 0;
   const edge = Math.abs(a.u) - w;
-  if (edge > -0.3) return (a.u > 0 ? P.fl & L.RCF_RAIL_L : P.fl & L.RCF_RAIL_R) ? 0.1 : 1;
-  let d = edge > -2.5 && !(P.fl & (a.u > 0 ? L.RCF_RAIL_L : L.RCF_RAIL_R)) ? 0.35 * (2.5 + edge) / 2.5 : 0;
+  if (edge > -0.3) return (a.u > 0 ? P.fl & MC.RCF_RAIL_L : P.fl & MC.RCF_RAIL_R) ? 0.1 : 1;
+  let d = edge > -2.5 && !(P.fl & (a.u > 0 ? MC.RCF_RAIL_L : MC.RCF_RAIL_R)) ? 0.35 * (2.5 + edge) / 2.5 : 0;
   if (!P.hzn) return d;
   const g = view.party();
   const tp = (tick - g.start) | 0;
@@ -296,12 +297,12 @@ function danger(view, x, z, tick, me) {
     const H = c.hazards[j];
     if (!H) continue;
     const hx = x - H.x, hz = z - H.z;
-    if (H.kind === L.RCH_BUMPER) {
+    if (H.kind === MC.RCH_BUMPER) {
       const reach = H.l + 2.2;
       if (hx > reach || hx < -reach || hz > reach || hz < -reach) continue;
       const q = Math.sqrt(hx * hx + hz * hz);
       if (q < reach) d = Math.max(d, 0.55 * (1 - Math.max(0, q - H.l - 1) / 1.2));
-    } else if (H.kind === L.RCH_SPINNER) {
+    } else if (H.kind === MC.RCH_SPINNER) {
       const q2 = hx * hx + hz * hz, reach = H.l + 1.6;
       if (q2 < 4) d = Math.max(d, 0.7);
       else if (q2 < reach * reach) {
@@ -309,7 +310,7 @@ function danger(view, x, z, tick, me) {
         const off = Math.abs(hx * -ez + hz * ex);
         if (off < 2.2) d = Math.max(d, 0.9 - 0.25 * Math.max(0, off - 1.5));
       }
-    } else if (H.kind === L.RCH_SWEEPER) {
+    } else if (H.kind === MC.RCH_SWEEPER) {
       const o = sweepOff(H, tp), cx = hx + H.dz * o, cz = hz - H.dx * o;
       const al = cx * H.dx + cz * H.dz, ac = cx * -H.dz + cz * H.dx;
       if (Math.abs(al) < H.l + 1.6 && Math.abs(ac) < 2.4) d = Math.max(d, 0.9);
@@ -344,11 +345,11 @@ function plan(view, me, bot) {
     // a lane: on a bend's inside, spread elsewhere
     const slot = b.slot ?? 0;
     let lane = (luck(slot, P.k) - 0.5) * 1.1;
-    if (P.kind === L.RC_ARC) lane = P.turn * (0.15 + 0.3 * luck(slot, P.k + 50));
+    if (P.kind === MC.RC_ARC) lane = P.turn * (0.15 + 0.3 * luck(slot, P.k + 50));
     // between the posts of a bumper field's first row
-    if (P.sec === L.RCS_BUMPERS && P.hzn) {
+    if (P.sec === MC.RCS_BUMPERS && P.hzn) {
       const H = c.hazards[P.hz0 + Math.floor(luck(slot, P.k + 9) * Math.max(1, P.hzn / 4 - 1))];
-      if (H) lane = (((H.x - P.x) * -P.dz + (H.z - P.z) * P.dx) + L.RC_BUMP_SP / 2) / t.w;
+      if (H) lane = (((H.x - P.x) * -P.dz + (H.z - P.z) * P.dx) + MC.RC_BUMP_SP / 2) / t.w;
     }
     mem.lane = lane;
   }
@@ -356,9 +357,9 @@ function plan(view, me, bot) {
   // holding nothing, a row of power-up boxes ahead: for the nearest box across
   if (a && !b.item && skill > 0.35) {
     for (const Q of [a.P, c.pieces[a.P.k + 1]]) {
-      if (!Q || !Q.hzn || c.hazards[Q.hz0]?.kind !== L.RCH_BOX && !c.hazards.slice(Q.hz0, Q.hz0 + Q.hzn).some((H) => H.kind === L.RCH_BOX)) continue;
+      if (!Q || !Q.hzn || c.hazards[Q.hz0]?.kind !== MC.RCH_BOX && !c.hazards.slice(Q.hz0, Q.hz0 + Q.hzn).some((H) => H.kind === MC.RCH_BOX)) continue;
       const mine = Q === a.P ? a.f * Q.len : -(Q.s0 - s);
-      const boxes = c.hazards.slice(Q.hz0, Q.hz0 + Q.hzn).filter((H) => H.kind === L.RCH_BOX);
+      const boxes = c.hazards.slice(Q.hz0, Q.hz0 + Q.hzn).filter((H) => H.kind === MC.RCH_BOX);
       const al = (boxes[0].x - Q.x) * Q.dx + (boxes[0].z - Q.z) * Q.dz;
       if (al < mine + 1 || al - mine > 22) continue;
       const u0 = Q === a.P ? a.u : 0;
@@ -370,7 +371,7 @@ function plan(view, me, bot) {
   }
   if (!out && a && skill > 0.25) {
     for (const Q of [a.P, c.pieces[a.P.k + 1]]) {
-      if (!Q || !Q.hzn || (Q.sec !== L.RCS_SPINNERS && Q.sec !== L.RCS_SWEEPERS)) continue;
+      if (!Q || !Q.hzn || (Q.sec !== MC.RCS_SPINNERS && Q.sec !== MC.RCS_SWEEPERS)) continue;
       const mine = Q === a.P ? a.f * Q.len : -(Q.s0 - s);
       const v = Math.max(6, vx * Q.dx + vz * Q.dz);
       const row = rowAhead(c, Q, mine);
@@ -378,7 +379,7 @@ function plan(view, me, bot) {
       const T = when + (row.along - mine) / v / TICK - view.party().start;
       const { u, clear } = clearest(c, Q, row, T, a.P === Q ? a.u : 0, skill);
       // (only for sweepers: a spinner's bar only knocks a ball about between its rails)
-      const wait = clear < 0.3 && row.along - mine > 4.5 && Q.sec === L.RCS_SWEEPERS;
+      const wait = clear < 0.3 && row.along - mine > 4.5 && Q.sec === MC.RCS_SWEEPERS;
       const q = along(Q, Math.max(0, Math.min(1, (wait ? row.along - 8 : row.along + 2.5) / Q.len)), u);
       out = { goal: [q[0], q[2]], wait, dir: [Q.dx, Q.dz] };
       break;
@@ -406,11 +407,11 @@ function think(view, me, bot) {
     const x = bot?.pos?.[0] ?? b.pos[0], z = bot?.pos?.[1] ?? b.pos[2];
     const a = at(c, x, z);
     const n1 = a && c.pieces[a.P.k + 1], n2 = a && c.pieces[a.P.k + 2];
-    if (a && (a.P.fl & L.RCF_GAP || n1?.fl & L.RCF_GAP || n2?.fl & L.RCF_GAP)) {
-      const ahead = a.P.fl & L.RCF_GAP ? n1 : a.P;
+    if (a && (a.P.fl & MC.RCF_GAP || n1?.fl & MC.RCF_GAP || n2?.fl & MC.RCF_GAP)) {
+      const ahead = a.P.fl & MC.RCF_GAP ? n1 : a.P;
       const u = Math.max(-0.5 * a.w, Math.min(0.5 * a.w, a.u));
-      const q = along(ahead, a.P.fl & L.RCF_GAP ? 0.3 : Math.min(1, a.f + 6 / a.P.len), u);
-      const lip = n1?.fl & L.RCF_GAP && (1 - a.f) * a.P.len < 1.2;
+      const q = along(ahead, a.P.fl & MC.RCF_GAP ? 0.3 : Math.min(1, a.f + 6 / a.P.len), u);
+      const lip = n1?.fl & MC.RCF_GAP && (1 - a.f) * a.P.len < 1.2;
       return { yaw: Math.atan2(q[2] - z, q[0] - x), move: 1, hop: lip && b.ground ? 1 : 0 };
     }
   }
@@ -448,14 +449,14 @@ function clearest(c, Q, row, T, u0, skill) {
     let clear = Infinity;
     for (const dt of [-56, -37, -19, 0, 19, 37, 56]) {
       for (const { H, u: hu } of row.hs) {
-        if (H.kind === L.RCH_SWEEPER) clear = Math.min(clear, Math.abs(u - (hu + sweepOff(H, T + dt))) - 1.5);
-        else if (H.kind === L.RCH_SPINNER) {
+        if (H.kind === MC.RCH_SWEEPER) clear = Math.min(clear, Math.abs(u - (hu + sweepOff(H, T + dt))) - 1.5);
+        else if (H.kind === MC.RCH_SPINNER) {
           // a bar is a line through its post, which is on the row: the spot's distance from that line and from the post
           const an = spinAngle(H, T + dt);
           const ea = Math.cos(an) * Q.dx + Math.sin(an) * Q.dz;
           const du = u - hu;
           if (Math.abs(du) > H.l + 1.5) continue;
-          clear = Math.min(clear, Math.abs(du * ea) - 1.5, Math.abs(du) - L.RC_HUB_R - 1.2);
+          clear = Math.min(clear, Math.abs(du * ea) - 1.5, Math.abs(du) - MC.RC_HUB_R - 1.2);
         }
       }
     }
@@ -474,11 +475,11 @@ function hop(view, me, bot) {
   const a = at(c, x, z);
   if (!a) return false;
   const next = c.pieces[a.P.k + 1];
-  if (next && (next.fl & L.RCF_GAP) && a.P.h1 > a.P.h0) {
+  if (next && (next.fl & MC.RCF_GAP) && a.P.h1 > a.P.h0) {
     const v = b.vel[0] * a.tx + b.vel[2] * a.tz;
     return (1 - a.f) * a.P.len < Math.max(0.8, v * 0.06);
   }
-  if (a.P.hzn && (a.P.sec === L.RCS_SPINNERS || a.P.sec === L.RCS_SWEEPERS)) {
+  if (a.P.hzn && (a.P.sec === MC.RCS_SPINNERS || a.P.sec === MC.RCS_SWEEPERS)) {
     const t = bot?.at ?? view.tick;
     const vx = bot?.vel?.[0] ?? b.vel[0], vz = bot?.vel?.[1] ?? b.vel[2];
     // a bar where it will be in a fifth of a second
@@ -502,30 +503,30 @@ export default {
     const now = (ctx?.now ?? 0) / 1000;
     const g = view.party();
     for (const H of c.hazards) {
-      if (H.kind === L.RCH_BUMPER) {
+      if (H.kind === MC.RCH_BUMPER) {
         const lit = Math.max(0, 1 - ((ctx?.now ?? 0) - H.hit) / 300);
-        sc.cyl(H.x, H.y + L.RC_BUMP_H / 2, H.z, H.l, L.RC_BUMP_H / 2, 0.92, 0.18 + 0.5 * lit, 0.2 + 0.4 * lit, LOOK.PLASTIC);
-        sc.cyl(H.x, H.y + L.RC_BUMP_H + 0.08, H.z, H.l * 0.7, 0.1, 1, 0.85, 0.3, LOOK.GLOW, 0.6 + 1.4 * lit, 0.4);
-      } else if (H.kind === L.RCH_SPINNER) {
+        sc.cyl(H.x, H.y + MC.RC_BUMP_H / 2, H.z, H.l, MC.RC_BUMP_H / 2, 0.92, 0.18 + 0.5 * lit, 0.2 + 0.4 * lit, LOOK.PLASTIC);
+        sc.cyl(H.x, H.y + MC.RC_BUMP_H + 0.08, H.z, H.l * 0.7, 0.1, 1, 0.85, 0.3, LOOK.GLOW, 0.6 + 1.4 * lit, 0.4);
+      } else if (H.kind === MC.RCH_SPINNER) {
         const an = spinAngle(H, tp);
-        sc.cyl(H.x, H.y + 0.9, H.z, L.RC_HUB_R, 0.9, 0.7, 0.72, 0.76, LOOK.METAL);
-        sc.cyl(H.x, H.y + 1.85, H.z, L.RC_HUB_R * 0.8, 0.08, 1, 0.3, 0.2, LOOK.GLOW, 0.8);
-        const mid = (L.RC_BAR_LO + L.RC_BAR_HI) / 2;
-        sc.box(H.x, H.y + mid, H.z, H.l, (L.RC_BAR_HI - L.RC_BAR_LO) / 2, L.RC_BAR_R, an, 1, 0.82, 0.1, LOOK.HAZARD, 0.5, 0, 1, H.j * 7 + 1);
+        sc.cyl(H.x, H.y + 0.9, H.z, MC.RC_HUB_R, 0.9, 0.7, 0.72, 0.76, LOOK.METAL);
+        sc.cyl(H.x, H.y + 1.85, H.z, MC.RC_HUB_R * 0.8, 0.08, 1, 0.3, 0.2, LOOK.GLOW, 0.8);
+        const mid = (MC.RC_BAR_LO + MC.RC_BAR_HI) / 2;
+        sc.box(H.x, H.y + mid, H.z, H.l, (MC.RC_BAR_HI - MC.RC_BAR_LO) / 2, MC.RC_BAR_R, an, 1, 0.82, 0.1, LOOK.HAZARD, 0.5, 0, 1, H.j * 7 + 1);
         for (const e of [1, -1]) sc.sphere(H.x + Math.cos(an) * H.l * e, H.y + mid, H.z + Math.sin(an) * H.l * e, 0.5, 0.95, 0.2, 0.15, LOOK.PLASTIC);
-      } else if (H.kind === L.RCH_SWEEPER) {
+      } else if (H.kind === MC.RCH_SWEEPER) {
         const o = sweepOff(H, tp), x = H.x - H.dz * o, z = H.z + H.dx * o, yaw = Math.atan2(H.dz, H.dx);
-        sc.box(x, H.y + L.RC_SWEEP_HI / 2, z, H.l, L.RC_SWEEP_HI / 2, L.RC_BAR_R, yaw, 0.95, 0.25, 0.2, LOOK.HAZARD, 0.4, 0, 1, H.j * 7 + 2);
+        sc.box(x, H.y + MC.RC_SWEEP_HI / 2, z, H.l, MC.RC_SWEEP_HI / 2, MC.RC_BAR_R, yaw, 0.95, 0.25, 0.2, LOOK.HAZARD, 0.4, 0, 1, H.j * 7 + 2);
         // its track across the lane
         sc.box(H.x, H.y + 0.015, H.z, 0.1, 0.02, H.a + 0.6, yaw, 0.95, 0.3, 0.25, LOOK.GLOW, 0.35, 0, 0.75);
-      } else if (H.kind === L.RCH_BOX) {
+      } else if (H.kind === MC.RCH_BOX) {
         // a power-up box: a glowing cube turning and bobbing, its colour running round the rainbow, a white core
-        const spin = now * 1.7 + H.j, y = H.y + L.RC_BOX_Y + 0.12 * Math.sin(now * 2.6 + H.j);
+        const spin = now * 1.7 + H.j, y = H.y + MC.RC_BOX_Y + 0.12 * Math.sin(now * 2.6 + H.j);
         const hue = (now * 0.3 + H.j * 0.17) % 1;
         const r = 0.55 + 0.45 * Math.cos(6.2832 * hue), gg = 0.55 + 0.45 * Math.cos(6.2832 * (hue + 0.33)), bb = 0.55 + 0.45 * Math.cos(6.2832 * (hue + 0.67));
-        sc.box(H.x, y, H.z, L.RC_BOX_R, L.RC_BOX_R, L.RC_BOX_R, spin, r, gg, bb, LOOK.GLOW, 0.9, 0.7, 0.6, H.j * 7 + 3);
+        sc.box(H.x, y, H.z, MC.RC_BOX_R, MC.RC_BOX_R, MC.RC_BOX_R, spin, r, gg, bb, LOOK.GLOW, 0.9, 0.7, 0.6, H.j * 7 + 3);
         sc.box(H.x, y, H.z, 0.3, 0.3, 0.3, -1.4 * spin, 1, 1, 1, LOOK.PLASTIC, 0, 0, 1, H.j * 7 + 4);
-      } else if (H.kind === L.RCH_PAD) {
+      } else if (H.kind === MC.RCH_PAD) {
         // chevrons pointing down the course, lit in a running wave
         const yaw = Math.atan2(H.dz, H.dx);
         for (let i = 0; i < 3; i++) {
@@ -573,7 +574,7 @@ export default {
   fx(f, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(f.pos) : ctx.dist ?? 0;
     const mine = f.owner === ctx.slot;
-    if (f.kind === L.RC_FX_HOME) {
+    if (f.kind === MC.RC_FX_HOME) {
       const place = Math.round(f.size);
       if (mine) { ctx.banner?.(`HOME ${ordinal(place)}!`, place === 1 ? C.YELLOW : C.GREEN, 3000); ctx.sound?.holed?.(); }
       else ctx.feed?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} HOME ${ordinal(place)}`, place === 1 ? C.YELLOW : C.WHITE);
@@ -581,15 +582,15 @@ export default {
         const a = i * 1.047 + f.owner;
         ctx.glow?.({ pos: [f.pos[0] + Math.cos(a) * 1.5, f.pos[1] + 2 + (i & 1), f.pos[2] + Math.sin(a) * 1.5], size: 0.9, color: [[1, 0.85, 0.2], [0.3, 0.9, 1], [1, 0.35, 0.5]][i % 3].concat(1), kind: SPRITE.SPARK, life: 700 });
       }
-    } else if (f.kind === L.RC_FX_BUMP) {
+    } else if (f.kind === MC.RC_FX_BUMP) {
       ctx.glow?.({ pos: f.pos, size: 2.2, color: [1, 0.85, 0.35, 0.9], kind: SPRITE.FLASH, life: 260, grow: true });
       ctx.sound?.boing?.(Math.min(24, f.size), mine ? 0 : d);
       const c = course(ctx.view);
       const H = c?.hazards[f.shot];
       if (H) H.hit = ctx.now ?? 0;
-    } else if (f.kind === L.RC_FX_CUT) {
+    } else if (f.kind === MC.RC_FX_CUT) {
       if (mine) ctx.banner?.('NO SHORTCUTS  BACK TO THE CHECKPOINT', C.RED, 2200);
-    } else if (f.kind === L.RC_FX_LATE) {
+    } else if (f.kind === MC.RC_FX_LATE) {
       const who = mine ? 'YOU WIN THE RACE' : `${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} IS HOME`;
       ctx.banner?.(`${who}  ${Math.round(f.size)} S TO FINISH`, C.YELLOW, 3000);
       ctx.sound?.count?.(0);
@@ -621,9 +622,9 @@ export default {
         const a = at(c, me.pos[0], me.pos[2]);
         if (a) {
           let P = a.P;
-          if (P.sec === L.RCS_BEND || P.sec === L.RCS_DROP) P = c.pieces.slice(P.k + 1).find((Q) => Q.sec !== L.RCS_BEND && Q.sec !== L.RCS_DROP && Q.s0 - mine.dist < 45) ?? P;
+          if (P.sec === MC.RCS_BEND || P.sec === MC.RCS_DROP) P = c.pieces.slice(P.k + 1).find((Q) => Q.sec !== MC.RCS_BEND && Q.sec !== MC.RCS_DROP && Q.s0 - mine.dist < 45) ?? P;
           const name = SECTION[P.sec];
-          if (P.sec !== L.RCS_BEND && P.sec !== L.RCS_DROP && P.sec !== L.RCS_START) ctx.right(3, P === a.P ? name : `${name} AHEAD`, P.sec === L.RCS_FINISH ? C.GREEN : C.ORANGE);
+          if (P.sec !== MC.RCS_BEND && P.sec !== MC.RCS_DROP && P.sec !== MC.RCS_START) ctx.right(3, P === a.P ? name : `${name} AHEAD`, P.sec === MC.RCS_FINISH ? C.GREEN : C.ORANGE);
         }
         // a checkpoint passed: said for a second and a half
         const k = c.checks.reduce((n, P, i) => (P.s0 <= mine.dist ? i : n), 0);

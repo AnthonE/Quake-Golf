@@ -12,6 +12,7 @@
 // carrier, and with their own flag gone go and get it back (a capture needs
 // it home).
 import * as L from '../../src/layout.mjs';
+import * as AC from '../../src/am/consts.mjs';
 import { SIDE, SIDE_C, SIDE_RGB } from './sides.mjs';
 
 const NAME = ['RED FLAG', 'BLUE FLAG'];
@@ -26,16 +27,16 @@ const RUSH = 25;
 export function flags(view) {
   const map = view.map();
   return [0, 1].map((k) => {
-    const a = L.AO + L.CF_FLAG + k * L.CF_FSIZE;
+    const a = L.AO + AC.CF_FLAG + k * AC.CF_FSIZE;
     const f = (o) => view.dv.getFloat32(a + o, true);
-    let stand = [f(L.CF_STAND), f(L.CF_STAND + 4), f(L.CF_STAND + 8)];
-    let pos = [f(L.CF_POS), f(L.CF_POS + 4), f(L.CF_POS + 8)];
+    let stand = [f(AC.CF_STAND), f(AC.CF_STAND + 4), f(AC.CF_STAND + 8)];
+    let pos = [f(AC.CF_POS), f(AC.CF_POS + 4), f(AC.CF_POS + 8)];
     if (stand[0] === 0 && stand[2] === 0) {
       const [x, z, top] = map.flags[k];
       stand = [x, view.stand(x, z, top), z];
       pos = stand;
     }
-    return { k, pos, stand, state: view.u8[a + L.CF_STATE], by: view.u8[a + L.CF_BY], left: view.dv.getUint16(a + L.CF_LEFT, true) };
+    return { k, pos, stand, state: view.u8[a + AC.CF_STATE], by: view.u8[a + AC.CF_BY], left: view.dv.getUint16(a + AC.CF_LEFT, true) };
   });
 }
 
@@ -49,8 +50,8 @@ const clock = (ticks) => { const s = Math.ceil(ticks / 125); return `${Math.floo
 
 // A flag's state in words: HOME, TAKEN BY P5 (YOU HAVE IT), DROPPED 0:12.
 function says(fl, slot) {
-  if (fl.state === L.CF_CARRIED) return fl.by === slot ? 'YOU HAVE IT' : `TAKEN BY P${fl.by + 1}`;
-  if (fl.state === L.CF_DROPPED) return `DROPPED ${clock(fl.left + 1)}`;
+  if (fl.state === AC.CF_CARRIED) return fl.by === slot ? 'YOU HAVE IT' : `TAKEN BY P${fl.by + 1}`;
+  if (fl.state === AC.CF_DROPPED) return `DROPPED ${clock(fl.left + 1)}`;
   return 'HOME';
 }
 
@@ -72,10 +73,10 @@ export default {
       return;
     }
     const mine = fs[ctx.team], theirs = fs[1 - ctx.team];
-    ctx.put(1, 2, `YOUR FLAG  ${says(mine, ctx.slot)}`, mine.state === L.CF_HOME ? SIDE_C[ctx.team] : ctx.C.YELLOW);
+    ctx.put(1, 2, `YOUR FLAG  ${says(mine, ctx.slot)}`, mine.state === AC.CF_HOME ? SIDE_C[ctx.team] : ctx.C.YELLOW);
     ctx.put(1, 3, `THEIR FLAG  ${says(theirs, ctx.slot)}`, SIDE_C[1 - ctx.team]);
     // carrying: what to do with it (a capture needs your own home; row 3 already says you have it)
-    if (ctx.me?.carry && !ctx.me.dead) ctx.put(1, 4, mine.state === L.CF_HOME ? 'RUN HOME TO SCORE' : 'WAIT AT HOME FOR YOUR FLAG', (ctx.now >> 8) & 1 ? ctx.C.YELLOW : ctx.C.WHITE);
+    if (ctx.me?.carry && !ctx.me.dead) ctx.put(1, 4, mine.state === AC.CF_HOME ? 'RUN HOME TO SCORE' : 'WAIT AT HOME FOR YOUR FLAG', (ctx.now >> 8) & 1 ? ctx.C.YELLOW : ctx.C.WHITE);
   },
 
   // The feed in the doer's side's colour (the flag's for CF_MX_HOME, the one
@@ -85,18 +86,18 @@ export default {
     const k = f.shot;
     if (k !== 0 && k !== 1) return;
     const who = ctx.name(f.owner), you = f.owner === ctx.slot && ctx.slot >= 0, ours = ctx.slot >= 0 && ctx.team(ctx.slot) === k;
-    const col = SIDE_C[f.size === L.CF_MX_HOME ? k : ctx.team(f.owner)];
+    const col = SIDE_C[f.size === AC.CF_MX_HOME ? k : ctx.team(f.owner)];
     const flag = `THE ${NAME[k]}`;
     const near = ctx.dist === undefined || ctx.dist < 60;
     switch (f.size) {
-      case L.CF_MX_TAKE:
+      case AC.CF_MX_TAKE:
         ctx.feed(`${who} TOOK ${flag}`, col);
         if (you) ctx.banner('YOU HAVE THE FLAG  RUN HOME', ctx.C.YELLOW, 2500);
         else if (ours) ctx.banner('YOUR FLAG IS TAKEN', SIDE_C[k], 2500);
         ctx.sound?.pickup?.();
         ctx.glow({ pos: [f.pos[0], f.pos[1] + 1.2, f.pos[2]], size: 1.6, color: [...SIDE_RGB[k], 0.9], kind: 6, life: 500, grow: true });
         break;
-      case L.CF_MX_CAP:
+      case AC.CF_MX_CAP:
         ctx.feed(`${who} CAPTURED ${flag}`, col);
         if (you) ctx.banner('YOU CAPTURED THE FLAG', ctx.C.YELLOW, 3000);
         else if (ours) ctx.banner(`${SIDE[1 - k]} CAPTURED YOUR FLAG`, SIDE_C[1 - k], 3000);
@@ -104,18 +105,18 @@ export default {
         ctx.sound?.holed?.();
         ctx.glow({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 3, color: [...SIDE_RGB[1 - k], 0.9], kind: 3, life: 700, grow: true });
         break;
-      case L.CF_MX_RETURN:
+      case AC.CF_MX_RETURN:
         ctx.feed(`${who} RETURNED ${flag}`, col);
         if (you) ctx.banner('YOU RETURNED YOUR FLAG', SIDE_C[k], 2000);
         else if (ours) ctx.banner('YOUR FLAG IS HOME', SIDE_C[k], 2000);
         ctx.sound?.pickup?.();
         break;
-      case L.CF_MX_HOME:
+      case AC.CF_MX_HOME:
         ctx.feed(`${flag} IS HOME`, col);
         if (ours) ctx.banner('YOUR FLAG IS HOME', SIDE_C[k], 2000);
         if (near) ctx.sound?.count?.(0);
         break;
-      case L.CF_MX_DROP:
+      case AC.CF_MX_DROP:
         ctx.feed(`${who} DROPPED ${flag}`, col);
         if (ours) ctx.banner('YOUR FLAG IS DOWN  RETURN IT', SIDE_C[k], 2500);
         ctx.glow({ pos: [f.pos[0], f.pos[1] + 0.3, f.pos[2]], size: 1.2, color: [...SIDE_RGB[k], 0.8], kind: 6, life: 600, grow: true });
@@ -133,9 +134,9 @@ export default {
     for (const fl of fs) {
       const k = fl.k;
       // its stand: a ring, bright with the flag on it, pulsing without
-      const home = fl.state === L.CF_HOME;
+      const home = fl.state === AC.CF_HOME;
       out.glow.push({ pos: [fl.stand[0], fl.stand[1] + 0.1, fl.stand[2]], size: 1.8, color: [...SIDE_RGB[k], home ? 0.75 : 0.3 + 0.4 * pulse], kind: 6, minpx: 1 });
-      if (fl.state === L.CF_CARRIED) {
+      if (fl.state === AC.CF_CARRIED) {
         // over its carrier's shoulder, where the carrier is drawn (but not over the one shown: it's in your hands)
         if (fl.by !== ctx.shown) out.solid.push(pennant(feet(view, fl.by, ctx.dt).map((v, i) => v + (i === 1 ? 1.1 : 0)), k, 0.42));
       } else {
@@ -148,12 +149,12 @@ export default {
     // from home; over a carrier, above the flag it carries
     const theirs = fs[1 - team], mine = fs[team];
     const up = (p, h = 2.9) => [p[0], p[1] + h, p[2]];
-    if (theirs.state === L.CF_CARRIED) {
-      if (theirs.by === ctx.shown) out.markers.push({ pos: up(mine.stand), label: mine.state === L.CF_HOME ? 'HOME' : 'HOME  WAIT', color: SIDE_C[team], kind: 'flag' });
+    if (theirs.state === AC.CF_CARRIED) {
+      if (theirs.by === ctx.shown) out.markers.push({ pos: up(mine.stand), label: mine.state === AC.CF_HOME ? 'HOME' : 'HOME  WAIT', color: SIDE_C[team], kind: 'flag' });
       else out.markers.push({ pos: up(feet(view, theirs.by, ctx.dt), 3.6), label: 'ESCORT', color: SIDE_C[team], kind: 'flag' });
     } else out.markers.push({ pos: up(theirs.pos), label: 'TAKE', color: SIDE_C[1 - team], kind: 'flag' });
-    if (mine.state === L.CF_DROPPED) out.markers.push({ pos: up(mine.pos), label: 'RETURN', color: SIDE_C[team], kind: 'flag' });
-    else if (mine.state === L.CF_CARRIED) out.markers.push({ pos: up(feet(view, mine.by, ctx.dt), 3.6), label: 'KILL', color: SIDE_C[1 - team], kind: 'flag' });
+    if (mine.state === AC.CF_DROPPED) out.markers.push({ pos: up(mine.pos), label: 'RETURN', color: SIDE_C[team], kind: 'flag' });
+    else if (mine.state === AC.CF_CARRIED) out.markers.push({ pos: up(feet(view, mine.by, ctx.dt), 3.6), label: 'KILL', color: SIDE_C[1 - team], kind: 'flag' });
   },
 
   cols: [{ head: 'CAPS', get: (o) => String(o.points) }, { head: 'RETURNS', get: (o) => String(o.aux) }],
@@ -165,12 +166,12 @@ export default {
     // carrying: home to its own stand, and wait there for its own flag
     if (me.carry) return { pos: mine.stand, r: 1.5, hurry: 1, hold: true };
     // its own flag lying somewhere: whoever goes for it runs
-    const fetch = () => (mine.state === L.CF_DROPPED ? { pos: mine.pos, r: 0.8, hurry: 1, hold: false }
+    const fetch = () => (mine.state === AC.CF_DROPPED ? { pos: mine.pos, r: 0.8, hurry: 1, hold: false }
       : { pos: feet(view, mine.by), r: 2, hurry: 0.7, hold: false });
-    if (ctx.role === 'defend') return mine.state === L.CF_HOME ? { pos: mine.stand, r: 4, hurry: 0, hold: true } : fetch();
-    if (theirs.state === L.CF_CARRIED) {
+    if (ctx.role === 'defend') return mine.state === AC.CF_HOME ? { pos: mine.stand, r: 4, hurry: 0, hold: true } : fetch();
+    if (theirs.state === AC.CF_CARRIED) {
       // your side has theirs: it needs your own home to score, so get it back; else ride along
-      if (mine.state !== L.CF_HOME) return fetch();
+      if (mine.state !== AC.CF_HOME) return fetch();
       return { pos: beside(feet(view, theirs.by), ctx.rank, 3), r: 3, hurry: 0.6, hold: false };
     }
     // for theirs: past everyone across the field (a fight in the middle every

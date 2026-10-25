@@ -84,10 +84,11 @@ export function makeMacros({ DEBUG }) {
       return out;
     },
 
-    // (!tab NAME i): element i of the layout's array NAME (i32s) as a chain of
-    // selects, so the constants inline; the last element for any i past it.
+    // (!tab NAME i): element i of the layout's (or a minigame's) array NAME
+    // (i32s) as a chain of selects, so the constants inline; the last element
+    // for any i past it.
     tab: (name, i) => {
-      const a = layout[name];
+      const a = layout[name] ?? layout.MG_CONSTS[name] ?? layout.AM_CONSTS[name];
       if (!Array.isArray(a)) throw new Error(`no layout array ${name}`);
       return a.slice(0, -1).reduceRight((out, v, k) => `(select (i32.const ${v}) ${out} (i32.eq ${i} (i32.const ${k})))`, `(i32.const ${a.at(-1)})`);
     },

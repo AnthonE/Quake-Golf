@@ -10,13 +10,14 @@
 // away from the its near it, off the rim, and springs when one is about to
 // touch it.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/tag.mjs'; // TG_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
-const IT = L.TG_M_IT, IN = L.TG_M_IN;
-const PR = L.TG_PR, PH = L.TG_PH;
+const IT = MC.TG_M_IT, IN = MC.TG_M_IN;
+const PR = MC.TG_PR, PH = MC.TG_PH;
 const RED = [1, 0.16, 0.1];
 const GOLD = [1, 0.86, 0.35];
 const CANDY = [[1, 0.42, 0.66], [1, 0.82, 0.25], [0.38, 0.9, 0.7], [0.62, 0.56, 1], [0.35, 0.75, 1]];
@@ -27,13 +28,13 @@ const FLOOR = [[0.16, 0.2, 0.42], [0.2, 0.28, 0.55], [0.36, 0.14, 0.22]]; // the
 const STAGES = new WeakMap();
 export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
-  const r = dv.getFloat32(L.PG_H + L.TG_RAD + o, true), np = dv.getUint32(L.PG_H + L.TG_NP + o, true);
+  const r = dv.getFloat32(L.PG_H + MC.TG_RAD + o, true), np = dv.getUint32(L.PG_H + MC.TG_NP + o, true);
   const hole = dv.getUint32(L.HDR_HOLE + o, true), seed = dv.getUint32(L.HDR_SEED + o, true);
   const cx = dv.getFloat32(L.PG_CX + o, true);
   let st = STAGES.get(dv.buffer);
   if (st && st.r === r && st.np === np && st.hole === hole && st.seed === seed && st.cx === cx) return st;
   const px = new Float64Array(np), pz = new Float64Array(np);
-  for (let k = 0; k < np; k++) { px[k] = dv.getFloat32(L.PG_S + L.TG_PILL + 8 * k, true); pz[k] = dv.getFloat32(L.PG_S + L.TG_PILL + 8 * k + 4, true); }
+  for (let k = 0; k < np; k++) { px[k] = dv.getFloat32(L.PG_S + MC.TG_PILL + 8 * k, true); pz[k] = dv.getFloat32(L.PG_S + MC.TG_PILL + 8 * k + 4, true); }
   st = { r, np, hole, seed, cx, px, pz, lit: new Float32Array(np) };
   STAGES.set(dv.buffer, st);
   return st;
@@ -43,7 +44,7 @@ export function stage(view) {
 export function isIt(view, p) {
   const o = view.bank || 0;
   const state = view.dv.getUint32(L.HDR_STATE + o, true);
-  if (state === L.H_COUNT) return view.u8[L.PG_S + L.TG_ROLE + p] === 1;
+  if (state === L.H_COUNT) return view.u8[L.PG_S + MC.TG_ROLE + p] === 1;
   return (view.dv.getUint32(L.PLAYERS + o + p * L.PSIZE + L.PG_M, true) & IT) !== 0;
 }
 // Is slot p free, and in the round?
@@ -64,7 +65,7 @@ function world(view) {
     const fl = view.u8[a + L.P_FL];
     if ((fl & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE) continue;
     const m = dv.getUint32(a + L.PG_M, true);
-    const it = count ? view.u8[L.PG_S + L.TG_ROLE + p] === 1 : (m & IT) !== 0;
+    const it = count ? view.u8[L.PG_S + MC.TG_ROLE + p] === 1 : (m & IT) !== 0;
     if (!count && !(m & IN) && !it) continue; // a newcomer, it from the next tick
     const b = { slot: p, x: dv.getFloat32(a + L.P_PX, true), y: dv.getFloat32(a + L.P_PY, true), z: dv.getFloat32(a + L.P_PZ, true),
       vx: dv.getFloat32(a + L.P_VX, true), vz: dv.getFloat32(a + L.P_VZ, true), score: dv.getUint16(a + L.PG_SCORE, true), item: view.u8[a + L.B_ITEM], it };
@@ -210,7 +211,7 @@ function flee(view, me, bot, w, st) {
 }
 
 // Ticks from t (into play) to the next handing out of springs (from t0 TG_GIVE0) or dashes (TG_DASH0).
-const nextGive = (t, t0) => (t < t0 ? t0 - t : L.TG_GIVE - ((t - t0) % L.TG_GIVE));
+const nextGive = (t, t0) => (t < t0 ? t0 - t : MC.TG_GIVE - ((t - t0) % MC.TG_GIVE));
 
 // ---- drawing
 
@@ -244,7 +245,7 @@ export default {
     sc.cyl(cx, PLAT_Y - 0.6, cx, R + 0.6, 0.6, ...FLOOR[0], LOOK.RUBBER);
     sc.cyl(cx, PLAT_Y - 0.59, cx, R * 0.68, 0.6, ...FLOOR[1], LOOK.RUBBER);
     sc.cyl(cx, PLAT_Y - 0.58, cx, R * 0.4, 0.6, ...FLOOR[0], LOOK.RUBBER);
-    sc.cyl(cx, PLAT_Y - 0.57, cx, R * L.TG_ITR + 1.6, 0.6, ...FLOOR[2], LOOK.RUBBER);
+    sc.cyl(cx, PLAT_Y - 0.57, cx, R * MC.TG_ITR + 1.6, 0.6, ...FLOOR[2], LOOK.RUBBER);
     out.decals?.push({ pos: [cx, PLAT_Y + 0.02, cx], radius: R * 0.68, width: 0.12, color: [0.6, 0.75, 1, 0.25], kind: DECAL.RING });
     out.decals?.push({ pos: [cx, PLAT_Y + 0.02, cx], radius: R * 0.4, width: 0.12, color: [0.6, 0.75, 1, 0.25], kind: DECAL.RING });
     // the rim: red and white bumpers
@@ -314,7 +315,7 @@ export default {
   },
 
   fx(f, ctx) {
-    if (f.kind !== L.TG_FX_TAG) return;
+    if (f.kind !== MC.TG_FX_TAG) return;
     const q = f.owner, p = f.shot & 255, left = f.shot >> 8, secs = Math.round(f.size);
     const d = typeof ctx.dist === 'function' ? ctx.dist(f.pos) : ctx.dist ?? 0;
     const name = (s) => ctx.name?.(s) ?? `P${s + 1}`;
@@ -352,12 +353,12 @@ export default {
       for (const b of w.free) { const d = Math.hypot(b.x - me.pos[0], b.z - me.pos[2]); if (d < bd) { bd = d; best = b; } }
       ctx.centre(row, t < 375 ? 'YOU\'RE IT!  TAG SOMEONE' : 'YOU\'RE IT', C.RED);
       if (best) ctx.centre(row + 1, w.free.length === 1 ? `CATCH P${best.slot + 1} TO WIN  ${Math.round(bd)} M` : `NEAREST FREE P${best.slot + 1}  ${Math.round(bd)} M`, w.free.length === 1 ? C.YELLOW : C.WHITE);
-      if (me.item !== L.PU_DASH) ctx.centre(row + 2, `NEXT DASH IN ${Math.ceil(nextGive(g.t, L.TG_DASH0) / 125)}`, C.GREY);
+      if (me.item !== L.PU_DASH) ctx.centre(row + 2, `NEXT DASH IN ${Math.ceil(nextGive(g.t, MC.TG_DASH0) / 125)}`, C.GREY);
     } else if (me.m & IN) {
       let bd = Infinity;
       for (const b of w.its) bd = Math.min(bd, Math.hypot(b.x - me.pos[0], b.z - me.pos[2]));
       ctx.centre(row, w.free.length === 1 ? 'THE LAST ONE FREE  RUN!' : `FREE  NEAREST IT ${Number.isFinite(bd) ? Math.round(bd) : '-'} M`, bd < 6 ? C.RED : bd < 14 ? C.YELLOW : C.GREEN);
-      if (me.item !== L.PU_SPRING) ctx.centre(row + 1, `NEXT SPRING IN ${Math.ceil(nextGive(g.t, L.TG_GIVE0) / 125)}`, C.GREY);
+      if (me.item !== L.PU_SPRING) ctx.centre(row + 1, `NEXT SPRING IN ${Math.ceil(nextGive(g.t, MC.TG_GIVE0) / 125)}`, C.GREY);
     }
   },
 

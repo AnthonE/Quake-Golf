@@ -12,6 +12,7 @@ import { hillOf } from '../client/am/hill.mjs';
 import { Fighter } from '../client/arena-bot.mjs';
 import { C } from '../client/font.mjs';
 import * as L from '../src/layout.mjs';
+import * as AC from '../src/am/consts.mjs';
 
 // King of the Hill (src/am/hill.wat, client/am/hill.mjs). Helpers as
 // test/arena-teams.test.mjs has them; the hill read straight from its fields in AO.
@@ -114,25 +115,25 @@ function predicted(g, p, inputs, after = () => {}) {
 function hill(g) {
   const f = (o) => g.dv.getFloat32(L.AO + o, true);
   return {
-    at: u32(g, L.AO + L.HL_AT), moves: u32(g, L.AO + L.HL_MOVES), pos: [f(L.HL_X), f(L.HL_Y), f(L.HL_Z)], r: f(L.HL_R),
-    hold: u32(g, L.AO + L.HL_HOLD), on: [u32(g, L.AO + L.HL_ON), u32(g, L.AO + L.HL_ON + 4)],
-    held: [g.dv.getUint16(L.AO + L.HL_HELD, true), g.dv.getUint16(L.AO + L.HL_HELD + 2, true)],
+    at: u32(g, L.AO + AC.HL_AT), moves: u32(g, L.AO + AC.HL_MOVES), pos: [f(AC.HL_X), f(AC.HL_Y), f(AC.HL_Z)], r: f(AC.HL_R),
+    hold: u32(g, L.AO + AC.HL_HOLD), on: [u32(g, L.AO + AC.HL_ON), u32(g, L.AO + AC.HL_ON + 4)],
+    held: [g.dv.getUint16(L.AO + AC.HL_HELD, true), g.dv.getUint16(L.AO + AC.HL_HELD + 2, true)],
   };
 }
-const held = (g, red, blue) => { g.dv.setUint16(L.AO + L.HL_HELD, red, true); g.dv.setUint16(L.AO + L.HL_HELD + 2, blue, true); };
+const held = (g, red, blue) => { g.dv.setUint16(L.AO + AC.HL_HELD, red, true); g.dv.setUint16(L.AO + AC.HL_HELD + 2, blue, true); };
 
 // The hill's news from the running count `from` on: [what, owner, shot].
 const news = (g, from) => fxs(g.v, L.FX_MODE, undefined, from).filter((f) => f.size >= L.MX_AM + 24 && f.size < L.MX_AM + 32).map((f) => [f.size, f.owner, f.shot]);
-const [MOVE, TAKE, CONTEST] = [L.HL_MX_MOVE, L.HL_MX_TAKE, L.HL_MX_CONTEST];
+const [MOVE, TAKE, CONTEST] = [AC.HL_MX_MOVE, AC.HL_MX_TAKE, AC.HL_MX_CONTEST];
 
 // The news gap up: the next change of hands is news at once.
-const gapUp = (g) => g.dv.setUint32(L.AO + L.HL_SAIDAT, g.v.tick - L.HL_NEWSGAP, true);
+const gapUp = (g) => g.dv.setUint32(L.AO + AC.HL_SAIDAT, g.v.tick - AC.HL_NEWSGAP, true);
 
 // The hill moves on to hill k on the next tick (its time up, the one before it in the map's order).
 function goHill(g, k) {
   const n = u32(g, L.MAP_NHILL);
-  g.dv.setUint32(L.AO + L.HL_AT, (k + n - 1) % n, true);
-  g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick, true);
+  g.dv.setUint32(L.AO + AC.HL_AT, (k + n - 1) % n, true);
+  g.dv.setUint32(L.AO + AC.HL_MOVES, g.v.tick, true);
   g.step();
   assert.equal(hill(g).at, k);
 }
@@ -145,10 +146,10 @@ const on = (g, p, dx = 0, dz = 0, dy = 0) => { const h = hill(g); put(g, p, h.po
 test('King of the Hill: the first hill drawn as play starts, where it stands resolved; then the map\'s order every HL_MOVE, with news at the new hill; none on the clock\'s last tick', async () => {
   const g = await room(L.M_HILL, 2);
   let h = hill(g);
-  assert.equal(u32(g, L.AH_TARGET), L.HL_TARGET);
+  assert.equal(u32(g, L.AH_TARGET), AC.HL_TARGET);
   assert.equal(u32(g, L.MAP_NHILL), MAP.hills.length);
   assert.ok(h.at < MAP.hills.length);
-  assert.equal(h.moves, g.v.hole().start + L.HL_MOVE, 'HL_MOVE from play\'s first tick');
+  assert.equal(h.moves, g.v.hole().start + AC.HL_MOVE, 'HL_MOVE from play\'s first tick');
   assert.deepEqual([h.pos[0], h.pos[2], h.r], [MAP.hills[h.at][0], MAP.hills[h.at][1], MAP.hills[h.at][3]].map(Math.fround));
   assert.equal(+h.pos[1].toFixed(2), FEET[h.at]);
   // drawn: rooms on other seeds start on every hill
@@ -163,13 +164,13 @@ test('King of the Hill: the first hill drawn as play starts, where it stands res
   g.step();
   let k = (first + 1) % MAP.hills.length;
   h = hill(g);
-  assert.deepEqual([h.at, h.moves], [k, g.v.tick - 1 + L.HL_MOVE]);
+  assert.deepEqual([h.at, h.moves], [k, g.v.tick - 1 + AC.HL_MOVE]);
   const fx = fxs(g.v, L.FX_MODE, MOVE, from);
   assert.deepEqual(fx.map((f) => [f.owner, f.shot, f.tick, ...f.pos]), [[255, k, g.v.tick - 1, ...h.pos]], 'news at the new hill, owner nobody');
   // every hill in the map's order, round to the first again, each standing where it should: the roofs (not the rooms under them), the rocks, the cave
   const order = [];
   for (let i = 0; i < MAP.hills.length; i++) {
-    g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick, true);
+    g.dv.setUint32(L.AO + AC.HL_MOVES, g.v.tick, true);
     g.step();
     h = hill(g);
     order.push(h.at);
@@ -179,7 +180,7 @@ test('King of the Hill: the first hill drawn as play starts, where it stands res
   // the clock's last tick is the hill's: the match ends and the hill stays
   from = g.v.fxCount();
   k = hill(g).at;
-  g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick + 2, true);
+  g.dv.setUint32(L.AO + AC.HL_MOVES, g.v.tick + 2, true);
   g.dv.setUint32(L.HDR_UNTIL, g.v.tick + 2, true);
   steps(g, 3);
   assert.deepEqual([g.v.hole().state, hill(g).at, news(g, from)], [L.H_OVER, k, []]);
@@ -226,12 +227,12 @@ test('King of the Hill: each side\'s live fighters on it (strictly within its ra
   for (const [here, hold, count] of hands) {
     away(g, all);
     for (const p of here) on(g, p, ...spots[p]);
-    steps(g, L.HL_NEWSGAP);
+    steps(g, AC.HL_NEWSGAP);
     assert.deepEqual(state(), [hold, count], `${here}`);
   }
   const said = fxs(g.v, L.FX_MODE, undefined, n).filter((f) => f.size === TAKE || f.size === CONTEST);
   assert.deepEqual(said.map((f) => [f.size, f.owner, f.shot]), [[TAKE, 255, 1], [CONTEST, 255, 3], [TAKE, 255, 2], [CONTEST, 255, 3], [TAKE, 255, 1], [TAKE, 255, 2]], 'one each time it changes hands; none as it goes back to nobody');
-  assert.deepEqual(said.slice(1).map((f, i) => f.tick - said[i].tick), [1, 1, 1, 1, 1].map(() => L.HL_NEWSGAP), 'each on its hand\'s first tick');
+  assert.deepEqual(said.slice(1).map((f, i) => f.tick - said[i].tick), [1, 1, 1, 1, 1].map(() => AC.HL_NEWSGAP), 'each on its hand\'s first tick');
   // the dead and those who left don't count: blue's two on it, one dies, the other leaves
   n = g.v.fxCount();
   on(g, 1, ...spots[1]); on(g, 3, ...spots[3]);
@@ -257,17 +258,17 @@ test('King of the Hill: its news at most one every HL_NEWSGAP: a change held bac
   on(g, 1, 1.5, 0);
   steps(g, 10);
   assert.deepEqual([hill(g).hold, news(g, from)], [3, [[TAKE, 255, 1]]], 'red\'s at once; the contest held back');
-  while (g.v.tick < t0 + L.HL_NEWSGAP) g.step();
+  while (g.v.tick < t0 + AC.HL_NEWSGAP) g.step();
   assert.equal(news(g, from).length, 1);
   g.step();
   const said = () => fxs(g.v, L.FX_MODE, undefined, from).filter((f) => f.size === TAKE || f.size === CONTEST);
-  assert.deepEqual(said().map((f) => [f.size, f.shot, f.tick - t0]), [[TAKE, 1, 0], [CONTEST, 3, L.HL_NEWSGAP]], 'out as the gap is up');
+  assert.deepEqual(said().map((f) => [f.size, f.shot, f.tick - t0]), [[TAKE, 1, 0], [CONTEST, 3, AC.HL_NEWSGAP]], 'out as the gap is up');
   // blue alone for 50 ticks, then contested again: blue is never news
   away(g, [0]);
   steps(g, 50);
   assert.equal(hill(g).hold, 2);
   on(g, 0);
-  steps(g, 2 * L.HL_NEWSGAP);
+  steps(g, 2 * AC.HL_NEWSGAP);
   assert.deepEqual([hill(g).hold, said().length], [3, 2]);
   // red's 2 in and out of the rim every two ticks, for 8 s: red, contested, red... a change every two ticks, a news a second at most
   const n = said().length;
@@ -277,7 +278,7 @@ test('King of the Hill: its news at most one every HL_NEWSGAP: a change held bac
   }
   const flick = said().slice(n);
   assert.ok(flick.length >= 7 && flick.length <= 9, `${flick.length} news`);
-  assert.ok(flick.every((f, i) => i === 0 || f.tick - flick[i - 1].tick >= L.HL_NEWSGAP), flick.map((f) => f.tick).join(' '));
+  assert.ok(flick.every((f, i) => i === 0 || f.tick - flick[i - 1].tick >= AC.HL_NEWSGAP), flick.map((f) => f.tick).join(' '));
   assert.ok(flick.every((f, i) => i === 0 || f.size !== flick[i - 1].size), 'each one a change');
 });
 
@@ -289,8 +290,8 @@ test('King of the Hill: every HL_POINT ticks a side holds it is a point for the 
   on(g, 0, -1, 0); on(g, 2, 1, 0);
   g.step();
   assert.deepEqual([hill(g).hold, hill(g).held], [1, [1, 0]], 'counted from its first tick');
-  steps(g, L.HL_POINT - 2);
-  assert.deepEqual([scores(g), hill(g).held], [[0, 0], [L.HL_POINT - 1, 0]]);
+  steps(g, AC.HL_POINT - 2);
+  assert.deepEqual([scores(g), hill(g).held], [[0, 0], [AC.HL_POINT - 1, 0]]);
   // 4 comes on the tick before the point, 2 goes: the point is 0's and 4's
   on(g, 4, 0, 1.5); away(g, [2]);
   g.step();
@@ -307,11 +308,11 @@ test('King of the Hill: every HL_POINT ticks a side holds it is a point for the 
   assert.deepEqual([hill(g).hold, hill(g).held, scores(g)], [0, [60, 0], [1, 0]]);
   // blue holds a full second (its own count), then red again: 65 more is red's point
   on(g, 1); on(g, 3, 1.5, 0);
-  steps(g, L.HL_POINT);
+  steps(g, AC.HL_POINT);
   assert.deepEqual([scores(g), hill(g).held, points(g, all)], [[1, 1], [60, 0], [1, 1, 0, 1, 1, 0]]);
   away(g, all);
   on(g, 2);
-  steps(g, L.HL_POINT - 61);
+  steps(g, AC.HL_POINT - 61);
   assert.deepEqual([scores(g), hill(g).held], [[1, 1], [124, 0]]);
   g.step();
   assert.deepEqual([scores(g), hill(g).held, points(g, all)], [[2, 1], [0, 0], [1, 1, 1, 1, 1, 0]]);
@@ -324,7 +325,7 @@ test('King of the Hill: every HL_POINT ticks a side holds it is a point for the 
   gapUp(g);
   g.step();
   assert.deepEqual([hill(g).hold, hill(g).held], [1, [101, 0]]);
-  steps(g, L.HL_POINT - 102);
+  steps(g, AC.HL_POINT - 102);
   assert.deepEqual(scores(g), [2, 1]);
   g.step();
   assert.deepEqual([scores(g), points(g, all)], [[3, 1], [2, 1, 1, 1, 2, 0]]);
@@ -341,16 +342,16 @@ test('King of the Hill: over on the tick a side reaches HL_TARGET; at the clock 
   const g = await room(L.M_HILL, 4); // 0, 2 red; 1, 3 blue
   away(g, [0, 1, 2, 3]);
   goHill(g, 0);
-  g.dv.setUint32(L.AH_SCORE, L.HL_TARGET - 1, true); g.dv.setUint32(L.AH_SCORE + 4, 70, true);
-  held(g, L.HL_POINT - 2, 0);
+  g.dv.setUint32(L.AH_SCORE, AC.HL_TARGET - 1, true); g.dv.setUint32(L.AH_SCORE + 4, 70, true);
+  held(g, AC.HL_POINT - 2, 0);
   const mr = (p, pts, kills) => { g.dv.setUint16(L.MODE_REC + p * L.MR_SIZE + L.MR_POINTS, pts, true); g.dv.setUint16(rec(p) + L.A_KILLS, kills, true); };
   [[40, 1], [50, 9], [30, 9], [55, 2]].forEach(([pts, k], p) => mr(p, pts, k));
   on(g, 0);
   g.step();
-  assert.deepEqual([g.v.hole().state, scores(g)], [L.H_PLAY, [L.HL_TARGET - 1, 70]]);
+  assert.deepEqual([g.v.hole().state, scores(g)], [L.H_PLAY, [AC.HL_TARGET - 1, 70]]);
   const from = g.v.fxCount();
   g.step();
-  assert.deepEqual([g.v.hole().state, scores(g), u32(g, L.AH_TEAMWIN)], [L.H_OVER, [L.HL_TARGET, 70], 1], 'over on its tick, red\'s');
+  assert.deepEqual([g.v.hole().state, scores(g), u32(g, L.AH_TEAMWIN)], [L.H_OVER, [AC.HL_TARGET, 70], 1], 'over on its tick, red\'s');
   assert.deepEqual(fxs(g.v, L.FX_MODE, L.MX_TEAMWIN, from).map((f) => f.shot), [1]);
   assert.deepEqual(points(g, [0, 1, 2, 3]), [41, 50, 30, 55]);
   assert.deepEqual([0, 1, 2, 3].map((p) => g.v.fighter(p).place), [1, 4, 2, 3], 'red above blue, each by its points');
@@ -358,12 +359,12 @@ test('King of the Hill: over on the tick a side reaches HL_TARGET; at the clock 
   const b = await room(L.M_HILL, 4);
   away(b, [0, 1, 2, 3]);
   goHill(b, 4);
-  b.dv.setUint32(L.AH_SCORE + 4, L.HL_TARGET - 1, true);
+  b.dv.setUint32(L.AH_SCORE + 4, AC.HL_TARGET - 1, true);
   on(b, 1);
-  steps(b, L.HL_POINT - 1);
+  steps(b, AC.HL_POINT - 1);
   on(b, 3, 1.5, 0);
   b.step();
-  assert.deepEqual([b.v.hole().state, scores(b), u32(b, L.AH_TEAMWIN), points(b, [0, 1, 2, 3])], [L.H_OVER, [0, L.HL_TARGET], 2, [0, 1, 0, 1]]);
+  assert.deepEqual([b.v.hole().state, scores(b), u32(b, L.AH_TEAMWIN), points(b, [0, 1, 2, 3])], [L.H_OVER, [0, AC.HL_TARGET], 2, [0, 1, 0, 1]]);
   // the clock: blue ahead by one
   const c = await room(L.M_HILL, 4);
   c.dv.setUint32(L.AH_SCORE, 40, true); c.dv.setUint32(L.AH_SCORE + 4, 41, true);
@@ -380,8 +381,8 @@ test('King of the Hill: over on the tick a side reaches HL_TARGET; at the clock 
   // the next match from zero: a hill drawn anew, no counts, no scores, no points
   untilPlay(d);
   const h = hill(d);
-  assert.deepEqual([scores(d), u32(d, L.AH_TEAMWIN), u32(d, L.AH_TARGET), points(d, [0, 1, 2, 3])], [[0, 0], 0, L.HL_TARGET, [0, 0, 0, 0]]);
-  assert.deepEqual([h.held, h.moves, +h.pos[1].toFixed(2)], [[+(h.hold === 1), +(h.hold === 2)], d.v.hole().start + L.HL_MOVE, FEET[h.at]], 'one tick of play counted');
+  assert.deepEqual([scores(d), u32(d, L.AH_TEAMWIN), u32(d, L.AH_TARGET), points(d, [0, 1, 2, 3])], [[0, 0], 0, AC.HL_TARGET, [0, 0, 0, 0]]);
+  assert.deepEqual([h.held, h.moves, +h.pos[1].toFixed(2)], [[+(h.hold === 1), +(h.hold === 2)], d.v.hole().start + AC.HL_MOVE, FEET[h.at]], 'one tick of play counted');
 });
 
 test('King of the Hill: nobody spawns on the hill, or within HL_BAR of its edge and HL_BAR_H up or down, while it\'s up: red\'s roof spawns closed, the room under it open', async () => {
@@ -389,13 +390,13 @@ test('King of the Hill: nobody spawns on the hill, or within HL_BAR of its edge 
   goHill(g, 1); // red's roof
   const h = hill(g);
   const sp = g.v.map().spawns; // [x, y, z], y resolved as the sim laid them
-  const barred = (i) => Math.hypot(sp[i][0] - h.pos[0], sp[i][2] - h.pos[2]) < h.r + Number(L.HL_BAR) && Math.abs(sp[i][1] - h.pos[1]) < Number(L.HL_BAR_H);
+  const barred = (i) => Math.hypot(sp[i][0] - h.pos[0], sp[i][2] - h.pos[2]) < h.r + Number(AC.HL_BAR) && Math.abs(sp[i][1] - h.pos[1]) < Number(AC.HL_BAR_H);
   // spawns 3 and 4 are red's on its roof; 0, 1 and 2 in the room under it
   assert.deepEqual([0, 1, 2, 3, 4].map(barred), [false, false, false, true, true]);
   const reds = [0, 1, 2, 3, 4, 5, 6, 7].filter((p) => team(g, p) === 0);
   const used = new Set();
   for (let k = 0; k < 60; k++) {
-    g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick + 1000, true);
+    g.dv.setUint32(L.AO + AC.HL_MOVES, g.v.tick + 1000, true);
     for (const p of reds) { g.dv.setUint8(rec(p) + L.P_FL, fl(g, p) | L.PF_DEAD); g.dv.setUint16(rec(p) + L.A_RESPAWN, 1, true); }
     g.step();
     for (const p of reds) {
@@ -410,7 +411,7 @@ test('King of the Hill: nobody spawns on the hill, or within HL_BAR of its edge 
   goHill(g, 2);
   const seen = new Set();
   for (let k = 0; k < 80; k++) {
-    g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick + 1000, true);
+    g.dv.setUint32(L.AO + AC.HL_MOVES, g.v.tick + 1000, true);
     for (const p of reds) { g.dv.setUint8(rec(p) + L.P_FL, fl(g, p) | L.PF_DEAD); g.dv.setUint16(rec(p) + L.A_RESPAWN, 1, true); }
     g.step();
     for (const p of reds) seen.add(MAP.spawns.findIndex((s) => s.x === g.v.fighter(p).pos[0] && s.z === g.v.fighter(p).pos[2]));
@@ -426,7 +427,7 @@ test('King of the Hill: as play starts nobody stands where the first hill bars, 
     firsts.add(h.at);
     for (let p = 0; p < 16; p++) {
       const f = g.v.fighter(p);
-      const near = Math.hypot(f.pos[0] - h.pos[0], f.pos[2] - h.pos[2]) < h.r + Number(L.HL_BAR) && Math.abs(f.pos[1] - h.pos[1]) < Number(L.HL_BAR_H);
+      const near = Math.hypot(f.pos[0] - h.pos[0], f.pos[2] - h.pos[2]) < h.r + Number(AC.HL_BAR) && Math.abs(f.pos[1] - h.pos[1]) < Number(AC.HL_BAR_H);
       assert.ok(!near, `seed ${seed}: P${p} (${team(g, p) ? 'blue' : 'red'}) by hill ${h.at} as play starts`);
     }
   }
@@ -466,7 +467,7 @@ test('King of the Hill: joins and leaves mid-hill: a holder who leaves gives it 
   assert.deepEqual(news(g, from), [[CONTEST, 255, 3]]);
   // red's count kept from before blue came: its point when 7 goes
   away(g, [7]);
-  steps(g, L.HL_POINT - 30);
+  steps(g, AC.HL_POINT - 30);
   assert.deepEqual([scores(g), points(g, [0, 7])], [[1, 0], [1, 0]]);
 });
 
@@ -499,7 +500,7 @@ test('a Fiesta after a match of King of the Hill: its region exactly a Fiesta\'s
   away(g, [0, 1, 2, 3]);
   goHill(g, 1);
   on(g, 0); on(g, 2, 1.5, 0); on(g, 1, -1.5, 0);
-  steps(g, 3 * L.HL_POINT);
+  steps(g, 3 * AC.HL_POINT);
   on(g, 3, 0, 1.5);
   steps(g, 10);
   const h = hill(g);
@@ -522,7 +523,7 @@ test('a Fiesta after a match of King of the Hill: its region exactly a Fiesta\'s
   // and stays so through play, fighters standing where the hill was
   away(g, [0, 1, 2, 3]);
   put(g, 0, 392, 512, FEET[1]); put(g, 1, 512, 512);
-  steps(g, 2 * L.HL_POINT);
+  steps(g, 2 * AC.HL_POINT);
   check();
 });
 
@@ -583,7 +584,7 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   assert.deepEqual([kit.cols.map((c) => c.head), kit.cols[0].get(g.v.fighter(0))], [['HILL'], '37']);
   // the goal, attacker or defender: the hill at a run, held from two thirds of its radius in
   for (const role of ['attack', 'defend']) assert.deepEqual(kit.goal(g.v, g.v.fighter(3), { role }), { pos: h.pos, r: 4, hurry: 0.6, hold: true });
-  assert.deepEqual(kit.state(g.v), { hill: 1, hold: 1, on: [1, 0], moves: h.moves, score: scores(g), target: L.HL_TARGET });
+  assert.deepEqual(kit.state(g.v), { hill: 1, hold: 1, on: [1, 0], moves: h.moves, score: scores(g), target: AC.HL_TARGET });
   // the next match's countdown: no hill yet, nothing drawn, no goal
   endMatch(g);
   while (g.v.hole().state !== L.H_COUNT) g.step();
@@ -612,7 +613,7 @@ test('King of the Hill: a lone AI fighter of either side gets onto every hill fr
       let on = 0;
       for (let i = 0; i < 15 * 125; i++) {
         g.dv.setUint8(rec(other) + L.P_FL, fl(g, other) | L.PF_DEAD); g.dv.setUint16(rec(other) + L.A_RESPAWN, 1000, true);
-        g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick + 1000, true);
+        g.dv.setUint32(L.AO + AC.HL_MOVES, g.v.tick + 1000, true);
         const w = bot.think(g.v, g.v.tick, 0);
         g.step(w !== word ? [[L.EV_INPUT, side, w]] : []);
         word = w;
@@ -636,7 +637,7 @@ test('King of the Hill with 8 and 16 AI fighters: no trap on the debug build, th
         for (; fx < v.fxCount(); fx++) { const f = v.fx(fx); if (f.kind === L.FX_MODE && (f.size === TAKE || f.size === CONTEST)) seen.news.push(f.tick); }
         if (v.hole().state !== L.H_PLAY) return;
         if (v.hole().start !== seen.start) { seen.start = v.hole().start; last = -1; } // a match: its moves from its own start
-        const at = v.dv.getUint32(L.AO + L.HL_AT, true), hold = v.dv.getUint32(L.AO + L.HL_HOLD, true);
+        const at = v.dv.getUint32(L.AO + AC.HL_AT, true), hold = v.dv.getUint32(L.AO + AC.HL_HOLD, true);
         if (last >= 0 && at !== last) seen.moves.push(v.tick - 1 - seen.start);
         last = at;
         seen.hold[hold]++;
@@ -647,11 +648,11 @@ test('King of the Hill with 8 and 16 AI fighters: no trap on the debug build, th
     assert.equal(mode.mode, L.M_HILL);
     console.log(`  ${bots} fighters: ticks nobody/red/blue/contested ${seen.hold.join('/')}, points to ${seen.best.join(' and ')}, moves at ${seen.moves.join(', ')}, `
       + `ticks held on each hill ${[...seen.hills].map(([k, n]) => `${k} ${n}`).join(', ')}, ${seen.news.length} news`);
-    assert.deepEqual(seen.moves.slice(0, 2), [L.HL_MOVE, 2 * L.HL_MOVE], `${bots}: moved on its ticks`);
+    assert.deepEqual(seen.moves.slice(0, 2), [AC.HL_MOVE, 2 * AC.HL_MOVE], `${bots}: moved on its ticks`);
     assert.ok(seen.hold[1] > 1000 && seen.hold[2] > 1000, `${bots}: both sides held it`);
     assert.ok(seen.best[0] >= 10 && seen.best[1] >= 10, `${bots}: both sides scored`);
     assert.ok(seen.hills.size >= 3 && [...seen.hills.values()].every((n) => n > 0), `${bots}: every hill held`);
-    assert.ok(seen.news.every((t, i) => i === 0 || t - seen.news[i - 1] >= L.HL_NEWSGAP), `${bots}: news gaps`);
+    assert.ok(seen.news.every((t, i) => i === 0 || t - seen.news[i - 1] >= AC.HL_NEWSGAP), `${bots}: news gaps`);
     const parsed = parseLog(log);
     const a = await replay({ bytes, log: parsed, ticks, threads: 1, tag: `hl${bots}-1` });
     const b = await replay({ bytes, log: parsed, ticks, threads: 4, tag: `hl${bots}-4`, startWorkers });

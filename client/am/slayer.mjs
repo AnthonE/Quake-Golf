@@ -7,6 +7,7 @@
 // nearest enemy, wherever they are, so the sides meet in the middle and not
 // on the pads.
 import * as L from '../../src/layout.mjs';
+import * as AC from '../../src/am/consts.mjs';
 import { SIDE, SIDE_C } from './sides.mjs';
 
 // The lead in words, from your side's point of view (team -1: a spectator's, by name).
@@ -43,7 +44,7 @@ export default {
     if (md.target) ctx.put(1, 3, `FIRST TO ${md.target} KILLS`, ctx.C.GREY);
   },
   news(f, ctx) {
-    if (f.size !== L.TS_MX_LEAD) return;
+    if (f.size !== AC.TS_MX_LEAD) return;
     const side = f.shot - 1;
     if (side !== 0 && side !== 1) return;
     ctx.feed(`${SIDE[side]} TAKES THE LEAD`, SIDE_C[side]);

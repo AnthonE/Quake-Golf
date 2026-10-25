@@ -10,13 +10,14 @@
 // worked forward to the frame's tick, so what is drawn and what the bots
 // dodge is what the sim does.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/chute.mjs'; // FC_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
 const RB = 1; // a ball's radius
-const TOP = PLAT_Y + L.FC_RISE;
+const TOP = PLAT_Y + MC.FC_RISE;
 const SLAT = 0.5; // m of belt a slat
 const WALL_H = 1.8; // m a wall stands over the floor
 const GANTRY = 6.8; // m from the belt's top at the dispenser to the gantry's middle: its underside just over a fruit's first drop
@@ -24,10 +25,10 @@ const BURST = 0.5; // s a fruit's juice is drawn after it bursts
 
 // The fruit by kind, as the sim's constants have them, and how they look.
 export const KINDS = [
-  { name: 'GRAPE', r: L.FC_R_GRAPE, v: L.FC_V_GRAPE, rgb: [0.52, 0.2, 0.76], leaf: [0.32, 0.62, 0.16], look: LOOK.PLASTIC },
-  { name: 'APPLE', r: L.FC_R_APPLE, v: L.FC_V_APPLE, rgb: [0.9, 0.14, 0.1], leaf: [0.34, 0.7, 0.16], look: LOOK.PLASTIC },
-  { name: 'ORANGE', r: L.FC_R_ORANGE, v: L.FC_V_ORANGE, rgb: [1, 0.52, 0.05], leaf: [0.26, 0.58, 0.14], look: LOOK.PLASTIC },
-  { name: 'MELON', r: L.FC_R_MELON, v: L.FC_V_MELON, rgb: [0.2, 0.6, 0.2], leaf: null, look: LOOK.HAZARD },
+  { name: 'GRAPE', r: MC.FC_R_GRAPE, v: MC.FC_V_GRAPE, rgb: [0.52, 0.2, 0.76], leaf: [0.32, 0.62, 0.16], look: LOOK.PLASTIC },
+  { name: 'APPLE', r: MC.FC_R_APPLE, v: MC.FC_V_APPLE, rgb: [0.9, 0.14, 0.1], leaf: [0.34, 0.7, 0.16], look: LOOK.PLASTIC },
+  { name: 'ORANGE', r: MC.FC_R_ORANGE, v: MC.FC_V_ORANGE, rgb: [1, 0.52, 0.05], leaf: [0.26, 0.58, 0.14], look: LOOK.PLASTIC },
+  { name: 'MELON', r: MC.FC_R_MELON, v: MC.FC_V_MELON, rgb: [0.2, 0.6, 0.2], leaf: null, look: LOOK.HAZARD },
 ];
 const JUICE = [[0.7, 0.3, 0.95], [1, 0.3, 0.25], [1, 0.7, 0.2], [1, 0.35, 0.4]];
 
@@ -40,40 +41,40 @@ export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
   const hf = (k) => dv.getFloat32(L.PG_H + k + o, true), hu = (k) => dv.getUint32(L.PG_H + k + o, true);
   const seed = dv.getUint32(L.HDR_SEED + o, true), hole = dv.getUint32(L.HDR_HOLE + o, true), state = dv.getUint32(L.HDR_STATE + o, true);
-  const nf = Math.min(hu(L.FC_NF), L.FC_NMAX), hw = hf(L.FC_HW), start = dv.getUint32(L.HDR_START + o, true);
+  const nf = Math.min(hu(MC.FC_NF), MC.FC_NMAX), hw = hf(MC.FC_HW), start = dv.getUint32(L.HDR_START + o, true);
   const m = memo;
   if (m && m.seed === seed && m.hole === hole && m.nf === nf && m.hw === hw && (state === L.H_PLAY || state === L.H_OVER) && m.fixed) { m.start = start; return m; }
   const cx = dv.getFloat32(L.PG_CX + o, true);
   const s = {
     seed, hole, nf, hw, cx, start, fixed: state === L.H_PLAY || state === L.H_OVER,
-    x0: hf(L.FC_X0), xt: hf(L.FC_XT), xb: hf(L.FC_XB), xe: hf(L.FC_XE), nl: hu(L.FC_NL), cols: hu(L.FC_COLS) || 1,
-    lz0: hf(L.FC_LZ0), lsp: hf(L.FC_LSP),
+    x0: hf(MC.FC_X0), xt: hf(MC.FC_XT), xb: hf(MC.FC_XB), xe: hf(MC.FC_XE), nl: hu(MC.FC_NL), cols: hu(MC.FC_COLS) || 1,
+    lz0: hf(MC.FC_LZ0), lsp: hf(MC.FC_LSP),
     z: new Float32Array(nf), r: new Float32Array(nf), v: new Float32Array(nf), t0: new Int32Array(nf), kind: new Uint8Array(nf), wave: new Uint8Array(nf),
-    idx: new Int32Array(L.FC_NB), gaps: [],
+    idx: new Int32Array(MC.FC_NB), gaps: [],
   };
-  s.xd = s.xt - L.FC_DROPX;
-  s.xg = s.x0 + L.FC_GRATE;
+  s.xd = s.xt - MC.FC_DROPX;
+  s.xg = s.x0 + MC.FC_GRATE;
   s.yd = surf(s, s.xd);
   for (let k = 0; k < nf; k++) {
-    const a = L.PG_BIG + L.FC_FRUIT + k * L.FC_REC;
+    const a = L.PG_BIG + MC.FC_FRUIT + k * MC.FC_REC;
     s.z[k] = dv.getFloat32(a, true); s.r[k] = dv.getFloat32(a + 4, true); s.v[k] = dv.getFloat32(a + 8, true);
     s.t0[k] = dv.getUint16(a + 12, true); s.kind[k] = dv.getUint8(a + 14); s.wave[k] = dv.getUint8(a + 15);
   }
-  for (let b = 0; b < L.FC_NB; b++) s.idx[b] = dv.getUint16(L.PG_BIG + L.FC_IDX + 2 * b, true);
-  for (let w = 0; w < L.FC_WAVES; w++) s.gaps.push(view.u8[L.PG_S + L.FC_GAPS + w]);
-  s.gl = s.nl >= L.FC_GAP2 ? 2 : 1;
+  for (let b = 0; b < MC.FC_NB; b++) s.idx[b] = dv.getUint16(L.PG_BIG + MC.FC_IDX + 2 * b, true);
+  for (let w = 0; w < MC.FC_WAVES; w++) s.gaps.push(view.u8[L.PG_S + MC.FC_GAPS + w]);
+  s.gl = s.nl >= MC.FC_GAP2 ? 2 : 1;
   memo = s;
   return s;
 }
 // The floor's top at x ($fc_surf).
-export const surf = (s, x) => PLAT_Y + Math.min(Math.max(x - s.x0, 0), L.FC_RUN) * L.FC_SLOPE;
+export const surf = (s, x) => PLAT_Y + Math.min(Math.max(x - s.x0, 0), MC.FC_RUN) * MC.FC_SLOPE;
 export const laneZ = (s, l) => s.lz0 + l * s.lsp;
 // The fruit out on tick tt of the schedule's clock (fractional: drawn
 // between ticks): the window the buckets give.
 function window(s, tt) {
-  const b = Math.max(0, Math.floor(tt / L.FC_BUCKET));
-  const k0 = tt > L.FC_LIFE ? s.idx[Math.min(L.FC_NB - 1, Math.floor((tt - L.FC_LIFE) / L.FC_BUCKET))] : 0;
-  return [k0, s.idx[Math.min(L.FC_NB - 1, b + 1)] ?? s.nf];
+  const b = Math.max(0, Math.floor(tt / MC.FC_BUCKET));
+  const k0 = tt > MC.FC_LIFE ? s.idx[Math.min(MC.FC_NB - 1, Math.floor((tt - MC.FC_LIFE) / MC.FC_BUCKET))] : 0;
+  return [k0, s.idx[Math.min(MC.FC_NB - 1, b + 1)] ?? s.nf];
 }
 // Fruit k on tick tt of the schedule's clock, as $fc_push has it: into out
 // (x, y, z, vx, the distance rolled, the phase: 0 dropping, 1 rolling), or
@@ -86,18 +87,18 @@ export function fruitAt(s, k, tt, out = F) {
   if (age < 0) return false;
   const r = s.r[k];
   out.z = s.z[k];
-  if (age < L.FC_DROPT) {
-    const u = age / L.FC_DROPT;
+  if (age < MC.FC_DROPT) {
+    const u = age / MC.FC_DROPT;
     out.x = s.xd; out.vx = 0; out.rolled = 0; out.phase = 0;
-    out.y = s.yd + r + L.FC_DROPH * (1 - u * u);
+    out.y = s.yd + r + MC.FC_DROPH * (1 - u * u);
     return true;
   }
-  const e = age - L.FC_DROPT, v = s.v[k];
+  const e = age - MC.FC_DROPT, v = s.v[k];
   out.x = s.xd - e * v * TICK;
   if (out.x <= s.xg) { out.burst = (s.xg - out.x) / v; return false; }
   out.vx = -v; out.rolled = e * v * TICK; out.phase = 1;
   out.y = surf(s, out.x) + r;
-  if (s.kind[k] === L.FC_ORANGE) { const p = (e % L.FC_HOPT) / L.FC_HOPT; out.y += 4 * L.FC_HOPH * p * (1 - p); }
+  if (s.kind[k] === MC.FC_ORANGE) { const p = (e % MC.FC_HOPT) / MC.FC_HOPT; out.y += 4 * MC.FC_HOPH * p * (1 - p); }
   return true;
 }
 // The schedule's clock to draw at (fractional), on the prediction's where
@@ -106,19 +107,19 @@ export function fruitAt(s, k, tt, out = F) {
 // through the title card; frozen where the round ended through the result;
 // -1 with the room idle.
 function schedTicks(view, g, ctx) {
-  if (g.state === L.H_COUNT) return Math.max(0, L.FC_PRE - (g.until - g.tick) + (ctx?.dt || 0) / TICK);
+  if (g.state === L.H_COUNT) return Math.max(0, MC.FC_PRE - (g.until - g.tick) + (ctx?.dt || 0) / TICK);
   if (g.state !== L.H_PLAY && g.state !== L.H_OVER) return -1;
   let t = typeof ctx?.pt === 'number' && ctx.pt > 0 ? ctx.pt / TICK : typeof ctx?.t === 'number' && ctx.t > 0 ? ctx.t / TICK : g.t + (ctx?.dt || 0) / TICK;
   if (g.state === L.H_OVER) t = Math.min(t, (g.until - L.P_OVER - g.start) | 0);
-  return Math.max(0, t - 1) + L.FC_PRE;
+  return Math.max(0, t - 1) + MC.FC_PRE;
 }
 // Where slot p stands: racing (place 0) or over the line (its order), from the confirmed world.
-const finOf = (view, p) => { const m = view.dv.getUint32(L.PLAYERS + p * L.PSIZE + L.PG_M, true); return m & L.FC_M_FIN ? m & 0xffff : 0; };
+const finOf = (view, p) => { const m = view.dv.getUint32(L.PLAYERS + p * L.PSIZE + L.PG_M, true); return m & MC.FC_M_FIN ? m & 0xffff : 0; };
 // The next wave on tick t into play: its index, the tick it drops; null past the last.
 function nextWave(t) {
-  const w = Math.max(0, Math.ceil((t - L.FC_WAVE0) / L.FC_WAVEI));
-  const at = L.FC_WAVE0 + w * L.FC_WAVEI;
-  return w < L.FC_WAVES && at < L.FC_LEN ? { w, at } : null;
+  const w = Math.max(0, Math.ceil((t - MC.FC_WAVE0) / MC.FC_WAVEI));
+  const at = MC.FC_WAVE0 + w * MC.FC_WAVEI;
+  return w < MC.FC_WAVES && at < MC.FC_LEN ? { w, at } : null;
 }
 const sideOf = (s, l, gl) => { const z = laneZ(s, l + (gl - 1) / 2) - s.cx; return z > s.hw / 3 ? 'RIGHT' : z < -s.hw / 3 ? 'LEFT' : 'MIDDLE'; };
 const ordinal = (n) => `${n}${[, 'ST', 'ND', 'RD'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'TH'}`;
@@ -136,10 +137,10 @@ function fruitNow(s, t) {
   const o = { x: 0, y: 0, z: 0, vx: 0, rolled: 0, phase: 0, burst: -1 };
   for (let k = k0; k < k1; k++) {
     if (!fruitAt(s, k, t, o)) continue;
-    list.push({ k, x: o.x, z: o.z, reach: s.r[k] + RB, v: s.v[k], land: o.phase ? 0 : L.FC_DROPT - (t - s.t0[k]), kind: s.kind[k] });
+    list.push({ k, x: o.x, z: o.z, reach: s.r[k] + RB, v: s.v[k], land: o.phase ? 0 : MC.FC_DROPT - (t - s.t0[k]), kind: s.kind[k] });
   }
   // and those about to drop, seen at the dispenser's hatch
-  for (let k = k1; k < s.nf && s.t0[k] <= t + 90; k++) list.push({ k, x: s.xd, z: s.z[k], reach: s.r[k] + RB, v: s.v[k], land: L.FC_DROPT + s.t0[k] - t, kind: s.kind[k] });
+  for (let k = k1; k < s.nf && s.t0[k] <= t + 90; k++) list.push({ k, x: s.xd, z: s.z[k], reach: s.r[k] + RB, v: s.v[k], land: MC.FC_DROPT + s.t0[k] - t, kind: s.kind[k] });
   s.now = { t, list };
   return list;
 }
@@ -184,11 +185,11 @@ function plan(view, me, bot, tick) {
   if ((view.u8[rb + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE) return null;
   const s = stage(view);
   if (!(s.hw > 0)) return null;
-  const t = Math.max(0, (tick - dv.getUint32(L.HDR_START + o, true)) | 0), ts = t + L.FC_PRE;
+  const t = Math.max(0, (tick - dv.getUint32(L.HDR_START + o, true)) | 0), ts = t + MC.FC_PRE;
   const skill = bot?.skill ?? 0.6;
   const lag = Math.max(0, Math.min(40, (tick - view.tick) | 0)) * TICK;
   const vx = dv.getFloat32(rb + L.P_VX, true), vz = dv.getFloat32(rb + L.P_VZ, true);
-  const belt = (x) => (x >= s.x0 && x <= s.xt ? L.FC_BELT : 0);
+  const belt = (x) => (x >= s.x0 && x <= s.xt ? MC.FC_BELT : 0);
   let x = dv.getFloat32(rb + L.P_PX, true), z = dv.getFloat32(rb + L.P_PZ, true);
   x += (vx - belt(x)) * lag; z += vz * lag;
   const mind = mindOf(bot, slot);
@@ -211,7 +212,7 @@ function plan(view, me, bot, tick) {
     if (ts - s.t0[F.k] < react - 90) continue;
     if (F.x - x < -F.reach || F.x - x > (F.v + 10) * H + F.reach) continue;
     const land = F.land * TICK;
-    const w0 = F.kind === L.FC_MELON ? 1.4 : F.kind === L.FC_ORANGE ? 0.8 : 1;
+    const w0 = F.kind === MC.FC_MELON ? 1.4 : F.kind === MC.FC_ORANGE ? 0.8 : 1;
     for (let way = 0; way < 2; way++) {
       const xs = SC.xs[way];
       for (let j = 0; j < ns; j++) {
@@ -231,13 +232,13 @@ function plan(view, me, bot, tick) {
   if (mind.zc !== null) cand[nc++] = mind.zc;
   // a wave on its way down (or about to drop): its gap, wanted the more the nearer it is
   let gapZ = null, gapPull = 0;
-  for (let w = 0; w < L.FC_WAVES; w++) {
-    const at = L.FC_WAVE0 + w * L.FC_WAVEI;
-    if (at >= L.FC_LEN || at > t + 125) break;
-    const kind = w < L.FC_WAVEA ? L.FC_APPLE : L.FC_MELON, K = KINDS[kind];
-    const age = t - at, fx = age < L.FC_DROPT ? s.xd : s.xd - (age - L.FC_DROPT) * K.v * TICK;
+  for (let w = 0; w < MC.FC_WAVES; w++) {
+    const at = MC.FC_WAVE0 + w * MC.FC_WAVEI;
+    if (at >= MC.FC_LEN || at > t + 125) break;
+    const kind = w < MC.FC_WAVEA ? MC.FC_APPLE : MC.FC_MELON, K = KINDS[kind];
+    const age = t - at, fx = age < MC.FC_DROPT ? s.xd : s.xd - (age - MC.FC_DROPT) * K.v * TICK;
     if (fx <= s.x0 || fx < x - K.r - RB) continue;
-    const eta = Math.max(0, fx - x - K.r) / (K.v + 6.5) + Math.max(0, L.FC_DROPT - age) * TICK;
+    const eta = Math.max(0, fx - x - K.r) / (K.v + 6.5) + Math.max(0, MC.FC_DROPT - age) * TICK;
     if (eta > 6) continue;
     gapZ = laneZ(s, s.gaps[w] + (s.gl - 1) / 2);
     gapPull = 3 * (1 - eta / 6) * (0.5 + 0.5 * skill);
@@ -290,8 +291,8 @@ function plan(view, me, bot, tick) {
 
 // The belt's slats from foot to top, sliding down: a step of the slope each, every fifth yellow.
 function belt(sc, s, tt) {
-  const off = ((L.FC_BELT * tt * TICK) % (SLAT * 5) + SLAT * 5) % (SLAT * 5);
-  const n = Math.ceil(L.FC_RUN / SLAT) + 1;
+  const off = ((MC.FC_BELT * tt * TICK) % (SLAT * 5) + SLAT * 5) % (SLAT * 5);
+  const n = Math.ceil(MC.FC_RUN / SLAT) + 1;
   const w = s.hw;
   for (let i = -1; i < n; i++) {
     const x = s.x0 + i * SLAT + SLAT / 2 - (off % SLAT);
@@ -347,7 +348,7 @@ function dispenser(sc, out, s, tt, now) {
   const [k0] = window(s, tt);
   for (let k = Math.max(0, k0); k < s.nf && s.t0[k] <= tt + 125; k++) {
     const l = Math.round((s.z[k] - s.lz0) / (s.lsp || 1));
-    if (l >= 0 && l < s.nl && s.t0[k] + L.FC_DROPT * 0.5 > tt && s.t0[k] - tt < due[l]) { due[l] = s.t0[k] - tt; kind[l] = s.kind[k]; }
+    if (l >= 0 && l < s.nl && s.t0[k] + MC.FC_DROPT * 0.5 > tt && s.t0[k] - tt < due[l]) { due[l] = s.t0[k] - tt; kind[l] = s.kind[k]; }
   }
   for (let l = 0; l < s.nl; l++) {
     const z = laneZ(s, l);
@@ -368,7 +369,7 @@ function finish(sc, out, s, now) {
   sc.box(s.xt + 0.6, TOP + h + 0.6, s.cx, 0.6, 0.6, s.hw + 1.4, 0, 1, 1, 1, LOOK.CHECKER, 0.6);
   sc.box(s.xt + 0.6, TOP + h - 0.2, s.cx, 0.2, 0.18, s.hw + 1.2, 0, 1, 0.85, 0.2, LOOK.GLOW, 0.8 + 0.3 * Math.sin(now / 300), 0.4);
   const len = s.xe - s.xt;
-  sc.box(s.xt + len / 2, TOP - 1, s.cx, len / 2, 1, s.hw, 0, 1, 0.82, 0.28, LOOK.CHECKER, L.FC_SP, 0.6);
+  sc.box(s.xt + len / 2, TOP - 1, s.cx, len / 2, 1, s.hw, 0, 1, 0.82, 0.28, LOOK.CHECKER, MC.FC_SP, 0.6);
   out.glow.push({ pos: [s.xt + 0.6, TOP + h + 0.6, s.cx], size: 6, color: [1, 0.9, 0.5, 0.25], kind: SPRITE.FLASH, minpx: 2 });
 }
 
@@ -448,7 +449,7 @@ export default {
   frame(view) {
     const s = stage(view);
     if (!(s.hw > 0)) { const g = view.party(); return { centre: [g.cx, PLAT_Y, g.cx], radius: g.size, shape: 'square' }; }
-    return { centre: [(s.xb + s.xe) / 2, PLAT_Y + L.FC_RISE / 2, s.cx], radius: (s.xe - s.xb) / 2, shape: 'square' };
+    return { centre: [(s.xb + s.xe) / 2, PLAT_Y + MC.FC_RISE / 2, s.cx], radius: (s.xe - s.xb) / 2, shape: 'square' };
   },
 
   // up the chute
@@ -456,7 +457,7 @@ export default {
 
   fx(fx, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(fx.pos) : ctx.dist ?? 0;
-    if (fx.kind === L.FC_FX_FINISH) {
+    if (fx.kind === MC.FC_FX_FINISH) {
       const mine = fx.owner === ctx.slot;
       ctx.glow?.({ pos: [fx.pos[0], fx.pos[1] + 1, fx.pos[2]], size: 4, color: [1, 0.9, 0.4, 0.9], kind: SPRITE.FLASH, life: 600, grow: true });
       if (mine) {
@@ -467,15 +468,15 @@ export default {
         if (fx.shot === 1) ctx.banner?.(`${ctx.name(fx.owner)} IS OVER THE LINE FIRST`, C.ORANGE, 2500);
         if (d < 30) ctx.sound?.pickup?.();
       }
-    } else if (fx.kind === L.FC_FX_HIT) {
+    } else if (fx.kind === MC.FC_FX_HIT) {
       const s = memo;
-      const kind = s && fx.shot < s.nf ? s.kind[fx.shot] : L.FC_APPLE;
+      const kind = s && fx.shot < s.nf ? s.kind[fx.shot] : MC.FC_APPLE;
       const j = JUICE[kind] || JUICE[1];
       ctx.glow?.({ pos: fx.pos, size: 1 + fx.size * 0.08, color: [...j, 0.9], kind: SPRITE.SPARK, life: 300 });
       ctx.glow?.({ pos: fx.pos, size: 1.2 + fx.size * 0.05, color: [...j, 0.5], kind: SPRITE.FLASH, life: 260, grow: true });
       ctx.sound?.boing?.(Math.min(30, fx.size), fx.owner === ctx.slot ? 0 : d);
       if (fx.owner === ctx.slot && fx.size > 12) ctx.banner?.(`${KINDS[kind]?.name ?? 'FRUIT'}!`, C.RED, 700);
-    } else if (fx.kind === L.FC_FX_WAVE) {
+    } else if (fx.kind === MC.FC_FX_WAVE) {
       const s = memo;
       const side = s ? sideOf(s, fx.shot & 255, fx.shot >> 8) : '';
       ctx.banner?.(`FRUIT WAVE  THE GAP IS ${side}`, C.ORANGE, 2200);
@@ -509,19 +510,19 @@ export default {
     }
     ctx.put(1, 1, fin ? `${fin} OVER THE LINE` : 'NOBODY OVER YET', fin ? C.WHITE : C.GREY);
     // once one in FC_RUSHN is over, the line closes FC_RUSH later (the clock says when)
-    const quota = Math.max(1, Math.ceil(g.n0 / L.FC_RUSHN));
+    const quota = Math.max(1, Math.ceil(g.n0 / MC.FC_RUSHN));
     if (fin >= quota) ctx.right(4, `THE LINE CLOSES IN ${Math.max(0, Math.floor((g.until - g.tick) / 125))}`, C.RED);
-    else if (fin) ctx.right(4, `${quota - fin} MORE OVER AND THE LINE CLOSES IN ${L.FC_RUSH / 125}`, C.GREY);
+    else if (fin) ctx.right(4, `${quota - fin} MORE OVER AND THE LINE CLOSES IN ${MC.FC_RUSH / 125}`, C.GREY);
     // your height up the chute, a bar
     if (me?.live && !finOf(view, me.slot)) {
-      const u = Math.max(0, Math.min(1, (me.pos[0] - s.x0) / L.FC_RUN)), N = 20, lit = Math.round(u * N);
+      const u = Math.max(0, Math.min(1, (me.pos[0] - s.x0) / MC.FC_RUN)), N = 20, lit = Math.round(u * N);
       ctx.put(1, 2, `[${'='.repeat(lit)}${'-'.repeat(N - lit)}]`, u > 0.8 ? C.GREEN : C.CYAN);
     }
-    const tt = schedTicks(view, g, ctx) - L.FC_PRE;
+    const tt = schedTicks(view, g, ctx) - MC.FC_PRE;
     const wv = nextWave(tt);
-    if (wv && wv.at - tt < L.FC_WARN + 60 && wv.at >= tt) {
+    if (wv && wv.at - tt < MC.FC_WARN + 60 && wv.at >= tt) {
       ctx.right(3, `WAVE ${wv.w + 1} IN ${((wv.at - tt) * TICK).toFixed(1)}  GAP ${sideOf(s, s.gaps[wv.w] ?? 0, s.gl)}`, C.ORANGE);
-    } else ctx.right(3, `BELT ${L.FC_BELT} M/S  ${s.nl} LANES`, C.GREY);
+    } else ctx.right(3, `BELT ${MC.FC_BELT} M/S  ${s.nl} LANES`, C.GREY);
   },
 
   brain: {
@@ -530,7 +531,7 @@ export default {
       const o = view.bank || 0;
       if (view.dv.getUint32(L.HDR_STATE + o, true) !== L.H_PLAY) return 0;
       const s = stage(view);
-      const t = Math.max(0, (tick - view.dv.getUint32(L.HDR_START + o, true)) | 0) + L.FC_PRE;
+      const t = Math.max(0, (tick - view.dv.getUint32(L.HDR_START + o, true)) | 0) + MC.FC_PRE;
       let d = 0;
       for (const F of fruitNow(s, t)) {
         if (F.land > 0) continue;
