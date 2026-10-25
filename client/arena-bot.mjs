@@ -465,7 +465,7 @@ export class Fighter {
       // a gun nearby: sidle to it, still shooting
       if (near && !here) move = toward(near.pos);
       // an objective that won't wait: sidle on to it (or side to side on it), still shooting
-      if (going && hurry >= 0.5) move = there ? this.strafe : toward(this.waypoint(view, me, obj, t));
+      if (going && hurry >= 0.5) move = there ? this.aside(view, me, obj, toward) : toward(this.waypoint(view, me, obj, t));
       if (this.rand() < 0.01) jump = 1;
     } else if (going) {
       // the objective: by the route, facing the way, a hop where it climbs
@@ -476,7 +476,7 @@ export class Fighter {
           this.strafe = this.rand() < 0.3 ? (this.rand() < 0.5 ? 4 : 8) : 0;
         }
         if (Math.abs(((this.look - this.yaw + TURN / 2) % TURN + TURN) % TURN - TURN / 2) > 40) this.turnTo(this.look, 512, 0.1);
-        move = this.strafe;
+        move = this.aside(view, me, obj, toward);
       } else {
         const w = this.waypoint(view, me, obj, t);
         this.turnTo(aimAt(eye, [w[0], eye[1], w[2]]).yaw, 512, 0.25);
@@ -542,6 +542,18 @@ export class Fighter {
     if (this.stuck > 20 && t >= this.detourUntil) { this.detour = this.rand() < 0.5 ? 4 : 8; this.detourUntil = t + 80 + Math.floor(this.rand() * 80); this.stuck = 0; this.way = null; }
     if (t < this.detourUntil) { move = this.detour | (this.rand() < 0.6 ? 2 : 0); if (this.rand() < 0.04) jump = 1; }
     return this.word({ move, jump, serial });
+  }
+
+  // A holder's step aside (this.strafe, as it faces), kept on the objective:
+  // only inside half its r across and onto ground at its height a metre on
+  // (not up a wall of the cave's trench or off a rock); past half its r, back
+  // toward its middle.
+  aside(view, me, obj, toward) {
+    if (Math.hypot(obj.pos[0] - me.pos[0], obj.pos[2] - me.pos[2]) > (obj.r ?? 2) / 2) return toward(obj.pos);
+    if (!this.strafe) return 0;
+    const a = this.yaw / TURN * 2 * Math.PI + (this.strafe === 8 ? Math.PI / 2 : -Math.PI / 2);
+    const x = me.pos[0] + Math.cos(a), z = me.pos[2] + Math.sin(a);
+    return Math.abs(view.stand(x, z, me.pos[1] + 0.6) - obj.pos[1]) < 0.5 ? this.strafe : 0;
   }
 
   // The next point on the way to the objective: routed every 8 ticks (each bot
