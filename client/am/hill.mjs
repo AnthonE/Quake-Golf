@@ -113,9 +113,9 @@ export default {
     // (the pillar fades out as you come close, where it would only fog the view)
     const far = Math.min(1, Math.max(0, (Math.hypot(ctx.cam[0] - x, ctx.cam[2] - z) - 12) / 30));
     if (far > 0) out.beams.push({ a: [x, y + 2, z], b: [x, y + 30, z], width: 0.3, color: [...rgb, 0.3 * far] });
-    // the waypoint, but not over your head while you're on it
+    // the waypoint, high enough that its distance doesn't hide the disc far off, and not over your head while you're on it
     const me = ctx.me?.live && !ctx.me.dead ? ctx.me : null;
-    if (!me || !onHill(h, me.pos)) out.markers.push({ pos: [x, y + 3, z], label: me && me.team >= 0 && h.hold === me.team + 1 ? 'HOLD' : 'HILL', color: WHO_C[h.hold], kind: 'hill' });
+    if (!me || !onHill(h, me.pos)) out.markers.push({ pos: [x, y + 6, z], label: me && me.team >= 0 && h.hold === me.team + 1 ? 'HOLD' : 'HILL', color: WHO_C[h.hold], kind: 'hill' });
   },
   cols: [{ head: 'HILL', get: (o) => String(o.points) }],
   // everyone to the hill, defenders too, at a run that still shoots back; held from two thirds of its radius in

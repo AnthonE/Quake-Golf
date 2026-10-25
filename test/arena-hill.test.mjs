@@ -9,6 +9,7 @@ import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../h
 import { startWorkers } from '../harness/run-node.mjs';
 import { AMC, SIDE_RGB } from '../client/am/index.mjs';
 import { hillOf } from '../client/am/hill.mjs';
+import { Fighter } from '../client/arena-bot.mjs';
 import { C } from '../client/font.mjs';
 import * as L from '../src/layout.mjs';
 
@@ -493,7 +494,7 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   assert.deepEqual(out.zone, { x: 392, z: 512, r: 6, y: h.pos[1], h: 2, color: [0.92, 0.92, 0.88], pulse: 0.35 });
   assert.ok(out.glow.length === 12 && out.glow.every((x) => Math.abs(Math.hypot(x.pos[0] - 392, x.pos[2] - 512) - 6 * 0.97) < 1e-6 && Math.abs(x.pos[1] - h.pos[1] - 0.35) < 1e-6), 'the rim, on the roof');
   assert.deepEqual(out.beams.map((b) => [b.a, b.b]), [[[392, h.pos[1] + 2, 512], [392, h.pos[1] + 30, 512]]]);
-  assert.deepEqual(out.markers, [{ pos: [392, h.pos[1] + 3, 512], label: 'HILL', color: C.WHITE, kind: 'hill' }]);
+  assert.deepEqual(out.markers, [{ pos: [392, h.pos[1] + 6, 512], label: 'HILL', color: C.WHITE, kind: 'hill' }]);
   // red holds it: red; HOLD to red, HILL in red to blue, nothing over the head of the one on it; no pillar close by
   on(g, 0);
   g.step();
@@ -532,6 +533,27 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   while (g.v.hole().state !== L.H_COUNT) g.step();
   out = draw(0);
   assert.deepEqual([hillOf(g.v), out.zone, out.markers, kit.goal(g.v, g.v.fighter(0), {})], [null, null, [], null]);
+});
+
+test('King of the Hill: a lone AI fighter of either side gets onto every hill from where it spawns: the field, both roofs by their bridges, the rocks, the cave', async () => {
+  const took = [];
+  for (let k = 0; k < MAP.hills.length; k++) {
+    for (const side of [0, 1]) {
+      const g = await room(L.M_HILL, 2, 3);
+      goHill(g, k);
+      const bot = new Fighter(side, 3, 0.6), other = 1 - side;
+      let t = 0, word = -1;
+      for (; t < 50 * 125 && !hill(g).on[side]; t++) {
+        g.dv.setUint8(rec(other) + L.P_FL, fl(g, other) | L.PF_DEAD); g.dv.setUint16(rec(other) + L.A_RESPAWN, 1000, true);
+        const w = bot.think(g.v, g.v.tick, 0);
+        g.step(w !== word ? [[L.EV_INPUT, side, w]] : []);
+        word = w;
+      }
+      took.push(`${k}${'rb'[side]} ${(t / 125).toFixed(1)}`);
+      assert.ok(hill(g).on[side], `hill ${k}, ${['red', 'blue'][side]}: still off it after 50 s at ${g.v.fighter(side).pos.map((x) => x.toFixed(1))}`);
+    }
+  }
+  console.log(`  seconds to get on each hill: ${took.join(', ')}`);
 });
 
 test('King of the Hill with 8 and 16 AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads; both sides hold the hill and score, every hill it comes to is held, it moves on its ticks, its news a second apart at most', async () => {
