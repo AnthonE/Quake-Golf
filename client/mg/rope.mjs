@@ -213,10 +213,11 @@ const tickIn = (st, tick) => (tick - st.start) | 0;
 // is), and now and then misses one altogether. The window is worked out
 // once a pass (bot.mem) from where it reckons it is on the tick its word
 // lands, and again if it has moved since; it hops at the tick it means to,
-// in time or not (its thinks come every 4th tick: at the last of them before
-// that tick). With a pass within SETTLE ticks and room to stand (off the
-// sides and the ends' steps) it stands still, braking, so the rope comes
-// when it reckoned. -> { hop, still } or null
+// in time or not (its thinks come every 4th tick: from the last of them
+// before that tick, holding the hop a few ticks on). With a pass within
+// SETTLE ticks and room to stand (off the sides and the ends' steps) it
+// stands still, braking, so the rope comes when it reckoned.
+// -> { hop, still } or null
 const SETTLE = 70;
 function plan(view, me, bot, coast) {
   const b = ball(view, me);
@@ -249,7 +250,8 @@ function plan(view, me, bot, coast) {
   }
   const still = coast && room && w.first - t0 <= SETTLE;
   if (w.miss || w.late < 0) return { hop: false, still };
-  return { hop: w.at - t0 <= 3 && w.at - t0 > -4, still };
+  // held on a few ticks past the moment (inside the window), so a word that reaches the room late still hops
+  return { hop: w.at - t0 <= 3 && t0 <= Math.min(w.at + 6, w.late), still };
 }
 
 // ---- drawing
@@ -258,30 +260,33 @@ const WOOD = [0.86, 0.66, 0.42];
 const STEP_COL = [[0.95, 0.52, 0.2], [0.98, 0.9, 0.72]]; // the ends' steps, outermost first
 const ROPE_COL = [[0.95, 0.24, 0.2], [0.2, 0.55, 0.95]]; // the first rope, the second
 const BEAD_COL = [[1, 0.86, 0.3], [0.95, 0.95, 0.95]];
-const TOWER = [0.3, 0.32, 0.38];
 const SKIN = [[0.98, 0.72, 0.3], [0.45, 0.78, 0.5]];
 
 // A turner past the end at x0 (side -1 or 1), working the crank at angle a (radians) for each rope in.
-function turner(sc, out, st, x0, side, a, ropes, lamp, now) {
+function turner(sc, out, st, x0, side, a, ropes, lamp) {
   const hub = AXLE, cz = st.cx;
-  const bx = x0 + side * 3.2; // the body, behind the crank's turn
-  // the tower from the sea to the axle, hazard-striped, and its foot
-  const top = hub - 1, foot = PLAT_Y - 30;
-  sc.box(bx, (top + foot) / 2, cz, 1.6, (top - foot) / 2, 1.6, 0, ...TOWER, LOOK.HAZARD, 0.8);
-  // the body: a fat round figure on top of it, its head and eyes on the stage
-  const skin = SKIN[side > 0 ? 1 : 0];
-  sc.cyl(bx, hub + 1.2, cz, 2.6, 2.2, ...skin, LOOK.PLASTIC);
-  sc.sphere(bx, hub + 5.4, cz, 2.6, ...skin, LOOK.PLASTIC);
-  for (const s of [-1, 1]) {
-    sc.sphere(bx - side * 2.15, hub + 5.9, cz + s * 0.95, 0.62, 1, 1, 1, LOOK.PLASTIC);
-    sc.sphere(bx - side * 2.6, hub + 5.9, cz + s * 0.95, 0.3, 0.05, 0.05, 0.06, LOOK.PLASTIC);
+  // the post, behind the crank's turn and off to one side, so a look down the stage passes it
+  const bx = x0 + side * 2, bz = cz - side * 4.5;
+  const foot = PLAT_Y - 24, top = hub + 1.5, n = 10, band = (top - foot) / n;
+  for (let i = 0; i < n; i++) {
+    const red = i & 1;
+    sc.cyl(bx, foot + band * (i + 0.5), bz, 0.9, band / 2, red ? 0.9 : 0.97, red ? 0.16 : 0.95, red ? 0.14 : 0.9, LOOK.PLASTIC);
   }
-  sc.box(bx - side * 2.45, hub + 4.5, cz, 0.12, 0.18, 0.9, 0, 0.75, 0.18, 0.16, LOOK.MATTE);
-  // the lamp on its head: green turning, amber held, red flashing as a switch comes
-  sc.sphere(bx, hub + 8.4, cz, 0.7, ...lamp, LOOK.GLOW, 1.3);
-  out.glow?.push({ pos: [bx, hub + 8.4, cz], size: 3, color: [...lamp, 0.5], kind: SPRITE.FLASH });
-  // the axle out to the hub, and the cranks: an arm from the hub to each rope's end, a knob there
-  sc.cyl((bx + x0) / 2, hub, cz, 0.55, 1.6, 0.6, 0.62, 0.66, LOOK.METAL, 0, 0, 1, undefined, Math.PI / 2, -Math.PI / 2);
+  // the turner on top of it: a round body, a head, its eyes and mouth on the stage, a lamp on its head
+  const skin = SKIN[side > 0 ? 1 : 0];
+  sc.cyl(bx, top + 1.3, bz, 1.5, 1.3, ...skin, LOOK.PLASTIC);
+  sc.sphere(bx, top + 4.1, bz, 1.6, ...skin, LOOK.PLASTIC);
+  for (const s of [-1, 1]) {
+    sc.sphere(bx - side * 1.3, top + 4.4, bz + s * 0.6, 0.42, 1, 1, 1, LOOK.PLASTIC);
+    sc.sphere(bx - side * 1.62, top + 4.4, bz + s * 0.6, 0.2, 0.05, 0.05, 0.06, LOOK.PLASTIC);
+  }
+  sc.box(bx - side * 1.5, top + 3.5, bz, 0.1, 0.12, 0.55, 0, 0.75, 0.18, 0.16, LOOK.MATTE);
+  // the lamp: green turning, amber held, red flashing as a switch comes
+  sc.sphere(bx, top + 6.1, bz, 0.55, ...lamp, LOOK.GLOW, 1.3);
+  out.glow?.push({ pos: [bx, top + 6.1, bz], size: 2.6, color: [...lamp, 0.5], kind: SPRITE.FLASH });
+  // a bracket from the post across to the axle, the axle along to the hub, and the cranks: an arm from the hub to each rope's end, a knob there
+  sc.box(bx, hub, (bz + cz) / 2, 0.45, 0.45, Math.abs(bz - cz) / 2 + 0.45, 0, 0.6, 0.62, 0.66, LOOK.METAL);
+  sc.cyl((bx + x0) / 2, hub, cz, 0.5, Math.abs(bx - x0) / 2, 0.6, 0.62, 0.66, LOOK.METAL, 0, 0, 1, undefined, Math.PI / 2, -Math.PI / 2);
   sc.cyl(x0, hub, cz, 1.1, 0.5, 0.3, 0.3, 0.33, LOOK.METAL, 0, 0, 1, undefined, Math.PI / 2, -Math.PI / 2);
   for (let k = 0; k < ropes; k++) {
     const ak = a + k * Math.PI, s = Math.sin(ak), c = Math.cos(ak);
@@ -373,13 +378,13 @@ export default {
       const pulse = 0.5 + 0.5 * Math.sin(now * 12);
       rope(sc, st, a + Math.PI, 1, 0.3 + 0.3 * pulse, LOOK.GLOW, 1 + pulse);
     }
-    for (const s of [-1, 1]) turner(sc, out, st, st.cx + s * (st.hl + MC.JR_XT), s, a, ropes, lamp, now);
+    for (const s of [-1, 1]) turner(sc, out, st, st.cx + s * (st.hl + MC.JR_XT), s, a, ropes, lamp);
     // under your own ball, the rope's coming: a ring closing in, green while a hop now clears it; a tick on the moment to hop
     const me = ctx.pme ?? ctx.me;
     const live = st.state === L.H_PLAY && me && me.live && !me.out && ctx.slot >= 0;
     const nb = live && me.ground ? nextPass(st, ti, me.pos[2] - st.cx, me.vel[2], 1, 200) : null;
     const go = !!nb && nb.late >= ti && nb.early <= ti;
-    if (nb && nb.late >= ti && ticked !== nb.first && nb.first - ti <= LEAD) { ticked = nb.first; sound?.tick?.(); }
+    if (nb && nb.late >= ti && ticked !== nb.first && nb.first - ti <= LEAD) { ticked = nb.first; (ctx.sound ?? sound)?.tick?.(); }
     cue = { at: ctx.now ?? 0, go, ready: !!nb && nb.late >= ti && nb.first - ti < 125 };
     if (nb) {
       const u = Math.min(1, (nb.first - t) / 150);
@@ -388,12 +393,11 @@ export default {
     }
   },
 
-  // the stage as it stands
+  // the stage and the turners past its ends
   frame(view) {
     const st = stage(view);
     const g = view.party();
-    const t = g.state === L.H_PLAY ? g.t : 0;
-    return { centre: [st.cx || g.cx, PLAT_Y, st.cx || g.cx], radius: (st.hl > 0 ? reachAt(st, t) : g.size) + 2, shape: 'square' };
+    return { centre: [st.cx || g.cx, PLAT_Y, st.cx || g.cx], radius: (st.hl > 0 ? st.hl : g.size) + MC.JR_XT + 4, shape: 'square' };
   },
 
   // facing the way the rope comes along the floor from

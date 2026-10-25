@@ -451,7 +451,7 @@ test('the client module: draws every phase, frames the stage, writes its HUD lin
     if (t + 1 >= MC.JR_TC0 - MC.JR_CWARN && t + 1 < MC.JR_TC0) assert.ok(text.includes('THE ENDS DROP'), text);
     const fr = rope.frame(g.v);
     assert.equal(fr.shape, 'square');
-    assert.ok(Math.abs(fr.radius - (reachAt(st, playT(g)) + 2)) < 1e-3);
+    assert.ok(Math.abs(fr.radius - (st.hl + MC.JR_XT + 4)) < 1e-3, 'the stage and the turners');
   }
   assert.ok(rope.hint.length <= 70);
   assert.equal(rope.facing(g.v), st.seg[1].dir > 0 ? -Math.PI / 2 : Math.PI / 2, 'facing the way the rope comes along the floor from');
