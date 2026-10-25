@@ -27,6 +27,7 @@
 //   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
 //   sink(f, name, view) -> the feed's line for an FX_SINK (f; name(p) as fx's), optional: null for the usual FELL / KNOCKED OUT
 //   music(view, ptick) -> false to hush the round's music for now (optional; ptick the prediction's clock, as draw's)
+//   outForGood: true for a PK_SCORE round whose balls out stay out (home, or taken): yours watches the others, as in PK_OUT
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
 //     The frontend keeps rows 0 and 1 (the clock, who's left or the scores, the round's name), the middle band
@@ -315,8 +316,8 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
         tgtPos = [0, 1, 2].map((k) => tgt.pos[k] + tgt.vel[k] * dt);
       }
     }
-    // PK_SCORE, your ball down: the camera waits where it went down
-    const down = me?.live && me.out && g.kind === L.PK_SCORE && g.state === L.H_PLAY && last;
+    // PK_SCORE, your ball down: the camera waits where it went down (out for good, it watches the rest as PK_OUT's do)
+    const down = me?.live && me.out && g.kind === L.PK_SCORE && g.state === L.H_PLAY && last && !mod.outForGood;
     let cam, camYaw, camPitch = look;
     if (down) {
       held0 = held0 || { cam: last.cam, yaw: last.yaw, pitch: last.pitch };
