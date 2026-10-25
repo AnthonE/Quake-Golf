@@ -48,6 +48,27 @@ const BLIPS = 32;
 const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'HIGH FIVE', 'SIX PACK', 'LUCKY SEVEN'];
 const SPREES = { 5: 'WARMING UP', 10: 'ON FIRE', 15: 'BLAZING', 20: 'INFERNO' };
 
+// A waypoint's height on screen clear of those placed before it ({ x, y,
+// half: its text's half width in 4 px cells }): its label two rows over its
+// mark and its distance a row under take four rows (24 px), so one whose
+// text would cover another's goes to the nearest height clear of them all,
+// four rows over or under one of them, over before under, inside top..bottom
+// (the band under the score bar and over the feed and bottom lines); with
+// none clear, where it was. Drawing only.
+export function clearOf(placed, x, y, half, top, bottom) {
+  const near = placed.filter((p) => Math.abs(p.x - x) / 4 < p.half + half);
+  const apart = (v) => near.every((p) => Math.abs(p.y - v) >= 24);
+  if (apart(y)) return y;
+  let best = y, bd = Infinity;
+  for (const p of near) {
+    for (const v of [p.y - 24, p.y + 24]) {
+      const d = Math.abs(v - y);
+      if (v >= top && v <= bottom && apart(v) && (d < bd || (d === bd && v < best))) { best = v; bd = d; }
+    }
+  }
+  return best;
+}
+
 export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = false, skill = 0.7, sens: SENS = 3, fixed: FIXED = null, present = true, showGraph: graphOn = false, external = false } = {}) {
   // (the host is `host` here: `h` is the match's state, as in the frame below)
   const { u8, i32, u32, f32, f64, view, pview, set, get, press, sound, memory, hashes, keys } = host;
@@ -198,8 +219,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       case L.FX_KILL: {
         const name = (p) => (p === slot ? 'YOU' : `P${p + 1}`);
         const md = view.mode();
-        // a flag's or the skull's carrier swung it
-        const cause = f.size === L.KILL_CARRY ? (AMC[md.mode]?.carry === 'skull' ? 'SKULL' : 'FLAG') : SHORT[f.size] || '?';
+        // what a carrier carries (its kit module's carry: a flag, the skull, the bomb) swung by it, or the bomb going off
+        const cause = f.size === L.KILL_CARRY ? (AMC[md.mode]?.carry ?? 'flag').toUpperCase() : SHORT[f.size] || '?';
         const infected = md.mode === L.M_INFECTION && f.owner !== f.shot && view.fighter(f.owner).zombie;
         // a team mode's lines in the killer's side's colour, but for your own
         const other = md.teamed ? SIDE_C[sideOf(view, f.owner)] : C.WHITE;
@@ -287,9 +308,10 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     return ARMS[f.weapon]?.zoom || 1;
   }
 
-  // What a carrier holds in place of a gun, as rectangles at 320x200: the flag
-  // (in the colour of the side it was taken from) on its pole over the
-  // shoulder, or the skull held out. It bobs and lunges as a gun would.
+  // What a carrier holds in place of a gun (its kit module's carry), as
+  // rectangles at 320x200: the flag (in the colour of the side it was taken
+  // from) on its pole over the shoulder, the skull held out, or the bomb held
+  // out, its light blinking. It bobs and lunges as a gun would.
   function carryRects(kind, color, now, moving) {
     const out = [];
     const s = W / 320;
@@ -305,6 +327,17 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       rect(244, 152, 258, 164, dark); rect(270, 152, 284, 164, dark); rect(262, 168, 266, 176, dark);
       for (let k = 0; k < 4; k++) rect(250 + k * 8, 184, 252 + k * 8, 192, [0.5, 0.48, 0.42]);
       rect(250, 196, 300, 214, [0.55, 0.42, 0.32]);
+    } else if (kind === 'bomb') {
+      // a dark ball lit from above in rows, a steel band round it, a cap with its red light blinking twice a second
+      const cx = 264, cy = 168, r = 28;
+      for (let y = -r; y < r; y += 4) {
+        const w = Math.sqrt(Math.max(0, r * r - (y + 2) ** 2)), lit = 0.42 - 0.3 * (y + r) / (2 * r);
+        rect(cx - w, cy + y, cx + w, cy + y + 4, [lit, lit, lit * 1.08]);
+      }
+      rect(cx - r + 1, cy - 3, cx + r - 1, cy + 3, [0.55, 0.55, 0.5]);
+      rect(cx - 6, cy - r - 6, cx + 6, cy - r + 2, [0.48, 0.48, 0.45]);
+      rect(cx - 3, cy - r - 11, cx + 3, cy - r - 6, now % 500 < 250 ? [1, 0.15, 0.1] : [0.35, 0.06, 0.05]);
+      rect(250, 194, 300, 214, [0.55, 0.42, 0.32]);
     } else {
       // the pole up from the bottom right, the cloth hanging off its top in folds
       for (let k = 0; k < 14; k++) { const y = 214 - k * 8, x = 296 - k * 2.2; rect(x - 2.5, y - 8, x + 2.5, y, [0.78, 0.78, 0.74]); }
@@ -596,7 +629,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const playing = st === 2 && f?.live;
     if (playing) {
       const moving = Math.hypot(f.vel[0], f.vel[2]) > 1 && f.ground;
-      // a carrier's hands hold the flag or the skull (a flag in the colour of the side it was taken from)
+      // a carrier's hands hold what its kit module carries (a flag in the colour of the side it was taken from)
       if (!WATCH && !f.dead) rects = f.carry ? carryRects(kit?.carry, SIDE_RGB[f.team === 0 ? 1 : 0], now, moving) : gunRects(f.weapon, now, moving);
       if (!f.dead) { const hr = hudRects(f, now); rects.push(...hr.rects); blips = hr.blips; tracker = hr.tracker; }
     }
@@ -631,6 +664,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const out = [];
     const s = W / 320;
     const rows = renderer.rows;
+    // the ones placed so far: { x, y, half (its text's half width in cells) }
+    const placed = [];
     for (const m of markers) {
       const [px, py, depth] = project(cv, W, H, m.pos);
       let x = px, y = py;
@@ -641,18 +676,25 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       y = Math.max(48 * s, Math.min(H - 40 * s, y));
       // on the left, its label and distance kept above the kill feed (rows - 16 to rows - 12)
       if (x < 128 && Math.round(y / 6) + 1 >= rows - 16) y = (rows - 18) * 6;
+      const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
+      const label = String(m.label ?? '');
+      const ds = `${dist}M`;
+      // text that would cover another's label or distance (two waypoints the
+      // same way, both sides' VIPs down the gulch) moves clear of them all;
+      // the mark stays where its target is
+      const half = Math.max(label.length, f ? ds.length : 0) / 2 + 0.5;
+      const ty = clearOf(placed, x, y, half, 48 * s, x < 128 ? Math.min(H - 40 * s, (rows - 18) * 6) : H - 40 * s);
+      placed.push({ x, y: ty, half });
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
-      // a diamond (a flag's pennant, a skull's dot, a hill's ring by kind)
+      // a diamond (a flag's pennant, a skull's dot, a hill's ring, a crown's band and points by kind)
       if (m.kind === 'flag') { r(-0.5, -6, 0.5, 2); r(0.5, -6, 5, -2.5); }
+      else if (m.kind === 'crown') { r(-4, -1, 4, 2); r(-4, -4, -2.5, -1); r(-0.75, -5, 0.75, -1); r(2.5, -4, 4, -1); }
       else if (m.kind === 'hill') { r(-4, -1, 4, 1); r(-3, -3, 3, -1, c, 0.5); r(-3, 1, 3, 3, c, 0.5); }
       else if (m.kind === 'skull') { r(-3, -4, 3, 1); r(-2, 1, 2, 3); r(-2, -2, -0.5, -0.5, [0, 0, 0]); r(0.5, -2, 2, -0.5, [0, 0, 0]); }
       else { r(-1, -4, 1, 4); r(-2.5, -2.5, 2.5, 2.5, c, 0.8); r(-4, -1, 4, 1); }
-      const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
-      const col = Math.round(x / 4), row = Math.round(y / 6);
-      const label = String(m.label ?? '');
+      const col = Math.round(x / 4), row = Math.round(ty / 6);
       if (label) put(text, COLS, Math.max(0, Math.min(COLS - label.length, col - (label.length >> 1))), Math.max(0, row - 2), label, m.color ?? C.WHITE);
-      const ds = `${dist}M`;
       if (f) put(text, COLS, Math.max(0, Math.min(COLS - ds.length, col - (ds.length >> 1))), Math.min(rows - 1, row + 1), ds, C.WHITE);
     }
     return out;
@@ -728,7 +770,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       if (f.dead) centre(Math.floor(rows / 2) + 2, `RESPAWN IN ${Math.ceil(f.respawn / 125)}`, C.YELLOW);
       else if (f.carry) {
         // a carrier has no guns or frags, only a swing that kills (a spectator's click turns to the next fighter)
-        centre(rows - 3, `CARRYING THE ${kit?.carry === 'skull' ? 'SKULL' : 'FLAG'}`, C.YELLOW);
+        centre(rows - 3, `CARRYING THE ${(kit?.carry ?? 'flag').toUpperCase()}`, C.YELLOW);
         if (!WATCH) centre(rows - 2, 'NO GUNS  CLICK OR Q SWINGS', C.WHITE);
       } else {
         const arm = ARMS[f.weapon];

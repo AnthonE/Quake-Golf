@@ -4,10 +4,10 @@
 // test per box, a group's bounds first, and a ray to the sun from whatever a
 // pixel lands on for its shadow), with what a
 // shooter needs on top: tracers as beams, sprites for blasts, sparks and
-// weapon pads, the team modes' flags and skull, a zone painted on the ground
-// for a hill, and a HUD of rectangles under the text for the gun in your
-// hands, the shield and health bars, the crosshair, the scope and the
-// hit marker. Fighters and projectiles come straight from shared memory;
+// weapon pads, the team modes' flags and skull, zones painted on the ground
+// for a hill or the territories, and a HUD of rectangles under the text for
+// the gun in your hands, the shield and health bars, the crosshair, the scope
+// and the hit marker. Fighters and projectiles come straight from shared memory;
 // everything else from the main thread each frame. Nothing here is hashed.
 import * as L from '../src/layout.mjs';
 import { FONT } from './font.mjs';
@@ -17,6 +17,7 @@ export const COLS = 80;
 export const MAX_SPRITE = 256;
 export const MAX_BEAM = 128;
 export const MAX_RECT = 128;
+export const MAX_ZONE = 8;
 const FAR = 700;
 const NO_TINTS = new Uint32Array(L.NPLAYER); // a page with no looks: every seat its own colour
 // The HUD text's colours by C.* (client/font.mjs), for the shader and for rects drawn to match it.
@@ -51,9 +52,9 @@ struct U {
   hud: vec4f,     // rows, rects, crosshair kind, hit marker (0..1)
   fx: vec4f,      // damage flash (0..1), scope (1), net graph shown (1), crosshair gap (px)
   pred: vec4f,    // extrapolate my projectiles (s); the motion tracker's centre x, y and radius (px)
-  map: vec4f,     // boxes, groups, sides (0 none, 1 one against the rest, 2 red and blue), the zone's height band (m)
-  zone: vec4f,    // a disc painted on the ground: centre x, z, radius (0: none), the height it's at
-  zcol: vec4f,    // its colour, and how hard it pulses (0..1)
+  map: vec4f,     // boxes, groups, sides (0 none, 1 one against the rest, 2 red and blue), the zones' height band (m)
+  zn: vec4f,      // how many zones
+  zones: array<vec4f, ${2 * MAX_ZONE}>, // two a zone, a disc painted on the ground: centre x, z, radius, the height it's at | its colour, how hard it pulses (0..1)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var hmap: texture_2d<f32>;
@@ -174,17 +175,24 @@ fn boxColor(k: u32, w: vec3f, n: vec3f) -> vec3f {
   return c * select(1.0, 0.6, e < 0.06);
 }
 
-// The zone (a hill) on what a pixel landed on: at w across, y up, z metres off.
-// A tinted disc with rings running out over it and a bright rim a pixel or
-// more wide, on surfaces within the band of its height.
+// The zones (a hill, the territories) on what a pixel landed on: at w
+// across, y up, z metres off. Each a tinted disc with rings running out over
+// it and a bright rim a pixel or more wide, on surfaces within the band of
+// its height.
 fn zone(c: vec3f, w: vec2f, y: f32, z: f32) -> vec3f {
-  let d = distance(w, u.zone.xy);
-  if (u.zone.z <= 0.0 || d > u.zone.z || abs(y - u.zone.w) > u.map.w) { return c; }
+  var o = c;
   let rim = max(0.3, 1.6 * z / u.cam.w);
-  let rings = 0.5 + 0.5 * sin(d * 1.6 - u.view.w * 4.0);
-  var k = 0.22 + 0.2 * u.zcol.w * rings;
-  if (d > u.zone.z - rim) { k = 0.9; }
-  return mix(c, u.zcol.rgb, k);
+  for (var i = 0u; i < u32(u.zn.x); i++) {
+    let zd = u.zones[2u * i];
+    let zc = u.zones[2u * i + 1u];
+    let d = distance(w, zd.xy);
+    if (zd.z <= 0.0 || d > zd.z || abs(y - zd.w) > u.map.w) { continue; }
+    let rings = 0.5 + 0.5 * sin(d * 1.6 - u.view.w * 4.0);
+    var k = 0.22 + 0.2 * zc.w * rings;
+    if (d > zd.z - rim) { k = 0.9; }
+    o = mix(o, zc.rgb, k);
+  }
+  return o;
 }
 
 fn sky(sy: f32) -> vec3f {
@@ -373,7 +381,7 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
   return o;
 }
 
-// solid splats: 0 a ball, 1 a fighter, 2 a glowing bolt, 4 a weapon on its pad, 7 a flag, 8 a skull
+// solid splats: 0 a ball, 1 a fighter, 2 a glowing bolt, 4 a weapon on its pad, 7 a flag, 8 a skull, 10 a crown
 @fragment fn fs_splat(s: SOut) -> @location(0) vec4f {
   let r2 = dot(s.uv, s.uv);
   var c = s.color.rgb;
@@ -430,6 +438,22 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
       c *= 0.55 + 0.5 * max(dot(normalize(n), normalize(vec3f(0.3, 0.8, 0.5))), 0.0);
       if (eye || nose) { c = vec3f(0.08, 0.06, 0.06); }
       else if (teeth) { c *= 0.45; }
+    }
+    case 10u: { // a crown: a band and three points in the sprite's colour, gold trim and knobs, a bright jewel
+      let x = s.uv.x;
+      let y = s.uv.y;
+      let ax = abs(x);
+      let band = y > 0.3 && y < 0.92 && ax < 0.86;
+      // the points: the middle one's tip at -0.72, the side ones' at -0.5 over x 0.62, each widening down to the band
+      let side = ax > 0.31;
+      let cx = select(0.0, 0.62, side);
+      let tip = select(-0.72, -0.5, side);
+      let point = y >= tip && y <= 0.3 && abs(ax - cx) < 0.3 * (y - tip) / (0.3 - tip);
+      let knob = length(vec2f(ax - cx, (y - tip + 0.1) * 0.8)) < 0.15;
+      if (!band && !point && !knob) { discard; }
+      c *= 0.7 + 0.4 * (1.0 - ax);
+      if (knob || (band && (y < 0.42 || y > 0.8))) { c = vec3f(1.0, 0.82, 0.3) * (0.8 + 0.3 * (1.0 - ax)); }
+      if (length(vec2f(x, (y - 0.61) * 0.8)) < 0.16) { c = vec3f(1.0, 0.97, 0.85); }
     }
     default: {}
   }
@@ -604,7 +628,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
   const errs = info.messages.filter((m) => m.type === 'error');
   if (errs.length) throw new Error('WGSL: ' + errs.map((m) => `${m.lineNum}:${m.linePos} ${m.message}`).join('; '));
 
-  const ubuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const ubuf = device.createBuffer({ size: 4 * (36 + 8 * MAX_ZONE), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const storage = (size) => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const playerBuf = storage(L.NPLAYER * L.PSIZE + L.NPLAYER * 4); // the records, then each slot's tint
   const projBuf = storage(L.NPROJ * L.JSIZE);
@@ -656,7 +680,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
   const beam = pipe('vs_beam', 'fs_beam', { depthWrite: false, depthCompare: 'less', blend: add });
   const hudPipe = pipe('vs_full', 'fs_hud', { depthWrite: false, depthCompare: 'always', blend: over });
 
-  const uf = new Float32Array(40);
+  const uf = new Float32Array(36 + 8 * MAX_ZONE);
   const hud = new Uint32Array(COLS * rows);
   const spriteData = new Float32Array(MAX_SPRITE * 12);
   const beamData = new Float32Array(MAX_BEAM * 12);
@@ -689,17 +713,19 @@ export async function createRenderer(canvas, { present = true, device: shared = 
     //      solid: [{ pos, size, aspect, color: [r,g,b], kind, minpx }] (objectives, pads), glow: [... kind 3, 5, 6, color [r,g,b,a]],
     //      beams: [{ a, b, width, color: [r,g,b,a] }], rects: [[x0, y0, x1, y1, r, g, b, a]],
     //      crosshair, gap, marker, hurt, scope, text, graph, sides (0 colour by slot, 1 one side against the rest, 2 red and blue by PF_BLUE),
-    //      zone (null, or { x, z, r, y, h, color: [r,g,b], pulse }: a disc painted on the terrain and box tops within h of y, any height without y) }
+    //      zone (null, or { x, z, r, y, h, color: [r,g,b], pulse }: a disc painted on the terrain and box tops within h of y, any height
+    //      without y; or a list of up to MAX_ZONE of them, all in the first one's band) }
     frame(u8, s, target) {
       if (!ctx && !target) return;
       const { focal, horizon } = lens(s, W, H);
       const sprites = [...s.solid, ...s.glow].slice(0, MAX_SPRITE);
-      const z = s.zone;
+      const zs = (Array.isArray(s.zone) ? s.zone : s.zone ? [s.zone] : []).slice(0, MAX_ZONE);
+      const z = zs[0];
       uf.set([s.cam[0], s.cam[1], s.cam[2], focal, Math.cos(s.yaw), Math.sin(s.yaw), horizon, s.time,
         W, H, FAR, s.dt, s.slot, sprites.length, hmax + 2, Math.min(s.beams.length, MAX_BEAM),
         rows, Math.min(s.rects.length, MAX_RECT), s.crosshair, s.marker, s.hurt, s.scope ? 1 : 0, s.graph ? 1 : 0, s.gap, s.dtPred ?? s.dt, ...(s.tracker || [0, 0, 0]),
-        nbox, ngroup, Number(s.sides) || 0, z ? (z.y === undefined ? 1e9 : z.h ?? 2) : 0,
-        z ? z.x : 0, z ? z.z : 0, z ? z.r : 0, z?.y ?? 0, ...(z ? z.color : [1, 1, 1]), z?.pulse ?? 0]);
+        nbox, ngroup, Number(s.sides) || 0, z ? (z.y === undefined ? 1e9 : z.h ?? 2) : 0, zs.length, 0, 0, 0]);
+      zs.forEach((q, k) => uf.set([q.x, q.z, q.r, q.y ?? 0, ...q.color, q.pulse ?? 0], 36 + 8 * k));
       if (s.graph) device.queue.writeBuffer(graphBuf, 0, s.graph);
       device.queue.writeBuffer(ubuf, 0, uf);
       device.queue.writeBuffer(playerBuf, 0, u8, L.PLAYERS, L.NPLAYER * L.PSIZE);

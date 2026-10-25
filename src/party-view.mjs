@@ -28,10 +28,13 @@ View.prototype.party = function party() {
   };
 };
 
-// A ball, with this round's score, its party points and the minigame's own field.
+// A ball, with this round's score, its party points and the minigame's own
+// field; its radius as $b_rad has it (a round with PGF_SIZE sizes each ball).
 View.prototype.partier = function partier(p) {
   const b = L.PLAYERS + this.bank + p * L.PSIZE;
-  return { ...this.bumper(p), score: this.dv.getUint16(b + L.PG_SCORE, true), pts: this.dv.getUint16(b + L.PG_PTS, true), m: this.dv.getUint32(b + L.PG_M, true) };
+  const ball = this.bumper(p);
+  if (this.dv.getUint32(L.PG_FLAGS, true) & L.PGF_SIZE) ball.radius = Math.max(this.dv.getFloat32(b + L.PG_M, true), B_RAD);
+  return { ...ball, score: this.dv.getUint16(b + L.PG_SCORE, true), pts: this.dv.getUint16(b + L.PG_PTS, true), m: this.dv.getUint32(b + L.PG_M, true) };
 };
 
 const f = Math.fround;

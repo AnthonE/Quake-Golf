@@ -18,8 +18,8 @@ the TV. What comes next is [docs/roadmap.md](docs/roadmap.md).
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
-| A4 · teams | red against blue in the arena, a kit of team modes and four on it (Team Slayer, Capture the Flag, Oddball, King of the Hill): sides that can't hurt their own, spawns on your own half, a carrier with a swing that kills, the map's flags, skull and hills; AI fighters who route through doors and play each objective; each mode's AI matches equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal, 256 in a room | **passed** · [Teams](#teams) |
-| P1 · Party | bumper balls' ball and a minigame a round, fourteen of them (Thin Ice, Color Call, Sweeper, Red Light, Bomb Rain, The Wall, Musical Pads, King of the Hill, Hot Potato, Coin Rush, Paint Party, Downhill, Fruit Chute, Tag), every stage on a schedule so the prediction is exact through it; a renderer for any stage in bumper balls' look; each minigame's AI rounds equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal | **passed** · [Party](#party) |
+| A4 · teams | red against blue in the arena, a kit of team modes and eight on it (Team Slayer, Capture the Flag, Oddball, King of the Hill, Headhunter, Territories, VIP, Assault): sides that can't hurt their own, spawns on your own half, a carrier with a swing that kills, the map's flags, skull and hills; AI fighters who route through doors and play each objective; each mode's AI matches equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal, 256 in a room | **passed** · [Teams](#teams) |
+| P1 · Party | bumper balls' ball and a minigame a round, twenty-six of them (Thin Ice, Color Call, Sweeper, Red Light, Bomb Rain, The Wall, Musical Pads, King of the Hill, Hot Potato, Coin Rush, Paint Party, Downhill, Fruit Chute, Tag, Snowball, Tilt Table, Rising Lava, Gale Force, Drum Roll, Hoopla, Pinball, Light Trails, Maze Run, Bullseye, Cannonade, Jump Rope), every stage on a schedule so the prediction is exact through it; a renderer for any stage in bumper balls' look; each minigame's AI rounds equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal | **passed** · [Party](#party) |
 | F1 · Fireplace | every game in one module, each bit for bit its own build; a playlist the room plays through, everyone moved into the next game on one tick, marshmallows for the top three; keyframes from any game restored into another's world; the playlist equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal across a switch; a page that is a living room, the TV closing in to fill the screen | **passed** · [Fireplace](#fireplace) |
 | B1 · bumper balls | every player a ball on a wheel of Swiss cheese whose holes are the golf cup made big: bump the others in, keep out yourself, the last ball rolling wins; the rim crumbling and the holes widening, power-ups dropping from the sky; rounds of AI balls equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [bumper balls](#bumper-balls) |
 | A3 · Box Canyon | a map with structures in the game rules, not just the picture: two bases you walk into (doors, a room, stairs to a hatch, a roof, a bridge), a cave through a ridge, teleporters; walls stop bodies, bullets, rockets, frags and blasts; the map built from images and a JSON file at build time; a match of fighters on it equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [Box Canyon](#box-canyon-structures-and-maps) |
@@ -43,17 +43,17 @@ set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
 prediction, spectators and replays, up to 256 in a room. A room's first
 match is a Grab Bag: ten minutes, everyone spawns with two guns drawn at
 random, the most kills at the end wins; the matches after it go round the
-[modes](#modes), free-for-alls and [red against blue](#teams) by turns: Team
-Deathmatch, Zombies, Capture the Flag, gun game, Keep Away, Juggernaut, King
-of the Hill. All of them are on
+[modes](#modes), a free-for-all and then two [red against blue](#teams): Team
+Deathmatch, Skull Hunt, Zombies, Capture the Flag, Territories, gun game, Keep
+Away, VIP, Juggernaut, King of the Hill, Assault. All of them are on
 [Box Canyon](#box-canyon-structures-and-maps): a canyon walled all round with
 a base at each end you can walk into and up onto, a teleporter behind each, a
 cave through the north ridge, boulders for cover. (Set `FIESTA = 0` in
 `src/layout.mjs` for a free-for-all instead of Grab Bag: an assault rifle
 and a magnum, guns on pads about the floor, first to 25.) Below, the modes go
 by the code's names (`MODES` in `src/layout.mjs` holds what a player sees):
-Grab Bag is Fiesta, Team Deathmatch is Team Slayer, Zombies is Infection and
-Keep Away is Oddball.
+Grab Bag is Fiesta, Team Deathmatch is Team Slayer, Zombies is Infection,
+Keep Away is Oddball and Skull Hunt is Headhunter.
 
 ```sh
 npm ci && sh tools/install-deno.sh   # once
@@ -166,15 +166,16 @@ node --test test/map.test.mjs
 
 ### Modes
 
-Each match plays one of eight modes, chosen as its countdown starts: match k
-of a room plays `ARENA_MODES[k % 8]` (`src/layout.mjs`), Fiesta, Team Slayer,
-Infection, Capture the Flag, gun game, Oddball, Juggernaut, King of the Hill,
-and round again: a free-for-all and a [team mode](#teams) by turns. So a room
+Each match plays one of twelve modes, chosen as its countdown starts: match k
+of a room plays `ARENA_MODES[k % 12]` (`src/layout.mjs`), Fiesta, Team Slayer,
+Headhunter, Infection, Capture the Flag, Territories, gun game, Oddball, VIP,
+Juggernaut, King of the Hill, Assault, and round again: a free-for-all, then
+two [team modes](#teams). So a room
 opens on a Fiesta; Fireplace's arena, one match long, plays whichever mode
 the room draws for it (see Fireplace). A seed whose top byte is `0xA8` plays
 mode `(seed >>> 16) & 0xff` (the mode's `M_*`: 1 Infection, 2 gun game, 3
-Juggernaut, 4 Team Slayer, 5 Capture the Flag, 6 Oddball, 7 King of the Hill)
-every match: `node net/play.mjs --arena --mode 1` is a room of Infection only
+Juggernaut, 4 Team Slayer, 5 Capture the Flag, 6 Oddball, 7 King of the Hill,
+8 Headhunter, 9 Territories, 10 VIP, 11 Assault) every match: `node net/play.mjs --arena --mode 1` is a room of Infection only
 (`tools/genarena.mjs` and `net/run-arena.mjs` take `--mode` too). The four
 free-for-all modes:
 
@@ -268,11 +269,12 @@ node net/run-arena.mjs --mode 1 [--bots 15] [--seconds 60]
 
 ### Teams
 
-Red against blue, in four more modes on the same build: Team Slayer, Capture
-the Flag, Oddball and King of the Hill. They join the rotation by turns with
-the free-for-alls (`ARENA_MODES`: Fiesta, Team Slayer, Infection, Capture
-the Flag, gun game, Oddball, Juggernaut, King of the Hill) and Fireplace
-draws them too; `node net/play.mjs --arena --mode 5` is a room of Capture
+Red against blue, in eight more modes on the same build: Team Slayer, Capture
+the Flag, Oddball, King of the Hill, Headhunter, Territories, VIP and Assault.
+Two of them follow each free-for-all in the rotation (`ARENA_MODES`: Fiesta,
+Team Slayer, Headhunter, Infection, Capture the Flag, Territories, gun game,
+Oddball, VIP, Juggernaut, King of the Hill, Assault) and Fireplace draws them
+too; `node net/play.mjs --arena --mode 5` is a room of Capture
 the Flag only.
 
 ![Capture the Flag in Chrome, on blue's side: red has just brought blue's flag home](docs/a5-ctf.png)
@@ -283,6 +285,10 @@ the Flag only.
 | Capture the Flag | 3 captures, or the most at 10 min | a flag on the floor of each base's room; touch theirs to take it, bring it to yours while yours is home; a carrier who dies drops it; your side returns a dropped flag by touching it, or it goes home by itself after 20 s |
 | Oddball | 100 points, or the most at 6 min | one skull mid-field; whoever touches it takes it, either side; a point a second for the side holding it; dropped, it goes back to its spot after 15 s |
 | King of the Hill | 100 points, or the most at 6 min | one hill at a time, moving every 60 s round six points (mid-field, both roofs, the cave, both rock piles); the side with more fighters on it holds it, as many each is contested; a point a second held |
+| Headhunter | 5 skulls banked a fighter on the larger side (at least 40), or the most at 6 min | every death drops the skulls its fighter carried and one more where it falls, onto any pile within 2 m; anyone takes a whole pile by touching it, guns and all; one drop zone at a time on the hill points, moving every 45 s in the map's order; standing in it banks all you carry, a point each for your side; a pile lies 30 s |
+| Territories | 300 points, or the most at 6 min | all six hill points up at once, each a territory 5 m across (the hill's 2 m band); more of a side on one pushes its gauge a step a tick toward that side, 5 s to take a neutral one, and one held must be pushed back to neutral before the other side can take it; as many each hold it still, nobody on it drifts back to its holder; every 2 s a point for each one held |
+| VIP | 10 VIPs killed, or the most at 6 min | a VIP each side, drawn at random as play starts, with the juggernaut's 200 shields (back only to 100); kill theirs for a point, any other kill nothing, a VIP dead by its own hand the other side's point, one that leaves nobody's; 3 s after a VIP dies or leaves its side draws another, someone else if anyone is alive |
+| Assault | 3 bombs, or the most at 8 min | one bomb in the middle, taken by touch and carried as the skull is (no guns, a swing that kills); 3 s on their plate plants it, and 5 s later it goes off: a point, and their side within 5 m dead; 2 s on it by its plate's side defuses it; dropped, it lies 15 s, then goes back to the middle |
 
 Everyone spawns on their own half (the spawn points nearer their own flag;
 two on the middle line are nobody's) with an assault rifle, a magnum and two
@@ -388,6 +394,10 @@ AI fighters, 8 against 8), and with 256 AI fighters for 40 s (`--chrome 0
 | Capture the Flag | 1,408 | 46 | 0 to 0 | 9,478 | 207 | 0 to 0 |
 | Oddball | 1,424 | 64 | 29 to 15 | 9,478 | 498 | 0 to 27 |
 | King of the Hill | 1,408 | 32 | 59 to 23 | 9,481 | 441 | 22 to 4 |
+| Headhunter | 1,407 | 44 | 7 to 5, of 40 | 9,477 | 331 | 12 to 0, of 380 |
+| Territories | 1,392 | 46 | 139 to 82, of 300 | 9,468 | 361 | 43 to 31 |
+| VIP | 1,407 | 54 | 3 to 1, of 10 | 9,477 | 407 | 3 to 1 |
+| Assault | 1,407 | 36 | 0 to 0 | 9,465 | 144 | 0 to 0 |
 
 Sides 8 against 8 and 128 against 128 every time. A closed tick took 8.8 to
 14.4 bytes on average with 16 (4.2 to 5.6 KB/s down and 2 KB/s up a session)
@@ -399,6 +409,17 @@ been looking for an enemy every tick while none was in sight, which in a team
 mode is half the room: 7.3 ms a tick for 256, the bot host fell behind and
 three of these four gates failed at 256; they look on their own tick of 16
 now, 3.6 ms.
+
+Headhunter, Territories, VIP and Assault came on the kit as a second wave,
+each its own four files and test file (12, 13, 12 and 19 tests): every rule
+with its edges, a Fiesta after it exactly a Fiesta's, AI fighters over 20,000
+ticks on the debug build equal on every tick on 1 and 4 threads and scoring
+for both sides (Assault's plant at 8, 16, 64 and 256 fighters; its defuses
+stay rare, 4 in 26 runs, since a defender has 3 s to reach the bomb). Each
+mode's log of eight AI fighters agrees in all 27 configurations; online, the
+table above. Assault's bomb is carried as the skull is, so the page's carrier
+HUD and kill feed read what the mode's module says is carried. Its blast
+spares the planter's own side, as everything else in a team mode does.
 
 CI records each mode's log for the matrix and runs it online with 64 AI
 fighters.
@@ -552,7 +573,7 @@ sit down: the camera closes in on the TV until its glass fills the screen, and
 you're in whatever the room is playing. When a game ends it pulls back to the
 room, and the TV shows the marshmallows and what's on next; then it closes in
 again. The room plays the playlist through: bumper balls (two rounds), party
-(three minigames), the arena (one three-minute match of any of its eight
+(three minigames), the arena (one three-minute match of any of its twelve
 modes, drawn for it), party again, a hole of golf, and round
 again; the top three of each game get 3, 2 and 1 marshmallows. Join any time,
 into whatever is on (or the next round of it); leave any time.
@@ -588,7 +609,7 @@ built on that seed, and everyone in the room is joined into it on that tick
 words when the two games read the same word (golf's, which bumper and party
 share). The seed is a hash of the room's PRNG and the games played (`FP_NEXT`,
 `REGION + 0xe400`). The arena's forces a mode: `0xA8` in its top byte, the
-mode in the next, drawn by `$rand` from the eight, never the one the arena
+mode in the next, drawn by `$rand` from the twelve, never the one the arena
 played last (`FP_MODE`, `REGION + 0xe404`), and drawn as the game before ends
 so the TV can name it; whatever the mode, the match is cut to 3 min
 (Infection's already is; gun game, Juggernaut, Oddball and King of the Hill
@@ -891,7 +912,7 @@ Not done yet: teams, a lobby between rounds, and the cheese tilting.
 
 ![Fruit Chute with 128 balls: the belt carrying everyone down, fruit rolling down the lanes](docs/p1-chute-128.png)
 
-Bumper balls' ball, and every round a different minigame: fourteen of them,
+Bumper balls' ball, and every round a different minigame: twenty-six of them,
 after Mario Party, Fall Guys, Squid Game and Roblox, up to 256 in a room.
 `src/` built with `BUMPER` and `PARTY` set (`build/party/game.wasm`), with the
 same lockstep, relays, keyframes, prediction, spectators and replays.
@@ -926,6 +947,18 @@ the standings are party points, then wins. `?bot=1` hands your ball to an AI;
 | 11 | DOWNHILL | finishing order | 450 to 600 m of track from 100 m up: drops, banked bends, a jump over a gap, a funnel, bumpers, spinners and sweepers, boost pads and power-up boxes |
 | 12 | FRUIT CHUTE | finishing order | a 100 m conveyor rising 20 m carries everyone down at 3 m/s while grapes, apples, oranges and melons roll down its lanes |
 | 13 | TAG | points | one it for every 16 balls; an it that touches you makes you it; a point a second free; springs for the free, dashes for the its |
+| 14 | SNOWBALL | last one in | every ball a snowball, 1 to 3 m, on a snowfield whose rim crumbles in to 7 m; fresh snow grows you 1.5 cm a metre, tracks packed 2.4 s after a ball rolls them wear you down, standing still melts you; big is heavy, slow to start and quicker flat out; touch a ball under 3/4 your size and you swallow it, a line that rises to any smaller ball by the clock, when all but the biggest melt |
+| 15 | TILT TABLE | last one in | a square table on a pivot tips toward one side, shown 1.2 s ahead, over 1 s, from 8 degrees to 25 by 75 s; it holds 2 s, 4 s by the end, then levels; from 40 s half the tilts swing straight over to the other side first; the slope pulls you down it; from 45 s the edges crumble in, ten steps to a 6 m square |
+| 16 | RISING LAVA | the order to the crown | a route winds up round a rock tower out of a crater of lava: ramps with boulders rolling down, steps a hop high, gaps, sliding platforms, ledges, 40 to 48 m to a gold crown; the lava is still 8 s, then rises faster every 10 s, and a ball under it is out; the rest place by the height they reached, then the lava's victims, the last out first |
+| 17 | GALE FORCE | finishing order | 300 to 400 m over the sea, bridges between wide decks; fans gust across the bridges on a clock, a light flashing 1 s ahead, 0.9 s at 8 m/s² growing to 2.1 s at 14 by 90 s; a headwind tunnel, windmills whose blades bat you aside, stairs, two gaps to hop, and updraft vents to an upper deck over a fan bridge |
+| 18 | DRUM ROLL | last one in | 2 to 8 drums 6 m in radius side by side over the sea, 2.6 m gaps between; each spins, neighbours opposite, 1.8 to 2.6 m/s at the top and 5% faster every 6 s, one reversing every 6 s, carrying you to a gap unless you roll against it; slots open in the slats as the round goes and drop whoever they come round under |
+| 19 | HOOPLA | points | hoops 2.5 to 3.9 m across ride orbits round a court, each orbit its own speed and the next the other way; roll through one for a point, hop the raised ones; gold ones bob from the floor to 2.4 m and pay 3; the same hoop again only after 3 s; ramps in the hub aimed out, bounce pads on the orbits; double for the last 15 s |
+| 20 | PINBALL | points | a table tilted down to two or three drains, a pair of flippers over each swinging up on the clock, left then right; bumpers 1, a top lane rolled down through 3, a drop target 5 and a bank's last 25 more, the spinner 1 a turn; a drain costs a fifth and the plunger shoots you back in over the top; the last 15 s pay double |
+| 21 | LIGHT TRAILS | last one in | a dark square floor; every ball lays light behind it, soft for 1.6 s, then a wall till it fades 10 s on (15.6 s by the end); roll into any, your own too, and you're out; a hop clears one; the edges close in from 15 s to 70 s |
+| 22 | MAZE RUN | finishing order | a hedge maze, 15 cells a side for 16 balls up to 41 for 256; everyone starts the same number of cells from a pad in the middle; every 15 s some doors slide open and others shut, their tops flashing 2 s ahead; the first home leaves the rest 30 s, who place by their way along the paths to the middle; bumps without the kick; once home you watch the rest |
+| 23 | BULLSEYE | points | a target on an icy disc; every 10 s a bell scores each ball by the ring it's in, 5 the bull, 3, 2, 1, double the last three ends, then a shove wave carries every ball in the house out past its edge (1.2 s, pushing back or not); a hard bump kicks 0.8 times its speed more apart; off the edge, down 1.5 s |
+| 24 | CANNONADE | last one in | 8 to 16 cannons round a disc of hex tiles fire volleys down red stripes, 1.5 s after each shows; a cannonball, 1.2 to 2.5 m, knocks you on along its path, glancing ones aside; volleys grow and close from 3 s to 1.2 s apart; from 30 s one in three is lobbed onto a target ring; from 60 s the rim crumbles in to 12 m; hop the small ones (up to 1.33 m); balls one cannonball took off together share the win |
+| 25 | JUMP ROPE | last one in | a rope turns round the long stage's long axis, overhead then along the floor at ball height; hop it as it comes under or it knocks you across and up; a turn in 1.8 s quickening to 0.9 s; from 30 s double dutch, a second rope half a turn behind; from 60 s the turners hold it at a side and turn it back; the ends drop from 70 s; no bumps |
 
 **How it fits on the engine.** `src/party.wat` is the framework: the rounds,
 the rotation, joins, the ball's roll over any stage, outs, places and points.
@@ -965,7 +998,8 @@ prediction bit for bit against the confirmed ball through each hazard.
 
 `client/party.html` is the page (`client/party-game.mjs`), and
 `client/party-render.mjs` its renderer: bumper balls' look made general. The
-stage is instanced solids (boxes, cylinders, hex prisms, spheres) in ten
+stage is instanced solids (boxes, cylinders, hex prisms, spheres, each turned
+by a yaw and a roll, so a table tips and a drum lies on its side) in ten
 looks (matte, plastic, ice that cracks, metal, hazard stripes, glow, paint,
 checker, wood, rubber), lit by the sun and the sky with a shadow map, tone
 mapped, at the window's resolution with 4x multisampling; flat decals for
@@ -999,6 +1033,19 @@ node tools/genparty.mjs --bots 16 --ticks 20000 --out logs/party.qgl [--mg k]
 node harness/matrix.mjs --ticks 20000 --log logs/party.qgl --wasm build/party/game.wasm
 node net/run-party.mjs [--mg k] [--bots 15] [--chrome 1] [--seconds 60] [--res 1280x800]
 ```
+
+**The second wave.** Twelve more minigames (14 to 25) went in at once, each
+one agent's, on the reserved slots `tools/new-mg.mjs` wrote: 12 to 17 tests a
+file, the stage for 1, 8, 64 and 256 balls, the prediction bit for bit through
+every hazard, AI rounds of 8 and 64 equal on 1 and 4 threads; each one's
+recorded log of 16 AI balls equal in all 27 configurations; and each forced
+online with Chrome and 15 AI balls and with 127, every hash equal (about 930
+hashes at 16 and 7,400 at 128 apiece). Snowball's balls grow, so Party's
+build reads a ball's radius and weight from its record when a round sets
+`PGF_SIZE` (bumper balls' bytes unchanged, and every other minigame's logs
+replay as they did); Rising Lava and Maze Run keep a ball that finished or
+burnt out of play and let it watch the rest (`outForGood`). A tick of 256
+balls costs 0.17 to 0.28 ms in each; Party's wasm is 120 KB, 51 KB gzipped.
 
 Not done yet: teams, and power-ups in more of the minigames.
 

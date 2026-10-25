@@ -58,9 +58,9 @@ test('the layout: the header between golf\'s and Fireplace\'s, the state between
   assert.equal(L.PG_BIG + L.PG_BIG_SIZE, L.REGION + L.REGION_SIZE);
   assert.ok(L.PG_SCORE >= L.B_BUMPS + 2 && L.PG_M + 4 <= L.PSIZE);
   assert.equal(L.MINIGAMES.length, L.NMG);
-  const ids = [L.MG_THINICE, L.MG_COLOR, L.MG_SWEEP, L.MG_LIGHT, L.MG_BOMBS, L.MG_WALL, L.MG_PADS, L.MG_HILL, L.MG_POTATO, L.MG_COINS, L.MG_PAINT, L.MG_RACE, L.MG_CHUTE, L.MG_TAG];
+  const ids = [L.MG_THINICE, L.MG_COLOR, L.MG_SWEEP, L.MG_LIGHT, L.MG_BOMBS, L.MG_WALL, L.MG_PADS, L.MG_HILL, L.MG_POTATO, L.MG_COINS, L.MG_PAINT, L.MG_RACE, L.MG_CHUTE, L.MG_TAG, L.MG_SNOWBALL, L.MG_TILT, L.MG_LAVA, L.MG_GALE, L.MG_DRUMS, L.MG_HOOPS, L.MG_PINBALL, L.MG_TRAILS, L.MG_MAZE, L.MG_BULLSEYE, L.MG_CANNON, L.MG_ROPE];
   assert.deepEqual(ids, [...Array(L.NMG).keys()]);
-  assert.deepEqual(L.MINIGAMES.map((m) => m.prefix), ['ti', 'cc', 'sw', 'rl', 'bo', 'wl', 'mp', 'kh', 'hp', 'cr', 'pp', 'rc', 'fc', 'tg']);
+  assert.deepEqual(L.MINIGAMES.map((m) => m.prefix), ['ti', 'cc', 'sw', 'rl', 'bo', 'wl', 'mp', 'kh', 'hp', 'cr', 'pp', 'rc', 'fc', 'tg', 'sb', 'tt', 'lv', 'gf', 'dr', 'ho', 'pn', 'lt', 'mz', 'be', 'cn', 'jr']);
   assert.equal(MC.TI_FX_CRACK, L.FX_MG + 4 * L.MG_THINICE);
 });
 
@@ -126,7 +126,7 @@ test('the rotation: never one of the last two played, every minigame in time', a
   const g = await room({ seed: 99, n: 2, force: null, play: false });
   const seen = [g.v.party().game];
   assert.deepEqual(g.v.party().prev, [seen[0], 255]);
-  for (let k = 0; k < 80; k++) {
+  for (let k = 0; k < 200; k++) {
     const round = g.v.hole().hole;
     while (g.v.hole().hole === round || g.v.hole().state !== L.H_COUNT) { hurry(g); g.step(); }
     const r = g.v.party();
@@ -388,11 +388,11 @@ test('the hex grid: hexAt and hexCentre mirror the sim\'s, each cell\'s centre i
 });
 
 test('a room of scripted balls into the rotation replays to the same hash on every tick, on 1 and 4 threads', async () => {
-  // seed 2's first round is Thin Ice (16 balls are through it in 7 s), then the rotation's next
+  // seed 60's first round is Thin Ice (16 balls are through it in 7 s), then the rotation's next
   const bytes = partyBytes();
   let rounds = 0, state = -1;
   const games = new Set();
-  const { log } = await scriptedParty({ bytes, seed: 2, balls: 16, ticks: 6000, leaveAt: 1500, onTick: (t, sim) => {
+  const { log } = await scriptedParty({ bytes, seed: 60, balls: 16, ticks: 6000, leaveAt: 1500, onTick: (t, sim) => {
     const v = new View(sim.memory.buffer);
     const s = v.hole().state;
     if (s === L.H_OVER && state !== L.H_OVER) rounds++;

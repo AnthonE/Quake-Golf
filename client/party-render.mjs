@@ -48,7 +48,8 @@ export const SHAPE = { BOX: 0, CYL: 1, HEX: 2, SPHERE: 3 };
 //   METAL    brushed along the solid's longer side, the sky and its clouds in it
 //   HAZARD   stripes a wide (0.5 m) across the solid's own frame, its colour and black
 //   GLOW     lit by a (0 off, 1 bright, past 1 white-hot); b takes the light out to its edges, a neon panel
-//   PAINT    the paint layer (s.paint) on its top faces, over its own colour
+//   PAINT    the paint layer (s.paint) on its top faces, over its own colour (a palette alpha past 1 glows: that much
+//            more of its colour as light)
 //   CHECKER  squares a a side (1 m) in the world, its colour and the opposite; b softens the opposite toward it
 //   WOOD     planks a wide (0.32 m) along its longer side, grain, seams
 //   RUBBER   rough, a faint sheen, a fine pebbly grain
@@ -57,9 +58,11 @@ export const LOOK = { MATTE: 0, PLASTIC: 1, ICE: 2, METAL: 3, HAZARD: 4, GLOW: 5
 export const DECAL = { RING: 0, DISC: 1, ZONE: 2, TARGET: 3 };
 
 // A stage as solids, 16 floats each:
-//   x, y, z (the centre), shape | half extents x, y, z (radius, half height, radius for the round ones), yaw |
+//   x, y, z (the centre), shape + 4 * roll | half extents x, y, z (radius, half height, radius for the round ones), yaw |
 //   r, g, b (0..1, sRGB), look | a, b (the look's two parameters), alpha, seed (varies a look's pattern)
-// Filled again every frame without garbage: clear(), then a call per solid.
+// A solid is turned by its roll about its own x axis (y toward z), then by its yaw about the vertical: a table
+// tipped toward one side, a drum or a slat of one lying on its side. The roll rides in the shape's float in
+// 1/65536 turns. Filled again every frame without garbage: clear(), then a call per solid.
 export class Scene {
   constructor(max = 24000) {
     this.max = max;
@@ -70,19 +73,20 @@ export class Scene {
   get count() { return this.n; }
   // The seed, when none is given, comes from where the solid stands (to an eighth of a metre in x and z), so a
   // still or falling solid keeps its pattern; one that slides sideways should pass its own.
-  put(shape, x, y, z, hx, hy, hz, yaw, r, g, b, look, a, b2, alpha, seed) {
+  put(shape, x, y, z, hx, hy, hz, yaw, r, g, b, look, a, b2, alpha, seed, roll = 0) {
     if (this.n >= this.max) return -1;
     const o = this.n * 16, d = this.data;
-    d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = shape;
+    d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = shape + 4 * ((Math.round(roll / (2 * Math.PI) * 65536) % 65536 + 65536) % 65536);
     d[o + 4] = hx; d[o + 5] = hy; d[o + 6] = hz; d[o + 7] = yaw;
     d[o + 8] = r; d[o + 9] = g; d[o + 10] = b; d[o + 11] = look;
     d[o + 12] = a; d[o + 13] = b2; d[o + 14] = alpha;
     d[o + 15] = seed ?? ((Math.imul(Math.round(x * 8), 73856093) ^ Math.imul(Math.round(z * 8), 19349663)) >>> 0) % 4096;
     return this.n++;
   }
-  box(x, y, z, hx, hy, hz, yaw, r, g, b, look = 0, a = 0, b2 = 0, alpha = 1, seed) { return this.put(0, x, y, z, hx, hy, hz, yaw, r, g, b, look, a, b2, alpha, seed); }
-  cyl(x, y, z, radius, hh, r, g, b, look = 0, a = 0, b2 = 0, alpha = 1, seed) { return this.put(1, x, y, z, radius, hh, radius, 0, r, g, b, look, a, b2, alpha, seed); }
-  hex(x, y, z, radius, hh, yaw, r, g, b, look = 0, a = 0, b2 = 0, alpha = 1, seed) { return this.put(2, x, y, z, radius, hh, radius, yaw, r, g, b, look, a, b2, alpha, seed); }
+  box(x, y, z, hx, hy, hz, yaw, r, g, b, look = 0, a = 0, b2 = 0, alpha = 1, seed, roll = 0) { return this.put(0, x, y, z, hx, hy, hz, yaw, r, g, b, look, a, b2, alpha, seed, roll); }
+  // upright; with roll and yaw, on its side: roll PI / 2 lays its axis along (-sin yaw, 0, cos yaw)
+  cyl(x, y, z, radius, hh, r, g, b, look = 0, a = 0, b2 = 0, alpha = 1, seed, roll = 0, yaw = 0) { return this.put(1, x, y, z, radius, hh, radius, yaw, r, g, b, look, a, b2, alpha, seed, roll); }
+  hex(x, y, z, radius, hh, yaw, r, g, b, look = 0, a = 0, b2 = 0, alpha = 1, seed, roll = 0) { return this.put(2, x, y, z, radius, hh, radius, yaw, r, g, b, look, a, b2, alpha, seed, roll); }
   sphere(x, y, z, radius, r, g, b, look = 0, a = 0, b2 = 0, alpha = 1, seed) { return this.put(3, x, y, z, radius, radius, radius, 0, r, g, b, look, a, b2, alpha, seed); }
 }
 
@@ -284,6 +288,11 @@ fn slotColor(s: f32) -> vec3f {
   return 0.55 + 0.4 * cos(6.2832 * (fract(h) + vec3f(0.0, 0.33, 0.67)));
 }
 fn rotY(v: vec3f, a: f32) -> vec3f { let c = cos(a); let s = sin(a); return vec3f(c * v.x - s * v.z, v.y, s * v.x + c * v.z); }
+fn rotX(v: vec3f, a: f32) -> vec3f { let c = cos(a); let s = sin(a); return vec3f(v.x, c * v.y - s * v.z, s * v.y + c * v.z); }
+// a solid's own frame to the world's and back: its roll about its x, then its yaw (Scene)
+fn toWorld(v: vec3f, yaw: f32, roll: f32) -> vec3f { return rotY(rotX(v, roll), yaw); }
+fn toSolid(v: vec3f, yaw: f32, roll: f32) -> vec3f { return rotX(rotY(v, -yaw), -roll); }
+fn rollOf(w: f32) -> f32 { return f32(u32(w) >> 2u) * (6.2831853 / 65536.0); }
 // Rodrigues: v turned by angle a about the unit axis k.
 fn turn(v: vec3f, k: vec3f, a: f32) -> vec3f {
   return v * cos(a) + cross(k, v) * sin(a) + k * dot(k, v) * (1.0 - cos(a));
@@ -475,6 +484,7 @@ struct MOut {
   @location(4) @interpolate(flat) prm: vec4f,    // a, b, alpha, seed
   @location(5) @interpolate(flat) ext: vec4f,    // half extents, yaw
   @location(6) @interpolate(flat) shape: u32,
+  @location(7) @interpolate(flat) roll: f32,
 };
 fn solidAt(ii: u32, p: vec3f, n: vec3f) -> MOut {
   var o: MOut;
@@ -482,13 +492,14 @@ fn solidAt(ii: u32, p: vec3f, n: vec3f) -> MOut {
   let a = solids[4u * i];
   let b = solids[4u * i + 1u];
   let lp = p * b.xyz;
-  o.wp = a.xyz + rotY(lp, b.w);
+  o.roll = rollOf(a.w);
+  o.wp = a.xyz + toWorld(lp, b.w, o.roll);
   o.lp = lp;
   o.ln = n;
   o.col = solids[4u * i + 2u];
   o.prm = solids[4u * i + 3u];
   o.ext = b;
-  o.shape = u32(a.w);
+  o.shape = u32(a.w) & 3u;
   return o;
 }
 @vertex fn vs_solid(@location(0) p: vec3f, @location(1) n: vec3f, @builtin(instance_index) ii: u32) -> MOut {
@@ -507,7 +518,7 @@ fn solidAt(ii: u32, p: vec3f, n: vec3f) -> MOut {
   if (solids[4u * i + 3u].z < 0.7) { return vec4f(2.0, 2.0, 2.0, 1.0); }
   let a = solids[4u * i];
   let b = solids[4u * i + 1u];
-  return toLight(a.xyz + rotY(p * b.xyz, b.w));
+  return toLight(a.xyz + toWorld(p * b.xyz, b.w, rollOf(a.w)));
 }
 // a ball, then its rider's body and head, as spheres
 @vertex fn vs_shadow_ball(@location(0) p: vec3f, @location(1) n: vec3f, @builtin(instance_index) ii: u32) -> @builtin(position) vec4f {
@@ -580,7 +591,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
   let toEye = u.cam.xyz - m.wp;
   let dist = length(toEye);
   let v = toEye / dist;
-  let vl = rotY(v, -yaw);                                // the view, in the solid's frame
+  let vl = toSolid(v, yaw, m.roll);                      // the view, in the solid's frame
   var nl = normalize(select(m.ln, m.lp / (h * h), shape == 3u));   // a sphere's normal is exact from where we are on it (an ellipsoid's too)
   // everything that takes a derivative, while every pixel still runs the same code
   let px = max(length(fwidth(m.wp)) * 0.7071, 1e-5);   // metres a pixel, here
@@ -591,7 +602,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
   let hzd = (m.lp.x + m.lp.y + m.lp.z) / max(sw, 0.05) + seed * 0.37;
   let fwH = fwidth(hzd);
   let csz = select(1.0, pa, pa > 0.0);
-  let tw = normalize(rotY(vec3f(-nl.z, 0.0, nl.x), yaw) + vec3f(1e-6, 0.0, 0.0));
+  let tw = normalize(toWorld(vec3f(-nl.z, 0.0, nl.x), yaw, m.roll) + vec3f(1e-6, 0.0, 0.0));
   let cq = select(vec2f(dot(m.wp.xz, tw.xz), m.wp.y), m.wp.xz, top) / csz;
   let fwC = fwidth(cq);
 
@@ -606,7 +617,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
   let curved = shape == 3u || (shape == 1u && !top);
   if (curved) { ink *= 1.0 - 0.5 * (1.0 - smoothstep(0.0, 2.5 * fwN + 0.02, ndv0)); }
 
-  let n = rotY(nl, yaw);
+  let n = toWorld(nl, yaw, m.roll);
   let r = reflect(-v, n);
   let sh = shadowAt(m.wp, n);
   var ao = contactAt(m.wp);
@@ -662,7 +673,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
       let along = select(m.lp.z, m.lp.x, lx);
       let across = select(m.lp.x, m.lp.z, lx) + m.lp.y;
       let st = vnoise(vec2f(along * 0.9, across * 55.0 + seed)) - 0.5;
-      let ta = rotY(select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), lx), yaw);
+      let ta = toWorld(select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), lx), yaw, m.roll);
       let rb = normalize(r + ta * st * 0.35 + vec3f(0.0, (vnoise(vec2f(along * 0.3, across * 3.0 + seed)) - 0.5) * 0.25, 0.0));
       var env = skyLite(rb);
       let cl = smoothstep(0.42, 0.8, fbm(rb.xz / (abs(rb.y) + 0.3) * 1.3 + seed * 0.1)) * smoothstep(-0.05, 0.2, rb.y);
@@ -684,8 +695,9 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
     case 6u: { // PAINT: the paint layer, wet, over the solid's own colour (the tops only)
       var pc = vec4f(0.0);
       if (top && nl.y > 0.0) { pc = paintAt(m.wp.xz, px); }
-      let alb = mix(base * (0.9 + 0.15 * grain), lin(pc.rgb), pc.a);
-      c = shade(alb, n, sh, ao) + (sunSpec(n, v, 90.0, 0.5) * sh + skyLite(r) * fresnel(n, v, 0.04) * 0.4) * pc.a;
+      let pk = min(pc.a, 1.0);
+      let alb = mix(base * (0.9 + 0.15 * grain), lin(pc.rgb), pk);
+      c = shade(alb, n, sh, ao) + (sunSpec(n, v, 90.0, 0.5) * sh + skyLite(r) * fresnel(n, v, 0.04) * 0.4) * pk + lin(pc.rgb) * 1.9 * max(pc.a - 1.0, 0.0);
     }
     case 7u: { // CHECKER: squares a a side (1 m) in the world, the colour and its opposite (b softens it)
       let lum = dot(base, vec3f(0.3, 0.55, 0.15));
@@ -742,7 +754,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
   if (look == 5u) { c = min(c * (0.7 + 0.8 * pa), vec3f(1.0)); }
   if (look == 2u) { c = mix(c, vec3f(1.0), 0.2 + 0.5 * pa); }
   if (look == 4u) { c = select(c, vec3f(0.05), fract((m.lp.x + m.lp.z) / (2.0 * select(0.5, pa, pa > 0.0))) > 0.5); }
-  if (look == 6u) { let p = paintAt(m.wp.xz, 2.0 * u.map.z / ${MAP_N}.0); c = mix(c, p.rgb, p.a); }
+  if (look == 6u) { let p = paintAt(m.wp.xz, 2.0 * u.map.z / ${MAP_N}.0); c = mix(c, p.rgb, min(p.a, 1.0)); }
   if (look == 9u) { c *= 0.8; }
   let px = 2.0 * u.map.z / ${MAP_N}.0;
   let eg = edgeOf(m.shape, m.lp, nl, m.ext.xyz);
@@ -1457,7 +1469,7 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
     //      decals: [{ pos: [x, y, z], radius, width, color: [r, g, b, a], kind (DECAL) }], flat at y, glowing,
     //      paint: null | { cells: Uint8Array(n * n) (cells[j * n + i] covers x0 + (i + 0.5) * size / n, z0 + (j + 0.5) * size / n),
     //               n, origin: [x0, z0], size (the grid's side, m), palette: Float32Array(1024) (rgba 0..1, index 0..255;
-    //               alpha 0 leaves the solid's own colour), version (uploaded when it or cells changes) },
+    //               alpha 0 leaves the solid's own colour, past 1 glows), version (uploaded when it or cells changes) },
     //      rects: [[x0, y0, x1, y1, r, g, b, a]] (screen px), text: Uint32Array(COLS * rows), graph (client/netgraph.mjs), flash 0..1,
     //      big: [{ text, x, y, scale, color }] (up to MAX_BIG lines of BIG_CHARS: the HUD font scale times over, its top
     //               left at x, y in HUD pixels from the text block's corner (a cell is 4 x 6), a palette colour C.*),
@@ -1500,8 +1512,9 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
           keyZ[i] = z;
         } else vis[i] = 0;
         if (Math.abs(D[o] - focus[0]) < ext + rad && Math.abs(D[o + 2] - focus[1]) < ext + rad) {
-          y0 = Math.min(y0, D[o + 1] - D[o + 5]);
-          y1 = Math.max(y1, D[o + 1] + D[o + 5]);
+          const hy = D[o + 3] >= 4 ? rad : D[o + 5]; // a rolled solid may stand up to its whole size
+          y0 = Math.min(y0, D[o + 1] - hy);
+          y1 = Math.max(y1, D[o + 1] + hy);
         }
       }
       let acc = 0;

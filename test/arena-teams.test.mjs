@@ -184,7 +184,8 @@ test('teams: dealt red, blue, red... in slot order as a match starts; a join goe
 });
 
 test('every team mode on the kit: sides, its target set as play starts, red against blue to the clock, a draw at 0 to 0', async () => {
-  const want = { [L.M_SLAYER]: AC.TS_MIN, [L.M_CTF]: AC.CF_CAPS, [L.M_ODDBALL]: AC.OB_TARGET, [L.M_HILL]: AC.HL_TARGET };
+  const want = { [L.M_SLAYER]: AC.TS_MIN, [L.M_CTF]: AC.CF_CAPS, [L.M_ODDBALL]: AC.OB_TARGET, [L.M_HILL]: AC.HL_TARGET,
+    [L.M_HEADHUNT]: AC.HH_MIN, [L.M_TERRITORY]: AC.TR_TARGET, [L.M_VIP]: AC.VP_TARGET, [L.M_ASSAULT]: AC.AS_TARGET };
   for (const { mode } of L.AM) {
     const g = await room(mode, 3);
     const name = L.MODES[mode].name;

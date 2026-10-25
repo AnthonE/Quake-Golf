@@ -28,6 +28,18 @@
 #include "mg/race.wat"
 #include "mg/chute.wat"
 #include "mg/tag.wat"
+#include "mg/snowball.wat"
+#include "mg/tilt.wat"
+#include "mg/lava.wat"
+#include "mg/gale.wat"
+#include "mg/drums.wat"
+#include "mg/hoops.wat"
+#include "mg/pinball.wat"
+#include "mg/trails.wat"
+#include "mg/maze.wat"
+#include "mg/bullseye.wat"
+#include "mg/cannon.wat"
+#include "mg/rope.wat"
 
 ;; ---- the room and the round
 

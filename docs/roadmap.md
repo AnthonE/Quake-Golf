@@ -6,10 +6,10 @@ not measured yet, it says so.
 
 ## Where it is
 
-24 games, each gated online at 256 players: golf, bumper balls, the arena's
-eight modes (Grab Bag, Zombies, gun game, Juggernaut, and red against blue:
-Team Deathmatch, Capture the Flag, Keep Away, King of the Hill) and Party's 14
-minigames. Fireplace plays them in turn.
+40 games, each gated online: golf, bumper balls, the arena's twelve modes
+(Grab Bag, Zombies, gun game, Juggernaut, and red against blue: Team
+Deathmatch, Capture the Flag, Keep Away, King of the Hill, Skull Hunt,
+Territories, VIP, Assault) and Party's 26 minigames. Fireplace plays them in turn.
 
 What a page downloads, gzipped, everything it imports included:
 
@@ -56,8 +56,8 @@ wave to build (framework, frontend, bot), then a game on it is one agent.
 
 | Kit | Now | Target | Candidates |
 | --- | --- | --- | --- |
-| Party (the ball) | 14 | 60 | Mini Golf, Sumo Ring, Snowball (grow by rolling, swallow smaller balls), Full Tilt (the floor tilts on a schedule), Slime Climb, Big Fans, Roll Out, Jump Club, Gate Crash, Hoop Hop, Pinball, Stompin' Ground; with teams: Fall Ball, Egg Scramble, Tug o' War, Volleyfall |
-| Arena (the fighter) | 8 | 24 | Slayer at run time, Battle Royale (a zone and loot pads), Snipers, Swords, Grifball, Assault (one bomb, a base to plant it in), Headhunter, Infection by teams, Floor is Lava, a Tower of Hell obby, a zombie horde |
+| Party (the ball) | 26 | 60 | Mini Golf, Sumo Ring, Gate Crash, Stompin' Ground, Seesaws, Glass Bridge; with teams: Fall Ball, Egg Scramble, Tug o' War, Volleyfall |
+| Arena (the fighter) | 12 | 24 | Slayer at run time, Battle Royale (a zone and loot pads), Snipers, Swords, Grifball, Stockpile, Infection by teams, Floor is Lava, a Tower of Hell obby, a zombie horde |
 | Champion (top-down, new) | 0 | 14 | FFA ARAM (below), team ARAM 128 v 128, co-op survivors against hordes, a boss raid of telegraphed patterns, Gem Grab, Showdown, Bounty |
 | Grid (2D boards, new) | 0 | 16 | Tetris 99, Puyo 99, Dr. Mario 99, Bomberman 128, Snake, Pac-Man 99; races of Minesweeper, 2048, match-3, nonograms |
 | Vehicle (new) | 0 | 12 | a kart race, balloon battle, bumper cars, car soccer 64 v 64, boats, hover racing, a demolition derby |

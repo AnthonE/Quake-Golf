@@ -15,5 +15,17 @@ import paint from './paint.mjs';
 import race from './race.mjs';
 import chute from './chute.mjs';
 import tag from './tag.mjs';
+import snowball from './snowball.mjs';
+import tilt from './tilt.mjs';
+import lava from './lava.mjs';
+import gale from './gale.mjs';
+import drums from './drums.mjs';
+import hoops from './hoops.mjs';
+import pinball from './pinball.mjs';
+import trails from './trails.mjs';
+import maze from './maze.mjs';
+import bullseye from './bullseye.mjs';
+import cannon from './cannon.mjs';
+import rope from './rope.mjs';
 
-export const MG = [thinice, color, sweep, light, bombs, wall, pads, hill, potato, coins, paint, race, chute, tag];
+export const MG = [thinice, color, sweep, light, bombs, wall, pads, hill, potato, coins, paint, race, chute, tag, snowball, tilt, lava, gale, drums, hoops, pinball, trails, maze, bullseye, cannon, rope];

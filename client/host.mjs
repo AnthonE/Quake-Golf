@@ -132,6 +132,41 @@ export function corrector(h) {
   return c;
 }
 
+// The camera on a ball you're watching, not driving (you're out, or a
+// spectator): an AI ball's word turns to any of 16 headings in a tick, so the
+// camera's heading eases round to the watched ball's, at most TURN_RATE
+// radians a second; a cut to another ball pans there over a quarter second
+// rather than jumping, and so does the first one after your own goes out.
+// update() returns where to put the focus and the yaw.
+export function follower() {
+  const TURN_RATE = 3;
+  const wrap = (a) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
+  let who = -1, yaw = 0, off = [0, 0, 0], shown = null;
+  return {
+    // your own ball, as the camera has it: where the next one watched pans from
+    drive(at, face) { who = -1; yaw = face; off = [0, 0, 0]; shown = at; },
+    // slot: the ball watched; at: where it's drawn; face: its heading, radians; ms: since the last frame
+    update(slot, at, face, ms) {
+      if (slot !== who) {
+        // a cut keeps the heading and pans from the last ball shown; with none, square behind this one
+        if (shown) off = [0, 1, 2].map((k) => shown[k] - at[k]);
+        else yaw = face;
+        if (!shown || Math.hypot(...off) > 120) off = [0, 0, 0];
+        who = slot;
+      }
+      const d = wrap(face - yaw) * (1 - Math.exp(-ms / 450));
+      const cap = TURN_RATE * ms / 1000;
+      yaw = wrap(yaw + Math.max(-cap, Math.min(cap, d)));
+      const f = Math.exp(-ms / 250);
+      off = off.map((v) => v * f);
+      shown = [0, 1, 2].map((k) => at[k] + off[k]);
+      return { at: shown, yaw };
+    },
+    // nobody to show (the stage's overview): the next ball starts square behind it
+    reset() { who = -1; shown = null; },
+  };
+}
+
 // A PNG (base64) of a renderer's next frame, read back from the GPU (headless browsers can't composite WebGPU).
 export async function capturePng(renderer, u8, s, scale = 1) {
   const { width, height, rgba } = await renderer.capture(u8, s);

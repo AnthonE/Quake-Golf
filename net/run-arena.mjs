@@ -9,6 +9,7 @@
 // through the relay's seed, and the gate wants it played, by the bot host's
 // world and every page; in a team mode, both sides dealt fighters.
 //   node net/run-arena.mjs [--bots 5] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05] [--shots 1] [--mode k]
+//                          [--port 4433: the relay's, its native door the next]
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -26,7 +27,7 @@ const shots = opt('shots', '1') !== '0';
 const mode = opt('mode', '') === '' ? null : Number(opt('mode', ''));
 const seed = mode === null ? 7 : forcedSeed(mode);
 const tag = mode === null ? 'arena' : `arena-${L.MODES[mode].name.toLowerCase().replace(/ /g, '')}`;
-const port = 4433;
+const port = Number(opt('port', 4433));
 const DENO = existsSync('.tools/deno') ? '.tools/deno' : 'deno';
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
@@ -37,11 +38,11 @@ mkdirSync('traces', { recursive: true });
 const summaryPath = `traces/${tag}.relay.json`;
 rmSync(summaryPath, { force: true });
 const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--seed', String(seed),
-  '--wasm', 'build/arena/game.wasm', '--duration', String(seconds + 40), '--summary', summaryPath, '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
+  '--native-port', String(port + 1), '--wasm', 'build/arena/game.wasm', '--duration', String(seconds + 40), '--summary', summaryPath, '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
 await new Promise((ok) => setTimeout(ok, 1500));
 const botsPath = `traces/${tag}.bots.json`;
 rmSync(botsPath, { force: true });
-const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--arena', '--relay', '127.0.0.1:4434', '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
+const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--arena', '--relay', `127.0.0.1:${port + 1}`, '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
   { stdio: ['ignore', 'inherit', 'inherit'] }) : null;
 const botsDone = bots ? new Promise((ok) => bots.once('exit', ok)) : null;
 

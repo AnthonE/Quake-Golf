@@ -5,7 +5,7 @@
 // game, Juggernaut) has none. Each module default-exports:
 //
 //   mode, key: its M_* and its AM key.
-//   carry: 'flag' | 'skull' | undefined: what a carrier (PF_CARRY) holds, for
+//   carry: 'flag' | 'skull' | 'bomb' | undefined: what a carrier (PF_CARRY) holds, for
 //     the carrier's HUD (a flag is drawn in the other side's colour) and the
 //     kill feed's KILL_CARRY.
 //   hud(view, ctx): its own lines, rows 2 to 4 at the top left (rows 0 and 1
@@ -38,16 +38,16 @@
 //     out { solid: [] (sprites, upright, one depth at the middle: { pos (the
 //     middle), size (half its width, m), aspect (height / width), color:
 //     [r, g, b, a], kind, minpx (px at least) }; kind 7 a flag on its pole
-//     waving (size 0.6, aspect 2: 2.4 m tall), 8 a skull, 0 a ball, 4 a
-//     weapon), glow: [] (kind 3, 5, 6, as
+//     waving (size 0.6, aspect 2: 2.4 m tall), 8 a skull, 10 a crown, 0 a
+//     ball, 4 a weapon), glow: [] (kind 3, 5, 6, as
 //     news's), beams: [] ({ a, b, width, color: [r, g, b, a] }), markers: []
 //     (HUD waypoints drawn over everything, through walls, with the distance:
 //     { pos: [x, y, z], label, color: C.*, kind: 'flag' | 'skull' | 'hill' |
-//     undefined (a diamond) }, clamped to the screen's edge when off it), zone:
-//     null or one ground disc the renderer paints on the terrain and box tops,
-//     { x, z, r, y (only surfaces within h of it; omit for any), h (default 2),
-//     color: [r, g, b], pulse (0..1) } }. Objectives' sprites go before the FX
-//     (MAX_SPRITE caps them together).
+//     'crown' | undefined (a diamond) }, clamped to the screen's edge when off
+//     it), zone: null or one ground disc the renderer paints on the terrain
+//     and box tops, { x, z, r, y (only surfaces within h of it; omit for
+//     any), h (default 2), color: [r, g, b], pulse (0..1) } }. Objectives'
+//     sprites go before the FX (MAX_SPRITE caps them together).
 //   cols: the board's columns between the name and KILLS / DEATHS: [{ head,
 //     get(o) -> string }], o a fighter().
 //   goal(view, me, ctx): the AI fighter's objective, or null to fight and
@@ -65,9 +65,13 @@ import slayer from './slayer.mjs';
 import ctf from './ctf.mjs';
 import oddball from './oddball.mjs';
 import hill from './hill.mjs';
+import headhunter from './headhunter.mjs';
+import territories from './territories.mjs';
+import vip from './vip.mjs';
+import assault from './assault.mjs';
 
 export const AMC = [];
-for (const m of [slayer, ctf, oddball, hill]) AMC[m.mode] = m;
+for (const m of [slayer, ctf, oddball, hill, headhunter, territories, vip, assault]) AMC[m.mode] = m;
 // the module whose MX codes a news item's size falls in (MX_AM + 8k for AM[k]), or undefined
 export const newsOf = (size) => (size >= L.MX_AM ? AMC[L.AM[(size - L.MX_AM) >> 3]?.mode] : undefined);
 export { SIDE, SIDE_C, SIDE_RGB, sideOf } from './sides.mjs';

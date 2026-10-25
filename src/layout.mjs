@@ -540,6 +540,14 @@ export const M_JUGGERNAUT = 3;
 //   M_ODDBALL (KEEP AWAY): one skull; every second your side holds it is a point; OB_TARGET win.
 //   M_HILL: one hill at a time, moving; every second your side holds it (more
 //   of you on it than of them) is a point; HL_TARGET win.
+//   M_HEADHUNT: a death drops its fighter's skulls and one more; carry them
+//   to the drop zone, moving round the map's hills, to bank a point each.
+//   M_TERRITORY: every hill of the map a territory, all up at once; more of
+//   you on one takes it; every 2 s a point a territory held; TR_TARGET win.
+//   M_VIP: a VIP each side, drawn again after it dies; a kill of theirs is a
+//   point; VP_TARGET win.
+//   M_ASSAULT: one bomb mid-field; carry it to their stand and plant it; it
+//   goes off for a point unless they defuse it; AS_TARGET win.
 // In a team mode everyone spawns on their own half with an assault rifle and
 // a magnum, the map's pads are laid, and a flag's or the skull's carrier has
 // no guns or frags, only a swing that kills (PF_CARRY).
@@ -547,6 +555,10 @@ export const M_SLAYER = 4;
 export const M_CTF = 5;
 export const M_ODDBALL = 6;
 export const M_HILL = 7;
+export const M_HEADHUNT = 8;
+export const M_TERRITORY = 9;
+export const M_VIP = 10;
+export const M_ASSAULT = 11;
 // name is what a player sees (the M_* and FIESTA names are only the code's)
 export const MODES = [
   { name: FIESTA ? 'GRAB BAG' : 'FREE FOR ALL', rules: FIESTA ? 'RANDOM GUNS  MOST KILLS IN 10 MIN' : `${FRAG_LIMIT} KILLS WIN`, ticks: MATCH_TICKS },
@@ -557,10 +569,14 @@ export const MODES = [
   { name: 'CAPTURE THE FLAG', rules: 'BRING THEIR FLAG HOME TO YOURS  3 TO WIN', ticks: 75000, team: 1, pads: 1 },
   { name: 'KEEP AWAY', rules: 'HOLD THE SKULL  A POINT A SECOND  100 TO WIN', ticks: 45000, team: 1, pads: 1 },
   { name: 'KING OF THE HILL', rules: 'HOLD THE HILL  A POINT A SECOND  IT MOVES', ticks: 45000, team: 1, pads: 1 },
+  { name: 'SKULL HUNT', rules: 'KILLS DROP SKULLS  BANK THEM IN THE ZONE', ticks: 45000, team: 1, pads: 1 },
+  { name: 'TERRITORIES', rules: 'TAKE THE TERRITORIES  HOLD THEM TO SCORE', ticks: 45000, team: 1, pads: 1 },
+  { name: 'VIP', rules: 'GUARD YOUR VIP  KILL THEIRS  10 TO WIN', ticks: 45000, team: 1, pads: 1 },
+  { name: 'ASSAULT', rules: 'PLANT THE BOMB AT THEIR BASE  3 TO WIN', ticks: 60000, team: 1, pads: 1 },
 ];
 export const MODE_TICKS = MODES.map((m) => m.ticks);
-// a room opens on a Fiesta, then free-for-all and team matches by turns
-export const ARENA_MODES = [M_FIESTA, M_SLAYER, M_INFECTION, M_CTF, M_GUNGAME, M_ODDBALL, M_JUGGERNAUT, M_HILL];
+// a room opens on a Fiesta, then two team matches to every free-for-all
+export const ARENA_MODES = [M_FIESTA, M_SLAYER, M_HEADHUNT, M_INFECTION, M_CTF, M_TERRITORY, M_GUNGAME, M_ODDBALL, M_VIP, M_JUGGERNAUT, M_HILL, M_ASSAULT];
 export const FORCE_MODE = 0xa8;
 export const TEAMED = MODES.reduce((b, m, k) => (m.team ? b | (1 << k) : b), 0); // red against blue
 export const PAD_MODES = MODES.reduce((b, m, k) => (m.pads ? b | (1 << k) : b), 0); // the FIESTA build lays the map's pads for these
@@ -622,6 +638,10 @@ export const AM = [
   { mode: M_CTF, key: 'ctf', prefix: 'cf' },
   { mode: M_ODDBALL, key: 'oddball', prefix: 'ob' },
   { mode: M_HILL, key: 'hill', prefix: 'hl' },
+  { mode: M_HEADHUNT, key: 'headhunter', prefix: 'hh' },
+  { mode: M_TERRITORY, key: 'territories', prefix: 'tr' },
+  { mode: M_VIP, key: 'vip', prefix: 'vp' },
+  { mode: M_ASSAULT, key: 'assault', prefix: 'as' },
 ];
 // Each team mode's own constants (src/am/<key>.mjs), gathered as one object
 // the assembler spreads into its scope, as MG_CONSTS is, and not names of this
@@ -753,6 +773,18 @@ export const MINIGAMES = [
   { key: 'race', prefix: 'rc', name: 'DOWNHILL' },
   { key: 'chute', prefix: 'fc', name: 'FRUIT CHUTE' },
   { key: 'tag', prefix: 'tg', name: 'TAG' },
+  { key: 'snowball', prefix: 'sb', name: 'SNOWBALL' },
+  { key: 'tilt', prefix: 'tt', name: 'TILT TABLE' },
+  { key: 'lava', prefix: 'lv', name: 'RISING LAVA' },
+  { key: 'gale', prefix: 'gf', name: 'GALE FORCE' },
+  { key: 'drums', prefix: 'dr', name: 'DRUM ROLL' },
+  { key: 'hoops', prefix: 'ho', name: 'HOOPLA' },
+  { key: 'pinball', prefix: 'pn', name: 'PINBALL' },
+  { key: 'trails', prefix: 'lt', name: 'LIGHT TRAILS' },
+  { key: 'maze', prefix: 'mz', name: 'MAZE RUN' },
+  { key: 'bullseye', prefix: 'be', name: 'BULLSEYE' },
+  { key: 'cannon', prefix: 'cn', name: 'CANNONADE' },
+  { key: 'rope', prefix: 'jr', name: 'JUMP ROPE' },
 ]; // index = MG_*
 export const MG_THINICE = 0;
 export const MG_COLOR = 1;
@@ -768,12 +800,25 @@ export const MG_PAINT = 10;
 export const MG_RACE = 11;
 export const MG_CHUTE = 12;
 export const MG_TAG = 13;
-export const NMG = 14;
+export const MG_SNOWBALL = 14;
+export const MG_TILT = 15;
+export const MG_LAVA = 16;
+export const MG_GALE = 17;
+export const MG_DRUMS = 18;
+export const MG_HOOPS = 19;
+export const MG_PINBALL = 20;
+export const MG_TRAILS = 21;
+export const MG_MAZE = 22;
+export const MG_BULLSEYE = 23;
+export const MG_CANNON = 24;
+export const MG_ROPE = 25;
+export const NMG = 26;
 
 export const PK_OUT = 0; // out is out: the last ball in wins
 export const PK_SCORE = 1; // a ball that falls comes back; placed by PG_SCORE at the end
 export const PGF_BUMPS = 1; // PG_FLAGS: balls bump
 export const PGF_NOKICK = 2; // PG_FLAGS: a bump has no kick, only what the balls bring (elastic)
+export const PGF_SIZE = 4; // PG_FLAGS: a ball's radius is its PG_M, an f32 (B_RAD while that's less), its weight the radius cubed
 export const P_COUNT = 750; // 6 s countdown, the minigame's title up
 export const P_OVER = 625; // 5 s of the result
 export const FX_MG = 32; // minigame k's own FX kinds are FX_MG + 4k .. FX_MG + 4k + 3
@@ -826,7 +871,19 @@ import * as mg_paint from './mg/paint.mjs';
 import * as mg_race from './mg/race.mjs';
 import * as mg_chute from './mg/chute.mjs';
 import * as mg_tag from './mg/tag.mjs';
-export const MG_CONSTS = Object.freeze(Object.assign({}, mg_thinice, mg_color, mg_sweep, mg_light, mg_bombs, mg_wall, mg_pads, mg_hill, mg_potato, mg_coins, mg_paint, mg_race, mg_chute, mg_tag));
+import * as mg_snowball from './mg/snowball.mjs';
+import * as mg_tilt from './mg/tilt.mjs';
+import * as mg_lava from './mg/lava.mjs';
+import * as mg_gale from './mg/gale.mjs';
+import * as mg_drums from './mg/drums.mjs';
+import * as mg_hoops from './mg/hoops.mjs';
+import * as mg_pinball from './mg/pinball.mjs';
+import * as mg_trails from './mg/trails.mjs';
+import * as mg_maze from './mg/maze.mjs';
+import * as mg_bullseye from './mg/bullseye.mjs';
+import * as mg_cannon from './mg/cannon.mjs';
+import * as mg_rope from './mg/rope.mjs';
+export const MG_CONSTS = Object.freeze(Object.assign({}, mg_thinice, mg_color, mg_sweep, mg_light, mg_bombs, mg_wall, mg_pads, mg_hill, mg_potato, mg_coins, mg_paint, mg_race, mg_chute, mg_tag, mg_snowball, mg_tilt, mg_lava, mg_gale, mg_drums, mg_hoops, mg_pinball, mg_trails, mg_maze, mg_bullseye, mg_cannon, mg_rope));
 
 // ---- Fireplace: every game in one module (build/fireplace/game.wasm), a
 // playlist of matches the room plays through, Mario Party style; people come

@@ -17,7 +17,7 @@ what comes next.
 ```sh
 npm ci && sh tools/install-deno.sh   # once: wabt, binaryen, Deno 2.9.7 in .tools/
 npm run build                        # every sim; prints each wasm's sha256
-npm test                             # node --test test/*.test.mjs, 442 tests, 6 to 8 min
+npm test                             # node --test test/*.test.mjs, 659 tests, about 9 min
 node --test test/bumper.test.mjs     # one file
 node harness/matrix.mjs --ticks 20000 --log logs/x.qgl --wasm build/<sim>/game.wasm   # Node, Deno, Chrome x JIT tiers x 1/2/4 threads
 node net/play.mjs [--arena [--mode k] | --bumper | --party [--mg k] | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
@@ -80,10 +80,11 @@ shell whose own command line contains the name: it kills that shell.
   (`test/new-mg.test.mjs` holds its anchors).
 - The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut,
   and the team modes Team Slayer, Capture the Flag, Oddball, King of the
-  Hill) are picked per match at run time, not built: `AH_MODE` to `AH_END`
+  Hill, Headhunter, Territories, VIP, Assault) are picked per match at run
+  time, not built: `AH_MODE` to `AH_END`
   at `REGION + 0x48..0x74` (the team modes' scores, target and winner
   included), a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`, `PF_BLUE`, and
-  `PF_CARRY` for a flag's or the skull's carrier), per-fighter state at
+  `PF_CARRY` for a flag's, the skull's or the bomb's carrier), per-fighter state at
   `MODE_REC`, a team mode's objective in `AO` (`REGION + 0xcc00`, 1 KiB).
   A Fiesta must leave all of it 0, so its region stays what it was;
   `forcedSeed(m)` (`arena-view.mjs`) makes a room play one mode. The team

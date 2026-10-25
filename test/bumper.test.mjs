@@ -365,3 +365,25 @@ test('a round of AI balls replays to the same hash on every tick, on 1 and 4 thr
   const b = await replay({ bytes, log: parsed, ticks: 9000, threads: 4, tag: 'b4', startWorkers });
   assert.deepEqual([...decodeTrace(a.trace).tickHashes], [...decodeTrace(b.trace).tickHashes]);
 });
+
+test("a spectator's camera on an AI ball: its heading eased, a cut to another ball panned", async () => {
+  const { follower } = await import('../client/host.mjs');
+  const f = follower();
+  f.drive([0, 0, 0], 0);
+  // an AI ball's word flipping between two headings a quarter turn apart every 3 frames, at 60 frames a second
+  let prev = 0, most = 0, out;
+  for (let i = 0; i < 120; i++) {
+    out = f.update(5, [30 + i * 0.1, 0, 0], Math.floor(i / 3) % 2 ? Math.PI / 2 : 0, 1000 / 60);
+    most = Math.max(most, Math.abs(out.yaw - prev));
+    prev = out.yaw;
+  }
+  assert.ok(most <= 3 / 60 + 1e-9, `at most 3 rad/s: ${most * 60} rad/s`);
+  assert.ok(Math.abs(out.yaw - Math.PI / 4) < 0.15, `settles between the two: ${out.yaw}`);
+  // a cut from where your ball went out to a ball 30 m off: no jump, and on it within a second
+  const g = follower();
+  g.drive([0, 0, 0], 0);
+  const first = g.update(9, [30, 0, 0], 0, 1000 / 60);
+  assert.ok(first.at[0] < 3, `starts from the last ball shown: ${first.at[0]}`);
+  for (let i = 0; i < 60; i++) out = g.update(9, [30, 0, 0], 0, 1000 / 60);
+  assert.ok(Math.abs(out.at[0] - 30) < 1, `within a metre of it in a second: ${out.at[0]}`);
+});
