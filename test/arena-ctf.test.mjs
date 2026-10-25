@@ -7,9 +7,13 @@ import { playArena } from '../tools/genarena.mjs';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import * as L from '../src/layout.mjs';
+import ctf, { flags } from '../client/am/ctf.mjs';
+import { AMC, SIDE_RGB } from '../client/am/index.mjs';
+import { C } from '../client/font.mjs';
 
-// Capture the Flag (src/am/ctf.wat). Helpers as test/arena-teams.test.mjs has
-// them; the flags read straight from AO (src/am/ctf.mjs's fields).
+// Capture the Flag (src/am/ctf.wat, client/am/ctf.mjs). Helpers as
+// test/arena-teams.test.mjs has them; the flags read straight from AO
+// (src/am/ctf.mjs's fields).
 
 // A room on the debug build: n fighters in, stepped to play (or only to the
 // countdown, play = false). mode forces every match through the seed; null
@@ -600,10 +604,151 @@ async function bots(n, ticks) {
   return { take: seen[L.CF_MX_TAKE], cap: seen[L.CF_MX_CAP], ret: seen[L.CF_MX_RETURN], home: seen[L.CF_MX_HOME], drop: seen[L.CF_MX_DROP] };
 }
 
-test('CTF with 8 AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads', async (t) => {
-  t.diagnostic(JSON.stringify(await bots(8, 5000)));
+test('CTF with 8 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; flags taken in 20,000 ticks', async (t) => {
+  const s = await bots(8, 20000);
+  t.diagnostic(JSON.stringify(s));
+  assert.ok(s.take >= 1, `${s.take} taken`);
 });
 
-test('CTF with 16 AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads', async (t) => {
-  t.diagnostic(JSON.stringify(await bots(16, 5000)));
+test('CTF with 16 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; flags taken and captured in 20,000 ticks', async (t) => {
+  const s = await bots(16, 20000);
+  t.diagnostic(JSON.stringify(s));
+  assert.ok(s.take >= 1 && s.cap >= 1, `${s.take} taken, ${s.cap} captured`);
+});
+
+// ---- the client module (client/am/ctf.mjs)
+
+// What its hooks put out against a CTF room's View, for slot `slot` (on `team`).
+const hudOf = (g, slot, team) => { const lines = []; ctf.hud(g.v, { put: (x, y, s, c) => lines.push([y, s, c]), C, slot, me: slot >= 0 ? g.v.fighter(slot) : null, team, now: 0 }); return lines; };
+function newsOf(g, f, slot) {
+  const said = [], shown = [];
+  ctf.news(f, { slot, me: null, name: (p) => (p === slot ? 'YOU' : `P${p + 1}`), team: (p) => (p < L.NPLAYER ? team(g, p) : -1),
+    feed: (t, c) => said.push([t, c]), banner: (t, c) => shown.push([t, c]), glow: () => {}, sound: {}, dist: 10, C, now: 0, view: g.v });
+  return { said, shown };
+}
+function drawOf(g, slot) {
+  const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
+  ctf.draw(g.v, { dt: 0, now: 0, t: 1, slot, me: g.v.fighter(slot), pme: null, cam: [0, 0, 0], view: g.v, pview: null }, out);
+  return out;
+}
+// p's goal, its role and rank as the bot gives them (sides dealt red, blue, red...: rank p >> 1)
+const goalOf = (g, p) => { const rank = p >> 1; return ctf.goal(g.v, g.v.fighter(p), { role: rank % 3 === 2 ? 'defend' : 'attack', rank, view: g.v, ally: (a, b) => g.v.ally(a, b), slot: p, t: 0 }); };
+const round = (p) => p.map((x) => Math.round(x * 100) / 100);
+
+test('CTF\'s client: the flags from AO (from the map in the countdown); HUD lines, news lines and banners from each side; the board\'s columns', async () => {
+  assert.equal(AMC[L.M_CTF], ctf);
+  const c = await room(L.M_CTF, 4, 7, false);
+  assert.deepEqual(flags(c.v).map((f) => [f.state, round(f.pos)]), [[HOME, STAND[0]], [HOME, STAND[1]]], 'the countdown: the map\'s');
+  const g = await room(L.M_CTF, 4);
+  away(g, [0, 1, 2, 3]);
+  assert.deepEqual(flags(g.v).map((f) => [f.state, f.pos, f.stand]), [0, 1].map((k) => [HOME, flag(g, k).stand, flag(g, k).stand]));
+  assert.deepEqual(hudOf(g, 0, 0), [[2, 'YOUR FLAG  HOME', C.RED], [3, 'THEIR FLAG  HOME', C.CYAN]]);
+  assert.deepEqual(hudOf(g, -1, -1), [[2, 'RED FLAG  HOME', C.RED], [3, 'BLUE FLAG  HOME', C.CYAN]]);
+  // red 0 takes blue's: its own HUD, blue's, and the news of it each way
+  let from = g.v.fxCount();
+  put(g, 0, STAND[1][0], STAND[1][2], FLOOR);
+  g.step();
+  const take = fxs(g.v, L.FX_MODE, L.CF_MX_TAKE, from)[0];
+  assert.deepEqual(hudOf(g, 0, 0), [[2, 'YOUR FLAG  HOME', C.RED], [3, 'THEIR FLAG  YOU HAVE IT', C.CYAN], [4, 'YOU HAVE THE FLAG  RUN HOME', C.WHITE]]);
+  assert.deepEqual(hudOf(g, 1, 1), [[2, 'YOUR FLAG  TAKEN BY P1', C.YELLOW], [3, 'THEIR FLAG  HOME', C.RED]]);
+  assert.deepEqual(newsOf(g, take, 0), { said: [['YOU TOOK THE BLUE FLAG', C.RED]], shown: [['YOU HAVE THE FLAG  RUN HOME', C.YELLOW]] });
+  assert.deepEqual(newsOf(g, take, 1), { said: [['P1 TOOK THE BLUE FLAG', C.RED]], shown: [['YOUR FLAG IS TAKEN', C.CYAN]] });
+  assert.deepEqual(newsOf(g, take, 2).shown, [], 'a teammate: the feed only');
+  // it dies: blue's flag lies, 20 s to go
+  from = g.v.fxCount();
+  sword(g, 1, 0, 500, 530);
+  assert.deepEqual(hudOf(g, 3, 1)[0], [2, 'YOUR FLAG  DROPPED 0:20', C.YELLOW]);
+  assert.deepEqual(newsOf(g, fxs(g.v, L.FX_MODE, L.CF_MX_DROP, from)[0], 3), { said: [['P1 DROPPED THE BLUE FLAG', C.RED]], shown: [['YOUR FLAG IS DOWN  RETURN IT', C.CYAN]] });
+  for (let i = 0; i < 250; i++) g.step();
+  assert.deepEqual(hudOf(g, 3, 1)[0], [2, 'YOUR FLAG  DROPPED 0:18', C.YELLOW]);
+  // blue 3 returns it; red 2 takes it and captures
+  from = g.v.fxCount();
+  put(g, 3, 501, 530);
+  g.step();
+  assert.deepEqual(newsOf(g, fxs(g.v, L.FX_MODE, L.CF_MX_RETURN, from)[0], 3), { said: [['YOU RETURNED THE BLUE FLAG', C.CYAN]], shown: [['YOU RETURNED YOUR FLAG', C.CYAN]] });
+  away(g, [3]);
+  put(g, 2, STAND[1][0], STAND[1][2], FLOOR);
+  g.step();
+  put(g, 2, STAND[0][0], STAND[0][2], FLOOR);
+  g.step();
+  const cap = fxs(g.v, L.FX_MODE, L.CF_MX_CAP, from)[0];
+  assert.deepEqual(newsOf(g, cap, 0), { said: [['P3 CAPTURED THE BLUE FLAG', C.RED]], shown: [['YOUR SIDE SCORES', C.RED]] });
+  assert.deepEqual(newsOf(g, cap, 1), { said: [['P3 CAPTURED THE BLUE FLAG', C.RED]], shown: [['RED CAPTURED YOUR FLAG', C.RED]] });
+  assert.deepEqual(newsOf(g, cap, 2).shown, [['YOU CAPTURED THE FLAG', C.YELLOW]]);
+  assert.deepEqual(newsOf(g, { size: L.CF_MX_HOME, owner: 255, shot: 0, pos: STAND[0] }, 1).said, [['THE RED FLAG IS HOME', C.RED]]);
+  // the board: captures and returns
+  assert.deepEqual(ctf.cols.map((col) => col.head), ['CAPS', 'RETURNS']);
+  assert.deepEqual([2, 3].map((p) => ctf.cols.map((col) => col.get(g.v.fighter(p)))), [['1', '0'], ['0', '1']]);
+  assert.deepEqual(ctf.state(g.v).score, [1, 0]);
+});
+
+test('CTF\'s client draws both flags on their stands, one lying, one over its carrier (not over yours); waypoints TAKE, ESCORT, HOME, RETURN, KILL', async () => {
+  const g = await room(L.M_CTF, 4);
+  away(g, [0, 1, 2, 3]);
+  const drawn = (out) => out.solid.filter((s) => s.kind === 7).map((s) => [round(s.pos), s.color.slice(0, 3)]);
+  const marks = (out) => out.markers.map((m) => [m.label, m.color]);
+  // both home: each on its stand (its middle 1.2 m up), a ring at each; TAKE on the other side's
+  let out = drawOf(g, 0);
+  assert.deepEqual(drawn(out), [[[392, 22.2, 512], SIDE_RGB[0]], [[632, 22.2, 512], SIDE_RGB[1]]]);
+  assert.equal(out.glow.filter((x) => x.kind === 6).length, 2);
+  assert.deepEqual(marks(out), [['TAKE', C.CYAN]]);
+  assert.deepEqual(marks(drawOf(g, 1)), [['TAKE', C.RED]]);
+  // red 0 carries blue's: over it for everyone else, not for itself; HOME for it, ESCORT for red 2, KILL for blue
+  put(g, 0, STAND[1][0], STAND[1][2], FLOOR);
+  g.step();
+  put(g, 0, 500, 540);
+  g.step();
+  const at0 = fpos(g, 0);
+  out = drawOf(g, 2);
+  const over = out.solid.find((s) => s.kind === 7 && s.color[2] > 0.9);
+  assert.ok(Math.abs(over.pos[0] - at0[0]) < 1e-3 && over.pos[1] > at0[1] + 1.5 && Math.abs(over.pos[2] - at0[2]) < 1e-3, 'over the carrier');
+  assert.deepEqual([drawn(out).length, marks(out)], [2, [['ESCORT', C.RED]]]);
+  assert.deepEqual([drawn(drawOf(g, 0)).length, marks(drawOf(g, 0))], [1, [['HOME', C.RED]]]);
+  assert.deepEqual(marks(drawOf(g, 1)), [['TAKE', C.RED], ['KILL', C.RED]]);
+  // blue 1 takes red's: HOME  WAIT for red 0; blue 1 kills red 0, so blue's lies: RETURN for blue, TAKE for red
+  put(g, 1, STAND[0][0], STAND[0][2], FLOOR);
+  g.step();
+  assert.deepEqual(marks(drawOf(g, 0)), [['HOME  WAIT', C.RED], ['KILL', C.CYAN]]);
+  sword(g, 1, 0, 500, 540);
+  assert.deepEqual(marks(drawOf(g, 3)), [['ESCORT', C.CYAN], ['RETURN', C.CYAN]]);
+  assert.deepEqual(marks(drawOf(g, 2)), [['TAKE', C.CYAN], ['KILL', C.CYAN]]);
+  const lying = flag(g, 1).pos;
+  assert.ok(drawn(drawOf(g, 2)).some(([p]) => Math.abs(p[0] - lying[0]) < 0.01 && Math.abs(p[1] - lying[1] - 1.2) < 0.01), 'where it lies');
+  assert.equal(ctf.state(g.v).flags[1].state, DROPPED);
+});
+
+test('CTF\'s brain: a carrier runs home; defenders hold, return, chase; attackers run for theirs, fight near it, escort, and get their own back', async () => {
+  const g = await room(L.M_CTF, 8); // red 0, 2, 4, 6 (4 defends: rank 2); blue 1, 3, 5, 7 (5 defends)
+  away(g, [0, 1, 2, 3, 4, 5, 6, 7]);
+  const brief = (o) => (o ? [round(o.pos), o.hurry, o.hold] : null);
+  // both home: attackers run for the enemy's flag, and fight over its last 25 m; defenders hold their stand
+  assert.deepEqual(brief(goalOf(g, 0)), [STAND[1], 1, false]);
+  assert.deepEqual(brief(goalOf(g, 4)), [STAND[0], 0, true]);
+  assert.deepEqual(brief(goalOf(g, 5)), [STAND[1], 0, true]);
+  put(g, 2, 612, 512);
+  assert.equal(goalOf(g, 2).hurry, 0.7, 'within 25 m');
+  // red 0 takes blue's: home at a run; red 2 and 6 ride along beside it; blue's defender chases it
+  put(g, 0, STAND[1][0], STAND[1][2], FLOOR);
+  g.step();
+  put(g, 0, 520, 540);
+  g.step();
+  assert.deepEqual(brief(goalOf(g, 0)), [STAND[0], 1, true]);
+  for (const p of [2, 6]) {
+    const o = goalOf(g, p);
+    assert.ok(Math.hypot(o.pos[0] - 520, o.pos[2] - 540) < 3.01 && o.hurry < 0.9 && !o.hold, `P${p + 1} escorts`);
+  }
+  assert.notDeepEqual(goalOf(g, 2).pos, goalOf(g, 6).pos, 'spread round it');
+  assert.deepEqual(brief(goalOf(g, 5)), [round(fpos(g, 0)), 0.7, false]);
+  assert.deepEqual(brief(goalOf(g, 1)), [STAND[0], 1, false], 'blue goes for red\'s');
+  // blue 1 takes red's: red's attackers turn to its carrier, and red's defender
+  put(g, 1, STAND[0][0], STAND[0][2], FLOOR);
+  g.step();
+  put(g, 1, 600, 470);
+  g.step();
+  for (const p of [2, 4, 6]) assert.deepEqual(brief(goalOf(g, p)), [round(fpos(g, 1)), 0.7, false], `P${p + 1}`);
+  // red's lies: whoever goes for it runs to it
+  sword(g, 2, 1, 600, 470);
+  for (const p of [4, 6]) assert.deepEqual(brief(goalOf(g, p)), [round(flag(g, 0).pos), 1, false], `P${p + 1}`);
+  // nothing for a fighter with no side
+  assert.equal(ctf.goal(g.v, { ...g.v.fighter(0), team: -1 }, { role: 'attack', rank: 0 }), null);
 });
