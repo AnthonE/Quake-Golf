@@ -16,9 +16,9 @@ What a page downloads, gzipped, everything it imports included:
 | Page | Files | Gzipped |
 | --- | --- | --- |
 | `client/party.html` | 54 | 275 KB (wasm 29 KB) |
-| `client/fireplace.html` | 66 | 410 KB (wasm 80 KB, 68 KB of it Blood Gulch's height map) |
+| `client/fireplace.html` | 72 | 436 KB (wasm 85 KB, 68 KB of it Blood Gulch's height map) |
 | `client/bumper.html` | 38 | 114 KB |
-| `client/arena.html` | 38 | 159 KB |
+| `client/arena.html` | 44 | 190 KB (the team modes: 6 files and 31 KB of it) |
 
 No textures, models, sound files or fonts: sounds are synthesized, the font is
 3x5 bitmaps, every shape is drawn on the GPU. A Party minigame adds about
