@@ -485,6 +485,8 @@ test('the client module: draws the stage through the countdown and play, frames 
       for (let i = 0; i < out.scene.count * 16; i++) assert.ok(Number.isFinite(out.scene.data[i]), 'finite');
       lava.hud(g.v, { ...hctx, me: g.v.partier(0) });
       for (const l of lines) assert.ok(l[3] + l[1].length <= 80, l[1]);
+      // rows 0 and 1 clear of the clock and the round's name the frontend centres on them
+      for (const l of lines) if (l[0] <= 1 && l[3] < 40) assert.ok(l[3] + l[1].length <= 33, `clear of the middle: ${l[1]}`);
       if (g.v.hole().state === L.H_PLAY) assert.ok(lines.some((l) => /M UP/.test(l[1])) && lines.some((l) => /LAVA/.test(l[1])), lines.map((l) => l[1]).join(' | '));
     }
     g.step();

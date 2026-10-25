@@ -4,14 +4,16 @@
 ;; the round's seed (ramps, most with boulders rolling down them, steps a hop
 ;; high, gaps to hop, platforms sliding to and fro across wider gaps, narrow
 ;; ledges) to the summit, flush with the tower's top, and the crown in its
-;; middle. The route is a band on the tower's side, LV_W wide; its first turn
-;; is rock down to the shelf, the turns over it slabs, so a ball through a
-;; gap or off a ledge lands on the turn below, and one off the outer edge on
-;; the shelf. The lava is LV_L0 under the shelf, still for LV_STILL, then
-;; rising faster every phase; a ball whose centre goes under it is out. A
-;; ball that touches the crown is home, out of play, parked on a ring over
-;; the summit. Placed by PG_SCORE: the order home, then the climbers still in
-;; by the best height they stood at, then the lava's victims, the last first.
+;; middle. The route is a band on the tower's side, LV_W wide, a rail along
+;; its outer edge but at the start and on the ledges; its first turn is rock
+;; down to the shelf, the turns over it slabs, so a ball through a gap or off
+;; a ledge lands on the turn below, and one over the edge on the shelf. A hop
+;; at the foot of a step climbs it. The lava starts under the shelf (deeper
+;; for a bigger crowd), still for LV_STILL, then rises faster every phase; a
+;; ball whose centre goes under it is out. A ball that touches the crown is
+;; home, out of play, parked on a ring over the summit. Placed by PG_SCORE:
+;; the order home, then the climbers still in by the best height they stood
+;; at, then the lava's victims, the last first.
 ;;
 ;; The route is sections along its middle line (s, metres from the start;
 ;; a turn is LV_C of it), each a height over the shelf running along it, in
@@ -174,16 +176,15 @@
   (f32.load offset=@LV_S_H1 (local.get $a)))
 
 ;; A climb on the end of the route, from random number q: a ramp (its
-;; boulders unless it's on the first turn, where the crowd is, in lanes
-;; across it) or steps.
-(func $lv_climb (param $q i32) (param $ramp i32) (param $first i32)
+;; boulders in lanes across it, unless calm) or steps.
+(func $lv_climb (param $q i32) (param $ramp i32) (param $calm i32)
   (local $s f32) (local $h f32) (local $len f32) (local $n i32) (local $j i32) (local $a i32) (local $m i32)
   (call $lv_end)
   (local.set $h) (local.set $s)
   (if (local.get $ramp)
     (then
       (local.set $len (!madd (call $lv_rnd (local.get $q)) (f32.const @LV_RAMP_LK) (f32.const @LV_RAMP_L0)))
-      (local.set $j (call $lv_add (i32.const @LV_RAMP) (select (i32.const 0) (i32.const @LV_F_BOULDERS) (local.get $first))
+      (local.set $j (call $lv_add (i32.const @LV_RAMP) (select (i32.const 0) (i32.const @LV_F_BOULDERS) (local.get $calm))
         (local.get $s) (local.get $len) (local.get $h)
         (f32.mul (local.get $len) (!madd (call $lv_rnd (i32.add (local.get $q) (i32.const 1))) (f32.const @LV_RAMP_SK) (f32.const @LV_RAMP_S0)))
         (f32.const 0) (f32.const 0)))
@@ -228,10 +229,10 @@
         (f32.max (f32.const @LV_LEDGE_MIN) (f32.mul (f32.load (i32.const @(PG_H + LV_W))) (f32.const @LV_LEDGE_K))) (f32.const 0))))))
 
 ;; The stage for n balls: the route as wide as the crowd wants and its start
-;; as long, the shelf as wide; the first turn climbs only (ramps and steps:
-;; it is rock down to the shelf; no boulders), then a gap, a slider or a ledge (in an
-;; order of the seed's) and a climb by turns till the route is LV_HMIN up,
-;; then the summit. The lava's heights and paces, deeper and slower the
+;; as long, the shelf as wide; round the first turn climbs only (ramps and
+;; steps: it is rock down to the shelf) and calm ones (the crowd is thick
+;; there), then a gap, a slider or a ledge (in an order of the seed's) and a
+;; climb by turns till the route is LV_HMIN up, then the summit. The lava's heights and paces, deeper and slower the
 ;; bigger the crowd. A scoring round nobody comes back into (PK_SCORE,
 ;; placed by PG_SCORE), braking with no keys, bumps without their kick.
 (func $lv_setup (param $n i32)
@@ -265,7 +266,7 @@
       (call $lv_end)
       (local.set $h) (local.set $s)
       (br_if $turned (f32.ge (local.get $s) (local.get $c)))
-      ;; a ramp first; after it, a ramp more often than steps
+      ;; a ramp first; after it, a ramp more often than steps; no boulders
       (call $lv_climb (local.get $q) (i32.or (local.get $first) (f32.lt (call $lv_rnd (i32.add (local.get $q) (i32.const 7))) (f32.const 0.55)))
                       (i32.const 1))
       (local.set $first (i32.const 0))

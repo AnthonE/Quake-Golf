@@ -1,9 +1,10 @@
 // RISING LAVA (MG_LAVA, prefix lv): a rock tower in a crater of lava, a
 // route winding up round it from a wide shelf at its foot to a crown on its
 // summit. The route is a band LV_W wide on the tower's side, a helix: ramps
-// (boulders rolling down most of them), broad steps a hop high, short gaps
-// to hop, platforms sliding back and forth across longer ones, and narrow
-// ledges, a turn of the tower above the one before. The lava is still for
+// (boulders rolling down those past the first turn), broad steps a hop high,
+// short gaps to hop, platforms sliding back and forth across longer ones, and
+// narrow ledges, a turn of the tower above the one before, a rail along its
+// outer edge but at the start and on the ledges. The lava is still for
 // LV_STILL, then rises faster every LV_PH; a ball whose centre goes under it
 // is out. The first to touch the crown wins; the rest place by the order
 // they touched it, then the climbers by the height they reached, then the

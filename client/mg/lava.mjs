@@ -3,10 +3,11 @@
 // in its middle a shelf of basalt and a tower of grey rock banded in strata,
 // the route a band of warm brown stone winding up its side: the first turn
 // a solid ramp of rock off the shelf, the turns over it slabs on the tower,
-// ramps stepping up, steps in two tones, gaps and sliders with hazard lips,
-// the slider's platform striped yellow, ledges with a red edge, boulders
-// rolling down their ramps from the lips over them; on the summit a gold
-// crown, and over it a gold ring where the balls home bob in their order.
+// a low stone rail along the outer edge, ramps stepping up, steps in two
+// tones, gaps and sliders with hazard lips, the slider's platform striped
+// yellow, ledges with a red edge, boulders rolling down their ramps from the
+// lips over them; on the summit a gold crown, and over it a gold ring where
+// the balls home bob in their order.
 // The route, the slider and the boulders are the sim's (src/mg/lava.wat):
 // its sections read from PG_S, worked here in doubles at the prediction's
 // tick, so what is drawn and what the bots dodge is what the sim does. The
@@ -23,10 +24,10 @@ const BR = 1; // a ball's radius
 const SLAB = 1.2; // m a slab of the turns over the first is thick
 const PIECE = 1.1; // m of route a slab of a ramp
 const ROCK = {
-  shelf: [0.2, 0.17, 0.16], tower: [0.31, 0.28, 0.27], strata: [0.38, 0.32, 0.28], summit: [0.6, 0.54, 0.46],
-  route: [0.47, 0.38, 0.31], boulderRamp: [0.52, 0.36, 0.27], step: [[0.56, 0.48, 0.39], [0.43, 0.37, 0.31]],
-  pad: [0.42, 0.38, 0.35], ledge: [0.39, 0.35, 0.33], start: [0.3, 0.27, 0.27], rim: [0.17, 0.13, 0.12], boulder: [0.36, 0.3, 0.27],
-  rail: [0.34, 0.29, 0.26],
+  shelf: [0.27, 0.23, 0.21], tower: [0.36, 0.32, 0.31], strata: [[0.45, 0.39, 0.34], [0.3, 0.27, 0.27]], summit: [0.78, 0.7, 0.57],
+  route: [0.64, 0.5, 0.37], boulderRamp: [0.7, 0.46, 0.32], step: [[0.74, 0.62, 0.47], [0.57, 0.47, 0.36]],
+  pad: [0.6, 0.54, 0.47], ledge: [0.54, 0.49, 0.45], start: [0.42, 0.37, 0.35], rim: [0.19, 0.15, 0.14], boulder: [0.4, 0.33, 0.29],
+  rail: [0.48, 0.4, 0.34],
 };
 const LAVA = [1, 0.42, 0.06];
 const GOLD = [1, 0.78, 0.2];
@@ -383,7 +384,7 @@ function build(st) {
   // the shelf, and the tower to its top: rock in bands
   cyl(cx, PLAT_Y - 2.5, cx, st.rb, 2.5, ROCK.shelf);
   cyl(cx, (PLAT_Y - 2 + st.ht) / 2, cx, rt, (st.ht - PLAT_Y + 2) / 2, ROCK.tower);
-  for (let y = PLAT_Y + 3, i = 0; y < st.ht - 1.5; y += 3.6, i++) cyl(cx, y, cx, rt + 0.12, 0.35 + 0.25 * (i % 3 === 0), i & 1 ? ROCK.strata : [0.27, 0.24, 0.24]);
+  for (let y = PLAT_Y + 3, i = 0; y < st.ht - 1.5; y += 3.6, i++) cyl(cx, y, cx, rt + 0.12, 0.35 + 0.25 * (i % 3 === 0), ROCK.strata[i & 1]);
   cyl(cx, st.ht - 0.35, cx, rt + 0.1, 0.35, ROCK.summit);
   // a slab of the route from s0 to s1, from r0 to r1 round the tower, its top h over the shelf: on the first turn rock
   // down to the shelf, over it a slab
@@ -657,9 +658,6 @@ export default {
       if (!(fl & L.PF_DEAD)) { climbing++; leadH = Math.max(leadH, view.dv.getFloat32(a + L.P_PY, true)); continue; }
       if (m & MC.LV_M_FIN) home++; else if (m & MC.LV_M_BURN) burnt++;
     }
-    const blank = ' '.repeat(34);
-    ctx.put(1, 0, blank, C.WHITE);
-    ctx.put(1, 1, blank, C.WHITE);
     const mine = ctx.pme ?? me;
     if (me?.live) {
       const fate = fateOf(me.m);
@@ -668,10 +666,10 @@ export default {
       else if (!me.out) {
         const up = Math.max(0, mine.pos[1] - PLAT_Y), over = mine.pos[1] + BR - lava;
         ctx.put(1, 0, `${Math.floor(up)} M UP`, C.YELLOW);
-        ctx.put(9, 0, over < 6 ? `LAVA ${over.toFixed(1)} M UNDER YOU` : `LAVA ${Math.floor(over)} M UNDER YOU`, over < 4 ? C.RED : over < 10 ? C.ORANGE : C.GREY);
+        ctx.put(9, 0, over < 6 ? `LAVA ${over.toFixed(1)} M UNDER` : `LAVA ${Math.floor(over)} M UNDER`, over < 4 ? C.RED : over < 10 ? C.ORANGE : C.GREY);
       }
     }
-    ctx.put(1, 1, `${home} HOME  ${burnt} IN THE LAVA  ${climbing} CLIMBING`, C.GREY);
+    ctx.put(1, 1, `${home} HOME  ${burnt} BURNT  ${climbing} LEFT`, C.GREY);
     // the lava, on the right
     const pace = paceAt(st, t);
     if (t < MC.LV_STILL) ctx.right(2, `THE LAVA RISES IN ${Math.ceil((MC.LV_STILL - t) * TICK)}`, C.ORANGE);
