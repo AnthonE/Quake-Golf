@@ -121,6 +121,9 @@ const held = (g, red, blue) => { g.dv.setUint16(L.AO + L.HL_HELD, red, true); g.
 const news = (g, from) => fxs(g.v, L.FX_MODE, undefined, from).filter((f) => f.size >= L.MX_AM + 24 && f.size < L.MX_AM + 32).map((f) => [f.size, f.owner, f.shot]);
 const [MOVE, TAKE, CONTEST] = [L.HL_MX_MOVE, L.HL_MX_TAKE, L.HL_MX_CONTEST];
 
+// The news gap up: the next change of hands is news at once.
+const gapUp = (g) => g.dv.setUint32(L.AO + L.HL_SAIDAT, g.v.tick - L.HL_NEWSGAP, true);
+
 // The hill moves on to hill k on the next tick (its time up, the one before it in the map's order).
 function goHill(g, k) {
   const n = u32(g, L.MAP_NHILL);
@@ -178,7 +181,7 @@ test('King of the Hill: the first hill drawn as play starts, where it stands res
   assert.deepEqual([g.v.hole().state, hill(g).at, news(g, from)], [L.H_OVER, k, []]);
 });
 
-test('King of the Hill: each side\'s live fighters on it (strictly within its radius across, HL_H up or down); more of one side holds it, as many each contests it, none leaves it nobody\'s; news as a side takes it or it\'s contested', async () => {
+test('King of the Hill: each side\'s live fighters on it (strictly within its radius across, HL_H up or down); more of one side holds it, as many each contests it, none leaves it nobody\'s; news as it changes hands', async () => {
   const g = await room(L.M_HILL, 6);
   const all = [0, 1, 2, 3, 4, 5];
   assert.deepEqual(sides(g, all), [0, 1, 0, 1, 0, 1]);
@@ -210,18 +213,21 @@ test('King of the Hill: each side\'s live fighters on it (strictly within its ra
   g.step();
   assert.ok(Math.abs(g.v.fighter(0).pos[1] - 21) < 0.01 && Math.hypot(g.v.fighter(0).pos[0] - 392, g.v.fighter(0).pos[2] - 512) < 6, 'in the room');
   assert.deepEqual(state(), [0, [0, 0]], 'under it');
-  assert.deepEqual(news(g, from), [[TAKE, 255, 1], [TAKE, 255, 1]]);
-  // hands change: red, contested, blue, contested, red, blue, nobody
+  assert.deepEqual(news(g, from), [[TAKE, 255, 1]], 'red taking it back off nobody isn\'t news');
+  // hands change, a second each: red, contested, blue, contested, red, blue, nobody (from a new hill: the news has named nobody)
+  goHill(g, 1);
   const spots = [[-3, 0], [-1.5, 1], [0, -1], [1.5, 1], [3, 0], [0, 3]];
   const hands = [[[0], 1, [1, 0]], [[0, 1], 3, [1, 1]], [[0, 1, 3], 2, [1, 2]], [[0, 1, 2, 3], 3, [2, 2]], [[0, 1, 2, 3, 4], 1, [3, 2]], [[1, 3], 2, [0, 2]], [[], 0, [0, 0]]];
   let n = g.v.fxCount();
   for (const [here, hold, count] of hands) {
     away(g, all);
     for (const p of here) on(g, p, ...spots[p]);
-    steps(g, 20);
+    steps(g, L.HL_NEWSGAP);
     assert.deepEqual(state(), [hold, count], `${here}`);
   }
-  assert.deepEqual(news(g, n), [[TAKE, 255, 1], [CONTEST, 255, 3], [TAKE, 255, 2], [CONTEST, 255, 3], [TAKE, 255, 1], [TAKE, 255, 2]], 'one each time it changes hands; none as it goes back to nobody');
+  const said = fxs(g.v, L.FX_MODE, undefined, n).filter((f) => f.size === TAKE || f.size === CONTEST);
+  assert.deepEqual(said.map((f) => [f.size, f.owner, f.shot]), [[TAKE, 255, 1], [CONTEST, 255, 3], [TAKE, 255, 2], [CONTEST, 255, 3], [TAKE, 255, 1], [TAKE, 255, 2]], 'one each time it changes hands; none as it goes back to nobody');
+  assert.deepEqual(said.slice(1).map((f, i) => f.tick - said[i].tick), [1, 1, 1, 1, 1].map(() => L.HL_NEWSGAP), 'each on its hand\'s first tick');
   // the dead and those who left don't count: blue's two on it, one dies, the other leaves
   n = g.v.fxCount();
   on(g, 1, ...spots[1]); on(g, 3, ...spots[3]);
@@ -232,7 +238,43 @@ test('King of the Hill: each side\'s live fighters on it (strictly within its ra
   assert.deepEqual(state(), [2, [0, 1]], 'a death');
   g.step([[L.EV_LEAVE, 3]]);
   assert.deepEqual(state(), [0, [0, 0]], 'a leave');
-  assert.deepEqual(news(g, n), [[TAKE, 255, 2]]);
+  assert.deepEqual(news(g, n), [], 'blue again after an empty hill: the news named blue last');
+});
+
+test('King of the Hill: its news at most one every HL_NEWSGAP: a change held back goes out as the gap is up if it still stands, and never if the hill went back; a crowd flickering on the rim, one a second at most', async () => {
+  const g = await room(L.M_HILL, 8); // even slots red, odd blue
+  const all = [0, 1, 2, 3, 4, 5, 6, 7];
+  away(g, all);
+  goHill(g, 0);
+  const from = g.v.fxCount();
+  const t0 = g.v.tick;
+  on(g, 0);
+  g.step();
+  on(g, 1, 1.5, 0);
+  steps(g, 10);
+  assert.deepEqual([hill(g).hold, news(g, from)], [3, [[TAKE, 255, 1]]], 'red\'s at once; the contest held back');
+  while (g.v.tick < t0 + L.HL_NEWSGAP) g.step();
+  assert.equal(news(g, from).length, 1);
+  g.step();
+  const said = () => fxs(g.v, L.FX_MODE, undefined, from).filter((f) => f.size === TAKE || f.size === CONTEST);
+  assert.deepEqual(said().map((f) => [f.size, f.shot, f.tick - t0]), [[TAKE, 1, 0], [CONTEST, 3, L.HL_NEWSGAP]], 'out as the gap is up');
+  // blue alone for 50 ticks, then contested again: blue is never news
+  away(g, [0]);
+  steps(g, 50);
+  assert.equal(hill(g).hold, 2);
+  on(g, 0);
+  steps(g, 2 * L.HL_NEWSGAP);
+  assert.deepEqual([hill(g).hold, said().length], [3, 2]);
+  // red's 2 in and out of the rim every two ticks, for 8 s: red, contested, red... a change every two ticks, a news a second at most
+  const n = said().length;
+  for (let i = 0; i < 1000; i++) {
+    on(g, 2, i & 2 ? 7.9 : 8.1, 0);
+    g.step();
+  }
+  const flick = said().slice(n);
+  assert.ok(flick.length >= 7 && flick.length <= 9, `${flick.length} news`);
+  assert.ok(flick.every((f, i) => i === 0 || f.tick - flick[i - 1].tick >= L.HL_NEWSGAP), flick.map((f) => f.tick).join(' '));
+  assert.ok(flick.every((f, i) => i === 0 || f.size !== flick[i - 1].size), 'each one a change');
 });
 
 test('King of the Hill: every HL_POINT ticks a side holds it is a point for the side and for each of its fighters on it then; each side\'s count kept across a contest, nobody and a move', async () => {
@@ -275,6 +317,7 @@ test('King of the Hill: every HL_POINT ticks a side holds it is a point for the 
   goHill(g, 1); // nobody on it this tick
   on(g, 0); on(g, 4, 1.5, 0);
   const from = g.v.fxCount();
+  gapUp(g);
   g.step();
   assert.deepEqual([hill(g).hold, hill(g).held], [1, [101, 0]]);
   steps(g, L.HL_POINT - 102);
@@ -284,6 +327,7 @@ test('King of the Hill: every HL_POINT ticks a side holds it is a point for the 
   // red holds the old hill and one of red's is on the new one as it comes up: news, it's a new hill
   steps(g, 10);
   put(g, 2, MAP.hills[2][0], MAP.hills[2][1], FEET[2]);
+  gapUp(g);
   goHill(g, 2);
   assert.deepEqual(news(g, from), [[TAKE, 255, 1], [MOVE, 255, 2], [TAKE, 255, 1]]);
   assert.deepEqual([hill(g).hold, hill(g).on, hill(g).held], [1, [1, 0], [11, 0]]);
@@ -362,6 +406,7 @@ test('King of the Hill: joins and leaves mid-hill: a holder who leaves gives it 
   for (let i = 0; i < L.COOL_TICKS; i++) g.step();
   on(g, 0, 0, 1.5); on(g, 3, 0, 3.2); on(g, 7, -3, 0);
   from = g.v.fxCount();
+  gapUp(g);
   swing(g, 0, 3);
   assert.ok(g.v.fighter(3).dead, 'a kill');
   assert.deepEqual([hill(g).hold, hill(g).on], [3, [1, 1]]);

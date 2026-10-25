@@ -9,6 +9,7 @@
 ;; every HL_POINT ticks a side holds it, counted per side and kept across a
 ;; contest and a move, is a point for the side and for each of its fighters
 ;; on it then (MR_POINTS). The core ends the match at AH_TARGET or the clock.
+;; Its news says who has it as that changes, at most one every HL_NEWSGAP.
 
 ;; Hill k comes up: its index, its centre (the feet height $stand gives its
 ;; point) and radius in AO, and the tick it moves on.
@@ -42,16 +43,16 @@
   (i32.store (i32.const @AH_TARGET) (i32.const @HL_TARGET)))
 
 ;; A tick of play: the hill moves on when its time is up (not on the clock's
-;; last tick: the match is over), nobody's until it's counted; each side's
-;; fighters on it counted, in slot order; who holds it, with news as a side
-;; takes it or it's contested; the holder's tick counted toward its point.
+;; last tick: the match is over), a new hill the news hasn't named a holder
+;; for; each side's fighters on it counted, in slot order; who holds it, and
+;; news of it; the holder's tick counted toward its point.
 (func $hl_tick (result i32)
   (local $p i32) (local $t i32) (local $red i32) (local $blue i32) (local $hold i32) (local $s i32) (local $a i32) (local $n i32)
   (local.set $t (i32.load (i32.const @HDR_TICK)))
   (if (i32.and (i32.ge_u (local.get $t) (i32.load (i32.const @(AO + HL_MOVES)))) (i32.lt_u (local.get $t) (i32.load (i32.const @HDR_UNTIL))))
     (then
       (call $hl_put (i32.rem_u (i32.add (i32.load (i32.const @(AO + HL_AT))) (i32.const 1)) (i32.load (i32.const @MAP_NHILL))))
-      (i32.store (i32.const @(AO + HL_HOLD)) (i32.const 0))
+      (i32.store (i32.const @(AO + HL_SAID)) (i32.const 0))
       (call $hl_news (i32.const @HL_MX_MOVE) (i32.load (i32.const @(AO + HL_AT))))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (if (call $hl_on (local.get $p))
@@ -61,9 +62,16 @@
   (local.set $hold (select (i32.const 1)
                            (select (i32.const 2) (select (i32.const 3) (i32.const 0) (local.get $red)) (i32.gt_u (local.get $blue) (local.get $red)))
                            (i32.gt_u (local.get $red) (local.get $blue))))
-  (if (i32.and (i32.ne (local.get $hold) (i32.const 0)) (i32.ne (local.get $hold) (i32.load (i32.const @(AO + HL_HOLD)))))
-    (then (call $hl_news (select (i32.const @HL_MX_CONTEST) (i32.const @HL_MX_TAKE) (i32.eq (local.get $hold) (i32.const 3))) (local.get $hold))))
   (i32.store (i32.const @(AO + HL_HOLD)) (local.get $hold))
+  ;; news when a side has it, or it's contested, and the news last said
+  ;; otherwise (an empty hill isn't news), HL_NEWSGAP since the last: one held
+  ;; back goes out as the gap is up if it still stands
+  (if (i32.and (i32.and (i32.ne (local.get $hold) (i32.const 0)) (i32.ne (local.get $hold) (i32.load (i32.const @(AO + HL_SAID)))))
+               (i32.ge_u (i32.sub (local.get $t) (i32.load (i32.const @(AO + HL_SAIDAT)))) (i32.const @HL_NEWSGAP)))
+    (then
+      (call $hl_news (select (i32.const @HL_MX_CONTEST) (i32.const @HL_MX_TAKE) (i32.eq (local.get $hold) (i32.const 3))) (local.get $hold))
+      (i32.store (i32.const @(AO + HL_SAID)) (local.get $hold))
+      (i32.store (i32.const @(AO + HL_SAIDAT)) (local.get $t))))
   ;; s: the holding side (0 red, 1 blue); a full second of it a point for the
   ;; side and for each of its fighters on it
   (local.set $s (i32.sub (local.get $hold) (i32.const 1)))
