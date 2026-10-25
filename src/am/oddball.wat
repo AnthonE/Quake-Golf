@@ -121,3 +121,7 @@
   (call $fx (i32.const 0) (i32.const @FX_MODE) (local.get $owner) (local.get $shot)
             (f32.load (i32.const @(AO + OB_POS))) (f32.load (i32.const @(AO + OB_POS + 4))) (f32.load (i32.const @(AO + OB_POS + 8)))
             (f32.convert_i32_u (local.get $what))))
+
+;; No spawn point is barred.
+(func $ob_bar (param $x f32) (param $y f32) (param $z f32) (result i32)
+  (i32.const 0))

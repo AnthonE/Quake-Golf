@@ -179,3 +179,7 @@
     (if (i32.and (i32.eq (i32.load8_u offset=@CF_STATE (local.get $f)) (i32.const @CF_CARRIED))
                  (i32.eq (i32.load8_u offset=@CF_BY (local.get $f)) (local.get $q)))
       (then (call $cf_drop (local.get $k) (!at f32 @(PLAYERS + P_PX) (local.get $qb)) (!at f32 @(PLAYERS + P_PY) (local.get $qb)) (!at f32 @(PLAYERS + P_PZ) (local.get $qb)))))))
+
+;; No spawn point is barred.
+(func $cf_bar (param $x f32) (param $y f32) (param $z f32) (result i32)
+  (i32.const 0))

@@ -33,3 +33,7 @@
   (local.set $lead (call $a_lead))
   (if (i32.and (i32.ne (local.get $lead) (i32.const 0)) (i32.ne (local.get $lead) (local.get $was)))
     (then (call $a_news (i32.const @TS_MX_LEAD) (local.get $a) (local.get $lead)))))
+
+;; No spawn point is barred.
+(func $ts_bar (param $x f32) (param $y f32) (param $z f32) (result i32)
+  (i32.const 0))

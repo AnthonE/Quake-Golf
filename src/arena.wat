@@ -272,7 +272,7 @@
   (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
   (local.set $zed (i32.and (local.get $fl) (i32.const @PF_ZOMBIE)))
   (local.set $bestd (select (f32.const -1e30) (f32.const -1) (i32.or (local.get $zed) (local.get $team))))
-  ;; a team mode's fighter starts on its own half: n spawns to draw from, side -1 for all of them
+  ;; a team mode's fighter starts on its own half, where its mode lets it: n spawns to draw from, side -1 for all of them
   (local.set $n (i32.load (i32.const @MAP_NSPAWN)))
   (local.set $side (i32.const -1))
   (if (local.get $team)
@@ -280,7 +280,7 @@
       (local.set $side (call $a_team (local.get $p)))
       (local.set $n (i32.const 0))
       (!for $j (i32.const 0) (i32.load (i32.const @MAP_NSPAWN))
-        (if (i32.eq (call $a_spawn_half (local.get $j)) (local.get $side)) (then (!inc $n))))
+        (if (call $a_spawn_ok (local.get $j) (local.get $side)) (then (!inc $n))))
       ;; tools/map.mjs sees each half has one; a map that somehow hasn't draws from all
       (if (i32.eqz (local.get $n)) (then (local.set $side (i32.const -1)) (local.set $n (i32.load (i32.const @MAP_NSPAWN)))))))
   (!for $k (i32.const 0) (i32.const 4)
@@ -290,7 +290,7 @@
         ;; the i-th of the side's own, in order
         (block $found
           (!for $j (i32.const 0) (i32.load (i32.const @MAP_NSPAWN))
-            (if (i32.eq (call $a_spawn_half (local.get $j)) (local.get $side))
+            (if (call $a_spawn_ok (local.get $j) (local.get $side))
               (then
                 (br_if $found (i32.eqz (local.get $i)))
                 (local.set $i (i32.sub (local.get $i) (i32.const 1)))))))
@@ -1536,6 +1536,9 @@
 ;;     ends the match now.
 ;;   $<prefix>_kill (q a cause): q died at a's hand (its own if a == q), in
 ;;     play; PF_CARRY is still set if q carried (the core clears it after).
+;;   $<prefix>_bar (x y z f32, result i32): 1 if a fighter mustn't spawn at
+;;     the spawn point (x, y, z) now (asked as one respawns, the countdown's
+;;     too; most modes bar nothing).
 ;; The helpers below are theirs. A flag's or the skull's carrier (PF_CARRY,
 ;; set and cleared on the confirmed world only, by $a_carry) has no guns or
 ;; frags and swings what it carries ($a_shoot, $a_melee).
@@ -1603,6 +1606,14 @@
   (local $a i32)
   (local.set $a (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 4))))
   (call $a_half (f32.load (local.get $a)) (f32.load offset=8 (local.get $a))))
+
+;; 1 if spawn point i is on side's half and the mode on now lets a fighter
+;; come in there (its bar hook: King of the Hill keeps its hill clear).
+(func $a_spawn_ok (param $i i32) (param $side i32) (result i32)
+  (local $a i32)
+  (local.set $a (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 4))))
+  (if (i32.ne (call $a_spawn_half (local.get $i)) (local.get $side)) (then (return (i32.const 0))))
+  (i32.eqz (!am i32 bar (f32.load (local.get $a)) (f32.load offset=4 (local.get $a)) (f32.load offset=8 (local.get $a)))))
 
 #include "am/slayer.wat"
 #include "am/ctf.wat"

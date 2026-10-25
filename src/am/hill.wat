@@ -92,3 +92,16 @@
 
 ;; A death just leaves the hill.
 (func $hl_kill (param $q i32) (param $a i32) (param $cause i32))
+
+;; No fighter spawns on the hill, or within HL_BAR of its edge and HL_BAR_H up
+;; or down, while it's up (a side would respawn onto its own roof's hill and
+;; hold it for good); the room under a roof's hill is still open.
+(func $hl_bar (param $x f32) (param $y f32) (param $z f32) (result i32)
+  (local $dx f32) (local $dz f32) (local $r f32)
+  (local.set $r (f32.load (i32.const @(AO + HL_R))))
+  (if (f32.eq (local.get $r) (f32.const 0)) (then (return (i32.const 0))))
+  (local.set $r (f32.add (local.get $r) (f32.const @HL_BAR)))
+  (local.set $dx (f32.sub (local.get $x) (f32.load (i32.const @(AO + HL_X)))))
+  (local.set $dz (f32.sub (local.get $z) (f32.load (i32.const @(AO + HL_Z)))))
+  (i32.and (f32.lt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz))) (f32.mul (local.get $r) (local.get $r)))
+           (f32.lt (f32.abs (f32.sub (local.get $y) (f32.load (i32.const @(AO + HL_Y))))) (f32.const @HL_BAR_H))))

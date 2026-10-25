@@ -8,6 +8,8 @@ export const HL_TARGET = 100;
 export const HL_MOVE = 7500; // ticks a hill lasts: 60 s
 export const HL_H = '2'; // m up or down of the hill's point a fighter's feet may be and count (a roof and the room under it are 4.8 m apart)
 export const HL_POINT = 125; // ticks a side holds it for a point: 1 s, counted per side, kept across a contest and a move
+export const HL_BAR = '4'; // m past the hill's edge (and HL_BAR_H up or down) where nobody spawns while it's up: no side respawns onto its own roof's hill
+export const HL_BAR_H = '3';
 export const HL_NEWSGAP = 125; // ticks at least between two HL_MX_TAKE / HL_MX_CONTEST: a crowd on the rim doesn't flood the ring
 // Its news, FX_MODE with these as size (MX_AM + 8 * 3 ..), owner 255 (nobody),
 // at the hill's centre.

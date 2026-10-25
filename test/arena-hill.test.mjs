@@ -384,6 +384,40 @@ test('King of the Hill: over on the tick a side reaches HL_TARGET; at the clock 
   assert.deepEqual([h.held, h.moves, +h.pos[1].toFixed(2)], [[+(h.hold === 1), +(h.hold === 2)], d.v.hole().start + L.HL_MOVE, FEET[h.at]], 'one tick of play counted');
 });
 
+test('King of the Hill: nobody spawns on the hill, or within HL_BAR of its edge and HL_BAR_H up or down, while it\'s up: red\'s roof spawns closed, the room under it open', async () => {
+  const g = await room(L.M_HILL, 8, 5);
+  goHill(g, 1); // red's roof
+  const h = hill(g);
+  const sp = g.v.map().spawns; // [x, y, z], y resolved as the sim laid them
+  const barred = (i) => Math.hypot(sp[i][0] - h.pos[0], sp[i][2] - h.pos[2]) < h.r + Number(L.HL_BAR) && Math.abs(sp[i][1] - h.pos[1]) < Number(L.HL_BAR_H);
+  // spawns 3 and 4 are red's on its roof; 0, 1 and 2 in the room under it
+  assert.deepEqual([0, 1, 2, 3, 4].map(barred), [false, false, false, true, true]);
+  const reds = [0, 1, 2, 3, 4, 5, 6, 7].filter((p) => team(g, p) === 0);
+  const used = new Set();
+  for (let k = 0; k < 60; k++) {
+    g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick + 1000, true);
+    for (const p of reds) { g.dv.setUint8(rec(p) + L.P_FL, fl(g, p) | L.PF_DEAD); g.dv.setUint16(rec(p) + L.A_RESPAWN, 1, true); }
+    g.step();
+    for (const p of reds) {
+      const f = g.v.fighter(p);
+      const i = MAP.spawns.findIndex((s) => s.x === f.pos[0] && s.z === f.pos[2]);
+      assert.ok(i >= 0 && !barred(i), `P${p} at spawn ${i}`);
+      used.add(i);
+    }
+  }
+  assert.ok([0, 1, 2].some((i) => used.has(i)), 'the room under the roof still used');
+  // the next hill away from it: the roof is open again
+  goHill(g, 2);
+  const seen = new Set();
+  for (let k = 0; k < 80; k++) {
+    g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick + 1000, true);
+    for (const p of reds) { g.dv.setUint8(rec(p) + L.P_FL, fl(g, p) | L.PF_DEAD); g.dv.setUint16(rec(p) + L.A_RESPAWN, 1, true); }
+    g.step();
+    for (const p of reds) seen.add(MAP.spawns.findIndex((s) => s.x === g.v.fighter(p).pos[0] && s.z === g.v.fighter(p).pos[2]));
+  }
+  assert.ok(seen.has(3) || seen.has(4), 'the roof\'s spawns used again once the hill has moved on');
+});
+
 test('King of the Hill: joins and leaves mid-hill: a holder who leaves gives it up on its tick, its side\'s count kept; a rejoin starts from 0 points, on the side with fewer; a death leaves it', async () => {
   const g = await room(L.M_HILL, 5); // 0, 2, 4 red; 1, 3 blue
   away(g, [0, 1, 2, 3, 4]);
