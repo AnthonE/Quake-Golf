@@ -38,16 +38,16 @@
 //     out { solid: [] (sprites, upright, one depth at the middle: { pos (the
 //     middle), size (half its width, m), aspect (height / width), color:
 //     [r, g, b, a], kind, minpx (px at least) }; kind 7 a flag on its pole
-//     waving (size 0.6, aspect 2: 2.4 m tall), 8 a skull, 0 a ball, 4 a
-//     weapon), glow: [] (kind 3, 5, 6, as
+//     waving (size 0.6, aspect 2: 2.4 m tall), 8 a skull, 10 a crown, 0 a
+//     ball, 4 a weapon), glow: [] (kind 3, 5, 6, as
 //     news's), beams: [] ({ a, b, width, color: [r, g, b, a] }), markers: []
 //     (HUD waypoints drawn over everything, through walls, with the distance:
 //     { pos: [x, y, z], label, color: C.*, kind: 'flag' | 'skull' | 'hill' |
-//     undefined (a diamond) }, clamped to the screen's edge when off it), zone:
-//     null or one ground disc the renderer paints on the terrain and box tops,
-//     { x, z, r, y (only surfaces within h of it; omit for any), h (default 2),
-//     color: [r, g, b], pulse (0..1) } }. Objectives' sprites go before the FX
-//     (MAX_SPRITE caps them together).
+//     'crown' | undefined (a diamond) }, clamped to the screen's edge when off
+//     it), zone: null or one ground disc the renderer paints on the terrain
+//     and box tops, { x, z, r, y (only surfaces within h of it; omit for
+//     any), h (default 2), color: [r, g, b], pulse (0..1) } }. Objectives'
+//     sprites go before the FX (MAX_SPRITE caps them together).
 //   cols: the board's columns between the name and KILLS / DEATHS: [{ head,
 //     get(o) -> string }], o a fighter().
 //   goal(view, me, ctx): the AI fighter's objective, or null to fight and

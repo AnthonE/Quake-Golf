@@ -47,6 +47,27 @@ const BLIPS = 32;
 const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'OVERKILL', 'KILLTACULAR', 'KILLTROCITY', 'KILLAMANJARO'];
 const SPREES = { 5: 'KILLING SPREE', 10: 'KILLING FRENZY', 15: 'RUNNING RIOT', 20: 'RAMPAGE' };
 
+// A waypoint's height on screen clear of those placed before it ({ x, y,
+// half: its text's half width in 4 px cells }): its label two rows over its
+// mark and its distance a row under take four rows (24 px), so one whose
+// text would cover another's goes to the nearest height clear of them all,
+// four rows over or under one of them, over before under, inside top..bottom
+// (the band under the score bar and over the feed and bottom lines); with
+// none clear, where it was. Drawing only.
+export function clearOf(placed, x, y, half, top, bottom) {
+  const near = placed.filter((p) => Math.abs(p.x - x) / 4 < p.half + half);
+  const apart = (v) => near.every((p) => Math.abs(p.y - v) >= 24);
+  if (apart(y)) return y;
+  let best = y, bd = Infinity;
+  for (const p of near) {
+    for (const v of [p.y - 24, p.y + 24]) {
+      const d = Math.abs(v - y);
+      if (v >= top && v <= bottom && apart(v) && (d < bd || (d === bd && v < best))) { best = v; bd = d; }
+    }
+  }
+  return best;
+}
+
 export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = false, skill = 0.7, sens: SENS = 3, fixed: FIXED = null, present = true, showGraph: graphOn = false, external = false } = {}) {
   // (the host is `host` here: `h` is the match's state, as in the frame below)
   const { u8, i32, u32, f32, f64, view, pview, set, get, press, sound, memory, hashes, keys } = host;
@@ -629,6 +650,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const out = [];
     const s = W / 320;
     const rows = renderer.rows;
+    // the ones placed so far: { x, y, half (its text's half width in cells) }
+    const placed = [];
     for (const m of markers) {
       const [px, py, depth] = project(cv, W, H, m.pos);
       let x = px, y = py;
@@ -639,18 +662,25 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       y = Math.max(48 * s, Math.min(H - 40 * s, y));
       // on the left, its label and distance kept above the kill feed (rows - 16 to rows - 12)
       if (x < 128 && Math.round(y / 6) + 1 >= rows - 16) y = (rows - 18) * 6;
+      const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
+      const label = String(m.label ?? '');
+      const ds = `${dist}M`;
+      // text that would cover another's label or distance (two waypoints the
+      // same way, both sides' VIPs down the gulch) moves clear of them all;
+      // the mark stays where its target is
+      const half = Math.max(label.length, f ? ds.length : 0) / 2 + 0.5;
+      const ty = clearOf(placed, x, y, half, 48 * s, x < 128 ? Math.min(H - 40 * s, (rows - 18) * 6) : H - 40 * s);
+      placed.push({ x, y: ty, half });
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
-      // a diamond (a flag's pennant, a skull's dot, a hill's ring by kind)
+      // a diamond (a flag's pennant, a skull's dot, a hill's ring, a crown's band and points by kind)
       if (m.kind === 'flag') { r(-0.5, -6, 0.5, 2); r(0.5, -6, 5, -2.5); }
+      else if (m.kind === 'crown') { r(-4, -1, 4, 2); r(-4, -4, -2.5, -1); r(-0.75, -5, 0.75, -1); r(2.5, -4, 4, -1); }
       else if (m.kind === 'hill') { r(-4, -1, 4, 1); r(-3, -3, 3, -1, c, 0.5); r(-3, 1, 3, 3, c, 0.5); }
       else if (m.kind === 'skull') { r(-3, -4, 3, 1); r(-2, 1, 2, 3); r(-2, -2, -0.5, -0.5, [0, 0, 0]); r(0.5, -2, 2, -0.5, [0, 0, 0]); }
       else { r(-1, -4, 1, 4); r(-2.5, -2.5, 2.5, 2.5, c, 0.8); r(-4, -1, 4, 1); }
-      const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
-      const col = Math.round(x / 4), row = Math.round(y / 6);
-      const label = String(m.label ?? '');
+      const col = Math.round(x / 4), row = Math.round(ty / 6);
       if (label) put(text, COLS, Math.max(0, Math.min(COLS - label.length, col - (label.length >> 1))), Math.max(0, row - 2), label, m.color ?? C.WHITE);
-      const ds = `${dist}M`;
       if (f) put(text, COLS, Math.max(0, Math.min(COLS - ds.length, col - (ds.length >> 1))), Math.min(rows - 1, row + 1), ds, C.WHITE);
     }
     return out;

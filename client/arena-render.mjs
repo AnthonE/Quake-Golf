@@ -374,7 +374,7 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
   return o;
 }
 
-// solid splats: 0 a ball, 1 a fighter, 2 a glowing bolt, 4 a weapon on its pad, 7 a flag, 8 a skull
+// solid splats: 0 a ball, 1 a fighter, 2 a glowing bolt, 4 a weapon on its pad, 7 a flag, 8 a skull, 10 a crown
 @fragment fn fs_splat(s: SOut) -> @location(0) vec4f {
   let r2 = dot(s.uv, s.uv);
   var c = s.color.rgb;
@@ -431,6 +431,22 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
       c *= 0.55 + 0.5 * max(dot(normalize(n), normalize(vec3f(0.3, 0.8, 0.5))), 0.0);
       if (eye || nose) { c = vec3f(0.08, 0.06, 0.06); }
       else if (teeth) { c *= 0.45; }
+    }
+    case 10u: { // a crown: a band and three points in the sprite's colour, gold trim and knobs, a bright jewel
+      let x = s.uv.x;
+      let y = s.uv.y;
+      let ax = abs(x);
+      let band = y > 0.3 && y < 0.92 && ax < 0.86;
+      // the points: the middle one's tip at -0.72, the side ones' at -0.5 over x 0.62, each widening down to the band
+      let side = ax > 0.31;
+      let cx = select(0.0, 0.62, side);
+      let tip = select(-0.72, -0.5, side);
+      let point = y >= tip && y <= 0.3 && abs(ax - cx) < 0.3 * (y - tip) / (0.3 - tip);
+      let knob = length(vec2f(ax - cx, (y - tip + 0.1) * 0.8)) < 0.15;
+      if (!band && !point && !knob) { discard; }
+      c *= 0.7 + 0.4 * (1.0 - ax);
+      if (knob || (band && (y < 0.42 || y > 0.8))) { c = vec3f(1.0, 0.82, 0.3) * (0.8 + 0.3 * (1.0 - ax)); }
+      if (length(vec2f(x, (y - 0.61) * 0.8)) < 0.16) { c = vec3f(1.0, 0.97, 0.85); }
     }
     default: {}
   }
