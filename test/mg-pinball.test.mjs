@@ -478,7 +478,7 @@ function predicted(g, inputs) {
   return compared;
 }
 
-test('the prediction matches the confirmed ball bit for bit (but its score): bumpers, slingshots, walls, flippers, a target standing and dropping, the drain', async () => {
+test('the prediction matches the confirmed ball bit for bit (but its score): bumpers, walls, flippers, a target standing and dropping, a slingshot, the plunger lane, the drain', async () => {
   const g = await room(1, { seed: 11 });
   const T = g.T;
   const word = (x, z, o = {}) => partyWord({ yaw: yawOf(x, z), move: 1, ...o });
@@ -517,7 +517,24 @@ test('the prediction matches the confirmed ball bit for bit (but its score): bum
     deepest = Math.min(deepest, uw(g, 0)[0]);
   }
   assert.ok(deepest < Tg.u + 1, `through where it stood (${deepest})`);
-  // D: down the middle of a funnel (its flippers at rest), through the drain and falling
+  // D: into a slingshot, thrown off it
+  const sl = T.segs.find((x) => x.kind === MC.PN_KSLING && x.idx === 1);
+  const mu = sl.u + sl.eu * sl.len / 2, mw = sl.w + sl.ew * sl.len / 2;
+  const [, fc] = funnel(T, mu);
+  const sn = (-sl.ew * (fc - mu) > 0 ? 1 : -1);
+  put(g, 0, mu - sl.ew * sn * 1.8, mw + sl.eu * sn * 1.8, { vx: sl.ew * sn * 4, vz: -sl.eu * sn * 4 });
+  const k2 = g.v.fxCount();
+  const e = Array(50).fill(word(sl.ew * sn, -sl.eu * sn));
+  assert.ok(predicted(g, e) >= e.length);
+  assert.ok(fxs(g.v, MC.PN_FX_KICK, k2).some((x) => x.owner === 0 && x.shot === ((MC.PN_JSLING << 8) | 1)), 'thrown off the slingshot');
+  // E: in the plunger lane, shot up it, off the deflector and across the top
+  put(g, 0, (T.plu + T.hw) / 2, T.plb - 2);
+  const k3 = g.v.fxCount();
+  const f2 = Array(150).fill(partyWord({ yaw: yawOf(0, -1), move: 0 }));
+  assert.ok(predicted(g, f2) >= f2.length);
+  assert.ok(fxs(g.v, MC.PN_FX_KICK, k3).some((x) => x.owner === 0 && x.shot >> 8 === MC.PN_JPLUNGE), 'shot');
+  assert.ok(uw(g, 0)[0] < T.plu, 'out over the top');
+  // F: down the middle of a funnel (its flippers at rest), through the drain and falling
   at(g, 0);
   put(g, 0, T.f / 2 - T.hw, T.wt - 4, { vz: 5 });
   const d = Array(150).fill(word(0, 1));
