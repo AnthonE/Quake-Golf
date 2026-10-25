@@ -3,13 +3,17 @@
 // and keys into the input slots; a frame per display refresh drawn from
 // shared memory by client/arena-render.mjs, with tracers, sparks, the gun in
 // your hands, shields and health, ammo, a motion tracker, a kill feed and
-// the scoreboard, each as the match's mode has them (layout.mjs, M_*).
+// the scoreboard, each as the match's mode has them (layout.mjs, M_*). A team
+// mode (TEAMED) is red against blue: the bodies in their side's colour, a
+// score bar, the board by side, and its own objective, HUD lines, news,
+// columns and waypoints from its kit module (client/am/<key>.mjs, AMC).
 // arena.html mounts it alone; Fireplace mounts it while the room plays the arena.
 //   opts: { canvas, lockTarget, bot, skill, sens, fixed (a spectator's held camera: x, y, z, yaw, pitch in degrees), present, showGraph,
 //           external (the slots are driven from outside, as Fireplace's guest does: the camera follows them) }
 import * as L from '../src/layout.mjs';
 import { arenaWord, unpackArena, boxRay } from '../src/arena-view.mjs';
-import { createRenderer, COLS } from './arena-render.mjs';
+import { createRenderer, COLS, MAX_RECT, PALETTE, project } from './arena-render.mjs';
+import { AMC, newsOf, SIDE, SIDE_C, SIDE_RGB, sideOf } from './am/index.mjs';
 import { put, C } from './font.mjs';
 import { readClock } from './clock.mjs';
 import { NetGraph } from './netgraph.mjs';
@@ -28,7 +32,9 @@ const SHORT = { [L.W_AR]: 'AR', [L.W_BR]: 'BR', [L.W_MAGNUM]: 'MAGNUM', [L.W_SNI
 const CROSS = { [L.W_AR]: 0, [L.W_BR]: 1, [L.W_MAGNUM]: 1, [L.W_SNIPER]: 1, [L.W_SHOTGUN]: 2, [L.W_ROCKET]: 3, [L.W_PLASMA]: 4, [L.W_NEEDLER]: 4, [L.W_SWORD]: 5 };
 const RUNGS = L.LADDER.length;
 // How a fighter stands under the match's mode, higher is better: the sim's $a_key, for the board while play goes on.
-function standing(m, o) {
+// A team mode's: the winning side first (once it's over), then objective points, then kills.
+function standing(m, o, teamWin = 0) {
+  if (m < 32 && (1 << m) & L.TEAMED) return (teamWin && teamWin === o.team + 1 ? 2 ** 31 : 0) + Math.min(o.points, 0x7fff) * 65536 + Math.min(o.kills, 0xffff);
   if (m === L.M_INFECTION) return o.zombie ? Math.min(o.human, 0x7fff) * 65536 + o.points : 2 ** 31;
   if (m === L.M_GUNGAME) return o.rung * 65536 + o.kills;
   if (m === L.M_JUGGERNAUT) return o.points * 65536 + o.kills;
@@ -186,9 +192,13 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       }
       case L.FX_KILL: {
         const name = (p) => (p === slot ? 'YOU' : `P${p + 1}`);
-        const cause = SHORT[f.size] || '?';
-        const infected = view.mode().mode === L.M_INFECTION && f.owner !== f.shot && view.fighter(f.owner).zombie;
-        if (!infected) say(f.owner === f.shot ? `${name(f.shot)} DIED` : `${name(f.owner)} [${cause}] ${name(f.shot)}`, f.owner === slot ? C.GREEN : f.shot === slot ? C.RED : C.WHITE, now);
+        const md = view.mode();
+        // a flag's or the skull's carrier swung it
+        const cause = f.size === L.KILL_CARRY ? (AMC[md.mode]?.carry === 'skull' ? 'SKULL' : 'FLAG') : SHORT[f.size] || '?';
+        const infected = md.mode === L.M_INFECTION && f.owner !== f.shot && view.fighter(f.owner).zombie;
+        // a team mode's lines in the killer's side's colour, but for your own
+        const other = md.teamed && f.owner < L.NPLAYER ? SIDE_C[sideOf(view, f.owner)] : C.WHITE;
+        if (!infected) say(f.owner === f.shot ? `${name(f.shot)} DIED` : `${name(f.owner)} [${cause}] ${name(f.shot)}`, f.owner === slot ? C.GREEN : f.shot === slot ? C.RED : other, now);
         glows.push({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.4, color: [1, 0.3, 0.2, 0.8], kind: 3, born: now, life: 400 });
         if (f.owner === slot && f.shot !== slot) {
           multi = now - lastKill < 4500 ? multi + 1 : 1;
@@ -207,6 +217,14 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
         const name = (p) => (p === slot ? 'YOU' : `P${p + 1}`);
         const own = f.owner === slot;
         const big = (text, color) => { if (own) banner = { text, until: now + 2500, color }; };
+        // a team mode's own news, to its kit module
+        const kit = newsOf(f.size);
+        if (kit) {
+          const team = (p) => (p < L.NPLAYER ? sideOf(view, p) : -1);
+          kit.news(f, { slot, me, name, team, feed: (text, color) => say(text, color, now), banner: (text, color, ms = 2500) => { banner = { text, until: now + ms, color }; },
+            glow: (g) => glows.push({ ...g, born: now, life: g.life ?? 400 }), sound, dist: d, C, now, view });
+          break;
+        }
         switch (f.size) {
           case L.MX_INFECT: say(f.owner === f.shot ? `${name(f.shot)} TURNED` : `${name(f.owner)} INFECTED ${name(f.shot)}`, C.GREEN, now); break;
           case L.MX_ZOMBIE: say(`${name(f.owner)} ${own ? 'ARE' : 'IS'} A ZOMBIE`, C.GREEN, now); big('YOU ARE A ZOMBIE', C.GREEN); break;
@@ -218,6 +236,15 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
           case L.MX_DEMOTE: say(`${name(f.owner)} DOWN TO ${SHORT[L.LADDER[f.shot]]}`, C.RED, now); big(`DOWN TO RUNG ${f.shot + 1}`, C.RED); break;
           case L.MX_WIN: say(`${name(f.owner)} ${own ? 'WIN' : 'WINS'}`, C.YELLOW, now); break;
           case L.MX_JUGG: say(`${name(f.owner)} ${own ? 'ARE' : 'IS'} THE JUGGERNAUT`, C.ORANGE, now); big('YOU ARE THE JUGGERNAUT', C.ORANGE); break;
+          case L.MX_TEAMWIN: {
+            // a team match is over: shot 1 red won, 2 blue, 3 a draw
+            const won = f.shot === 1 || f.shot === 2 ? f.shot - 1 : -1;
+            const text = won < 0 ? 'A DRAW' : `${SIDE[won]} WINS`;
+            say(text, won < 0 ? C.YELLOW : SIDE_C[won], now);
+            banner = { text, until: now + 4000, color: won < 0 ? C.YELLOW : SIDE_C[won] };
+            sound.holed();
+            break;
+          }
           default:
         }
         break;
@@ -231,7 +258,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
         if (f.owner === slot) { spawnedAt = now; spree = 0; if (L.FIESTA || view.mode().mode) dealt = true; }
         break;
       case L.FX_PICKUP:
-        if (f.owner === slot) { sound.pickup(); banner = { text: ARMS[f.size].name, until: now + 1500, color: C.CYAN }; }
+        if (f.owner === slot && ARMS[f.size]) { sound.pickup(); banner = { text: ARMS[f.size].name, until: now + 1500, color: C.CYAN }; }
         break;
       case L.FX_TELE:
         glows.push({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 1.6, color: [0.4, 0.9, 1, 0.9], kind: 6, born: now, life: 450 });
@@ -239,6 +266,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
         break;
       case L.FX_MELEE:
         if (mine) meleeAt = now;
+        // a carrier's swing (size 2): a flash where it struck
+        else if (f.size === 2) glows.push({ pos: f.pos, size: 0.7, color: [1, 1, 0.85, 0.8], kind: 5, born: now, life: 160 });
         sound.melee(mine ? 0 : d);
         break;
       default:
@@ -248,8 +277,40 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
   let camYaw = 0, camPitch = 0;
   function zoomOf() {
     const f = pme || me;
-    if (!f) return 1;
+    if (!f || f.carry) return 1;
     return ARMS[f.weapon]?.zoom || 1;
+  }
+
+  // What a carrier holds in place of a gun, as rectangles at 320x200: the flag
+  // (in the colour of the side it was taken from) on its pole over the
+  // shoulder, or the skull held out. It bobs and lunges as a gun would.
+  function carryRects(kind, color, now, moving) {
+    const out = [];
+    const s = W / 320;
+    const t = now / 1000;
+    const bob = moving ? Math.sin(t * 9) * 2.5 : Math.sin(t * 1.5) * 0.8;
+    const drop = Math.max(0, 1 - (now - swapAt) / 350) * 60 + (pme?.dead ? 200 : 0);
+    const lunge = Math.max(0, 1 - (now - meleeAt) / 250);
+    const ox = bob - lunge * 46, oy = Math.abs(bob) + drop - lunge * 14;
+    const rect = (x0, y0, x1, y1, c, a = 1) => out.push([(x0 + ox) * s, (y0 + oy) * s, (x1 + ox) * s, (y1 + oy) * s, c[0], c[1], c[2], a]);
+    if (kind === 'skull') {
+      const bone = [0.92, 0.89, 0.8], dark = [0.1, 0.08, 0.08];
+      rect(238, 136, 290, 178, bone); rect(232, 146, 296, 170, bone); rect(246, 176, 282, 194, bone);
+      rect(244, 152, 258, 164, dark); rect(270, 152, 284, 164, dark); rect(262, 168, 266, 176, dark);
+      for (let k = 0; k < 4; k++) rect(250 + k * 8, 184, 252 + k * 8, 192, [0.5, 0.48, 0.42]);
+      rect(250, 196, 300, 214, [0.55, 0.42, 0.32]);
+    } else {
+      // the pole up from the bottom right, the cloth hanging off its top in folds
+      for (let k = 0; k < 14; k++) { const y = 214 - k * 8, x = 296 - k * 2.2; rect(x - 2.5, y - 8, x + 2.5, y, [0.78, 0.78, 0.74]); }
+      const top = [266, 100];
+      for (let k = 0; k < 9; k++) {
+        const x = top[0] - k * 6, wave = Math.sin(t * 6 - k * 0.8) * 2.5;
+        const shade = 0.75 + 0.25 * Math.sin(t * 6 - k * 0.8 + 1.2);
+        rect(x - 6, top[1] + wave, x, top[1] + 30 + wave - k * 0.6, color.map((v) => v * shade));
+      }
+      rect(top[0] - 3, top[1] - 6, top[0] + 3, top[1], [1, 0.82, 0.3]);
+    }
+    return out;
   }
 
   // The gun in your hands as rectangles, at 320x200, pointing at the centre.
@@ -333,11 +394,13 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       const filled = f.hp > k * 12.5;
       r(110 + k * 12.6, 17, 110 + k * 12.6 + 11, 20, filled ? (f.hp < 35 ? [1, 0.3, 0.2] : [0.4, 0.9, 0.4]) : [0.15, 0.15, 0.15], 0.85);
     }
-    // the motion tracker: enemies within 25 m that move or shoot
+    // the motion tracker: enemies within 25 m that move or shoot; in a team mode your side too, still or not, in yellow (Halo's)
     const R = 26, cx = 32 * s, cy = (H / s - 32) * s;
     const fy = Math.cos(camYaw), fz = Math.sin(camYaw);
+    const teamed = view.teamed();
     for (let p = 0; p < L.NPLAYER; p++) {
-      if (p === f.slot || view.ally(f.slot, p)) continue;
+      const ally = view.ally(f.slot, p);
+      if (p === f.slot || (ally && !teamed)) continue;
       const o = view.fighter(p);
       if (!o.live || o.dead) continue;
       const dx = o.pos[0] - f.pos[0], dz = o.pos[2] - f.pos[2];
@@ -345,19 +408,19 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       const ls = lastShots.get(p);
       if (!ls || ls[0] !== o.shots) lastShots.set(p, [o.shots, now]);
       const loud = Math.hypot(o.vel[0], o.vel[2]) > 3 || now - (lastShots.get(p)?.[1] ?? -1e9) < 1500;
-      if (dist > 25 || !loud) continue;
+      if (dist > 25 || (!loud && !ally)) continue;
       const fwd = dx * fy + dz * fz, right = -dx * fz + dz * fy;
       const x = cx / s + right / 25 * R, y = cy / s - fwd / 25 * R;
-      r(x - 1.5, y - 1.5, x + 1.5, y + 1.5, [1, 0.25, 0.2]);
+      r(x - 1.5, y - 1.5, x + 1.5, y + 1.5, ally ? [1, 0.85, 0.25] : [1, 0.25, 0.2]);
     }
     return { rects: out, tracker: [cx, cy, R * s] };
   }
 
-  // Is the crosshair over an enemy within the gun's range? For the red reticle.
+  // Is the crosshair over an enemy within the gun's range (a carrier's swing's 2.4 m)? For the red reticle.
   function onTarget(f, cam) {
     const arm = ARMS[f.weapon];
-    if (!arm) return false;
-    const range = arm.type === 0 ? arm.range : arm.type === 2 ? 5 : 60;
+    if (!arm && !f.carry) return false;
+    const range = f.carry ? 2.4 : arm.type === 0 ? arm.range : arm.type === 2 ? 5 : 60;
     const d = [Math.cos(camPitch) * Math.cos(camYaw), Math.sin(camPitch), Math.cos(camPitch) * Math.sin(camYaw)];
     for (let p = 0; p < L.NPLAYER; p++) {
       if (p === f.slot || view.ally(f.slot, p)) continue;
@@ -423,16 +486,18 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       }
     }
     // automatics keep asking while the trigger is held
-    if (!BOT && !WATCH) set(L.CL_AUTO, trigger && locked && ARMS[(pme || me)?.weapon]?.auto ? 1 : 0);
+    // (a carrier's trigger swings, a press at a time)
+    if (!BOT && !WATCH) set(L.CL_AUTO, trigger && locked && !(pme || me)?.carry && ARMS[(pme || me)?.weapon]?.auto ? 1 : 0);
     // a new life or a new match: look down the gulch
     if (me?.live && h.hole !== matchSeen) { matchSeen = h.hole; if (!BOT) { yaw = me.pos[0] < 512 ? 0 : TURN / 2; pitch = 512; aim(); } }
     const f = tgt || pme || me;
     if (dealt && me?.live && !me.dead) {
       dealt = false;
       const m = view.mode().mode;
-      const text = me.zombie ? 'ZOMBIE: THE SWORD' : me.jugg ? 'JUGGERNAUT: THE SWORD' : m === L.M_GUNGAME ? `RUNG ${Math.min(me.rung + 1, RUNGS)} OF ${RUNGS}: ${ARMS[me.gun[0]].name}`
-        : `${ARMS[me.gun[0]].name} + ${ARMS[me.gun[1]].name}`;
-      if (banner.until < now + 500) banner = { text, until: now + 2500, color: me.zombie ? C.GREEN : C.CYAN };
+      const arm = (w) => ARMS[w]?.name ?? '?';
+      const text = me.zombie ? 'ZOMBIE: THE SWORD' : me.jugg ? 'JUGGERNAUT: THE SWORD' : m === L.M_GUNGAME ? `RUNG ${Math.min(me.rung + 1, RUNGS)} OF ${RUNGS}: ${arm(me.gun[0])}`
+        : `${me.team >= 0 ? `${SIDE[me.team]}: ` : ''}${arm(me.gun[0])} + ${arm(me.gun[1])}`;
+      if (banner.until < now + 500) banner = { text, until: now + 2500, color: me.zombie ? C.GREEN : me.team >= 0 ? SIDE_C[me.team] : C.CYAN };
     }
     if (pme && (pme.hand !== lastSlot || pme.weapon !== lastWeapon)) { swapAt = now; lastSlot = pme.hand; lastWeapon = pme.weapon; }
     let cam;
@@ -478,14 +543,20 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     marker *= Math.exp(-ms / 120);
     hurt *= Math.exp(-ms / 400);
 
-    // sprites: the pads' guns, then what glows
-    const solid = [];
+    // the team mode's objective: its sprites, glows and beams ahead of everything else's, its waypoints and zone
+    const md = view.mode();
+    const kit = AMC[md.mode];
+    const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
+    const playT = h.state === L.H_PLAY ? (h.tick - h.start) * 0.008 + dt : 0;
+    if (kit && st >= 1) kit.draw(view, { dt, dtPred, now, t: playT, slot, me, pme, cam, view, pview }, out);
+    // sprites: the objective's, the pads' guns, then what glows
+    const solid = out.solid;
     for (const p of view.pads()) {
       if (p.wait) continue;
       const c = COLOR[p.weapon];
       solid.push({ pos: [p.pos[0], p.pos[1] + 0.7 + 0.15 * Math.sin(now / 400 + p.k), p.pos[2]], size: 0.55, aspect: 0.8, color: [c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, 1], kind: 4, minpx: 2 });
     }
-    const glow = [];
+    const glow = out.glow;
     // the teleporters: a pulse over each pad, a fainter one where it comes out
     for (const [k, tp] of view.map().teleporters.entries()) {
       const pulse = 0.55 + 0.25 * Math.sin(now / 300 + k);
@@ -500,7 +571,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       const grow = g.grow ? 0.35 + 0.65 * Math.min(1, a / 0.4) : 1;
       glow.push({ pos: g.pos, size: g.size * grow, color: [g.color[0], g.color[1], g.color[2], (g.color[3] ?? 1) * (1 - a)], kind: g.kind, minpx: 1 });
     }
-    const beams = [];
+    const beams = out.beams;
     for (let k = tracers.length - 1; k >= 0; k--) {
       const t = tracers[k];
       const a = (now - t.born) / t.life;
@@ -510,11 +581,20 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     let rects = [], tracker = null;
     const playing = st === 2 && f?.live;
     if (playing) {
-      if (!WATCH && !f.dead) rects = gunRects(f.weapon, now, Math.hypot(f.vel[0], f.vel[2]) > 1 && f.ground);
+      const moving = Math.hypot(f.vel[0], f.vel[2]) > 1 && f.ground;
+      // a carrier's hands hold the flag or the skull (a flag in the colour of the side it was taken from)
+      if (!WATCH && !f.dead) rects = f.carry ? carryRects(kit?.carry, SIDE_RGB[f.team === 0 ? 1 : 0], now, moving) : gunRects(f.weapon, now, moving);
       if (!f.dead) { const hr = hudRects(f, now); rects.push(...hr.rects); tracker = hr.tracker; }
     }
     const zoom = zoomed && f && !f.dead ? zoomOf() : 1;
-    hudText(text, { h, f, slot: tgt ? watched : slot, st, now, fps });
+    const kitRects = [];
+    hudText(text, { h, f, slot: tgt ? watched : slot, st, now, fps, md, kit, kitRects, playT });
+    rects.push(...kitRects);
+    // the objective's waypoints over everything, through walls, with the camera as it is drawn
+    if (out.markers.length && st === 2) {
+      const mr = markerRects(out.markers, { cam, yaw: camYaw, pitch: camPitch, zoom }, f);
+      rects = rects.slice(0, Math.max(0, MAX_RECT - mr.length)).concat(mr);
+    }
     // a fixed camera is for looking at the map: no HUD
     if (FIXED) { rects = []; tracker = null; text.fill(0); }
     netGraph.sample(now, hashes, keys);
@@ -522,31 +602,90 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const spread = ARMS[f?.weapon]?.spread || 0;
     last = {
       cam, yaw: camYaw, pitch: camPitch, zoom, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, slot: tgt ? watched : slot < 0 ? 999 : slot,
-      solid, glow, beams, rects, tracker, text, graph, marker, hurt, scope: zoom >= 4, sides: ((1 << view.mode().mode) & L.TEAM_MODES) !== 0,
-      crosshair: FIXED ? 7 : (CROSS[f?.weapon] ?? 0) + (playing && !f.dead && onTarget(f, cam) ? 8 : 0), gap: spread / 30 + kick * 3,
+      solid, glow, beams, rects, tracker, text, graph, marker, hurt, scope: zoom >= 4, sides: md.teamed ? 2 : ((1 << md.mode) & L.TEAM_MODES) !== 0 ? 1 : 0, zone: out.zone,
+      crosshair: FIXED ? 7 : (f?.carry ? 5 : CROSS[f?.weapon] ?? 0) + (playing && !f.dead && onTarget(f, cam) ? 8 : 0), gap: spread / 30 + kick * 3,
     };
     renderer.frame(u8, last, target);
   }
 
-  function hudText(t, { h, f, slot, st, now, fps }) {
+  // Waypoints as HUD rects and text: a mark in its colour where the point lands
+  // (pulled in to the screen's edge when it's off it or behind), its label
+  // above and the distance in metres below, in text cells (4 x 6 px).
+  function markerRects(markers, cv, f) {
+    const out = [];
+    const s = W / 320;
+    const rows = renderer.rows;
+    for (const m of markers) {
+      const [px, py, depth] = project(cv, W, H, m.pos);
+      let x = px, y = py;
+      // behind the eye (or level with it): the edge on the side it's on, halfway down
+      if (depth < 0.3) { x = px < W / 2 ? 0 : W - 1; y = H / 2; }
+      x = Math.max(8 * s, Math.min(W - 8 * s, x));
+      y = Math.max(30 * s, Math.min(H - 40 * s, y));
+      const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
+      const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
+      // a diamond (a flag's pennant, a skull's dot, a hill's ring by kind)
+      if (m.kind === 'flag') { r(-0.5, -6, 0.5, 2); r(0.5, -6, 5, -2.5); }
+      else if (m.kind === 'hill') { r(-4, -1, 4, 1); r(-3, -3, 3, -1, c, 0.5); r(-3, 1, 3, 3, c, 0.5); }
+      else if (m.kind === 'skull') { r(-3, -4, 3, 1); r(-2, 1, 2, 3); r(-2, -2, -0.5, -0.5, [0, 0, 0]); r(0.5, -2, 2, -0.5, [0, 0, 0]); }
+      else { r(-1, -4, 1, 4); r(-2.5, -2.5, 2.5, 2.5, c, 0.8); r(-4, -1, 4, 1); }
+      const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
+      const col = Math.round(x / 4), row = Math.round(y / 6);
+      const label = String(m.label ?? '');
+      if (label) put(text, COLS, Math.max(0, Math.min(COLS - label.length, col - (label.length >> 1))), Math.max(0, row - 2), label, m.color ?? C.WHITE);
+      const ds = `${dist}M`;
+      if (f) put(text, COLS, Math.max(0, Math.min(COLS - ds.length, col - (ds.length >> 1))), Math.min(rows - 1, row + 1), ds, C.WHITE);
+    }
+    return out;
+  }
+
+  function hudText(t, { h, f, slot, st, now, fps, md = view.mode(), kit = AMC[md.mode], kitRects = [], playT = 0 }) {
     t.fill(0);
     const rows = renderer.rows;
     const right = (y, s, c) => put(t, COLS, COLS - 1 - String(s).length, y, s, c);
     const centre = (y, s, c) => put(t, COLS, Math.floor((COLS - String(s).length) / 2), y, s, c);
     if (st !== 2 || (!f?.live && !WATCH)) centre(Math.floor(rows / 2) - 3, host.error ? 'ERROR: ' + host.error.slice(0, 64) : ['CONNECTING', 'CATCHING UP', '', 'DISCONNECTED'][st] || 'JOINING', host.error ? C.RED : C.YELLOW);
-    const md = view.mode();
     const m = md.mode;
     const list = [];
     for (let p = 0; p < L.NPLAYER; p++) { const o = view.fighter(p); if (o.live) list.push(o); }
     // the board's order: Fiesta's kills, a mode's standing in play, its places once it's over
     if (m && h.state === L.H_OVER) list.sort((a, b) => (a.place || 999) - (b.place || 999) || a.slot - b.slot);
-    else list.sort((a, b) => standing(m, b) - standing(m, a) || a.slot - b.slot);
+    else list.sort((a, b) => standing(m, b, md.teamWin) - standing(m, a, md.teamWin) || a.slot - b.slot);
     const clock = (n) => `${Math.floor(n / 125 / 60)}:${String(Math.floor(n / 125) % 60).padStart(2, '0')}`;
     const left = Math.max(0, h.until - h.tick);
-    if (h.state === L.H_COUNT) { centre(4, `${md.name}  STARTS IN ${Math.ceil(left / 125)}`, C.YELLOW); centre(5, md.rules, C.WHITE); }
+    // your side: the fighter shown's (a spectator's, the one watched)
+    const team = md.teamed && f?.live ? f.team : -1;
+    if (h.state === L.H_COUNT) {
+      centre(4, `${md.name}  STARTS IN ${Math.ceil(left / 125)}`, C.YELLOW); centre(5, md.rules, C.WHITE);
+      if (team >= 0) centre(7, `${WATCH ? `P${slot + 1} IS` : 'YOU ARE'} ON ${SIDE[team]}`, SIDE_C[team]);
+    }
     if (h.state === L.H_PLAY) centre(0, clock(left), left < 30 * 125 ? C.RED : C.WHITE);
     const who = WATCH ? 'P' + (slot + 1) : 'YOU';
-    if (f?.live && m === L.M_INFECTION) {
+    const board = h.state === L.H_OVER || (held.has('Tab') && h.live);
+    // the team score bar under the shields: RED 12  50  9 BLUE over two bars meeting in the middle, your side's framed
+    if (md.teamed && h.state === L.H_PLAY && !board) {
+      const [rs, bs] = md.score;
+      const line = `${SIDE[0]} ${rs}  ${md.target || ''}  ${bs} ${SIDE[1]}`;
+      const x0 = Math.floor((COLS - line.length) / 2);
+      put(t, COLS, x0, 4, `${SIDE[0]} ${rs}`, SIDE_C[0]);
+      put(t, COLS, x0 + `${SIDE[0]} ${rs}  `.length, 4, String(md.target || ''), C.WHITE);
+      put(t, COLS, x0 + line.length - `${bs} ${SIDE[1]}`.length, 4, `${bs} ${SIDE[1]}`, SIDE_C[1]);
+      // in 320 x 200 units: red's bar grows left from x 159, blue's right from 161, full at the target
+      const k = W / 320, full = 48;
+      const fill = (n) => Math.min(1, md.target ? n / md.target : 0) * full;
+      const bar = (a, b, c, alpha = 1, grow = 0) => kitRects.push([(a - grow) * k, (31 - grow) * k, (b + grow) * k, (34 + grow) * k, c[0], c[1], c[2], alpha]);
+      if (team >= 0) bar(team ? 161 : 159 - full, team ? 161 + full : 159, [1, 1, 1], 0.8, 1);
+      bar(159 - full, 159, [0.06, 0.06, 0.08], 0.75); bar(161, 161 + full, [0.06, 0.06, 0.08], 0.75);
+      bar(159 - fill(rs), 159, SIDE_RGB[0]); bar(161, 161 + fill(bs), SIDE_RGB[1]);
+    }
+    if (f?.live && md.teamed) {
+      // your side and kills; the mode's own lines below them, from its kit module
+      put(t, COLS, 1, 0, `${who}: ${SIDE[team] ?? ''}`, SIDE_C[team] ?? C.YELLOW);
+      put(t, COLS, 1, 1, `${f.kills} KILL${f.kills === 1 ? '' : 'S'}  ${f.deaths} DEATH${f.deaths === 1 ? '' : 'S'}`, C.GREY);
+      const s = W / 320;
+      kit?.hud(view, { put: (x, y, str, c) => put(t, COLS, x, y, str, c), centre, right, rect: (x0, y0, x1, y1, r, g, b, a = 1) => kitRects.push([x0 * s, y0 * s, x1 * s, y1 * s, r, g, b, a]),
+        rows, C, slot, me: f, team, now, t: playT });
+    } else if (f?.live && m === L.M_INFECTION) {
       put(t, COLS, 1, 0, f.zombie ? `${who}: ZOMBIE  ${f.points} INFECTED` : `${who}: HUMAN`, f.zombie ? C.GREEN : C.YELLOW);
       if (h.state !== L.H_COUNT) put(t, COLS, 1, 1, `${md.humans} HUMAN${md.humans === 1 ? '' : 'S'} LEFT  ${md.zombies} ZOMBIE${md.zombies === 1 ? '' : 'S'}`, C.GREY);
     } else if (f?.live && m === L.M_GUNGAME) {
@@ -567,7 +706,11 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     }
     if (f?.live) {
       if (f.dead) centre(Math.floor(rows / 2) + 2, `RESPAWN IN ${Math.ceil(f.respawn / 125)}`, C.YELLOW);
-      else {
+      else if (f.carry) {
+        // a carrier has no guns or frags, only a swing that kills
+        centre(rows - 3, `CARRYING THE ${kit?.carry === 'skull' ? 'SKULL' : 'FLAG'}`, C.YELLOW);
+        centre(rows - 2, 'NO GUNS  CLICK OR Q SWINGS', C.WHITE);
+      } else {
         const arm = ARMS[f.weapon];
         if (arm) {
           const ammo = arm.reload ? `${f.mag[f.hand]} / ${f.res[f.hand]}` : f.weapon === L.W_SWORD ? `${f.mag[f.hand] * 10}%` : `${f.mag[f.hand]}%`;
@@ -580,7 +723,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
         if (!f.zombie && !f.jugg) right(rows - 5, `FRAGS ${f.grens}`, C.ORANGE);
         // a gun on the pad underfoot
         const pad = view.pads().find((p) => !p.wait && Math.hypot(p.pos[0] - f.pos[0], p.pos[2] - f.pos[2]) < 1.5);
-        if (pad && !WATCH && !f.gun.includes(pad.weapon)) centre(Math.floor(rows / 2) + 5, `E: PICK UP ${ARMS[pad.weapon].name}`, C.WHITE);
+        if (pad && !WATCH && !f.gun.includes(pad.weapon) && ARMS[pad.weapon]) centre(Math.floor(rows / 2) + 5, `E: PICK UP ${ARMS[pad.weapon].name}`, C.WHITE);
         if (f.mag[f.hand] === 0 && f.res[f.hand] > 0 && !f.reload) centre(Math.floor(rows / 2) + 3, 'R: RELOAD', C.RED);
       }
       // the feed, over the tracker
@@ -589,10 +732,11 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     if (banner.until > now) centre(Math.floor(rows / 2) - 6, banner.text, banner.color);
     if (medal.until > now) centre(Math.floor(rows / 2) - 8, medal.text, C.ORANGE);
     if (st === 2 && !BOT && !WATCH && !locked) centre(Math.floor(rows / 2) + 7, 'CLICK TO PLAY', C.WHITE);
-    if (WATCH && st === 2) put(t, COLS, 1, 3, f?.live ? `WATCHING P${slot + 1}  < >` : 'NOBODY TO WATCH', C.CYAN);
+    // (a team mode's own lines have rows 2 to 4)
+    if (WATCH && st === 2) put(t, COLS, 1, md.teamed ? 5 : 3, f?.live ? `WATCHING P${slot + 1}  < >` : 'NOBODY TO WATCH', C.CYAN);
     if (showGraph) put(t, COLS, 1, rows - 1, `${fps} FPS  LEAD ${f32[L.CL_LEAD >> 2].toFixed(1)}  DELAY ${f32[L.CL_DELAY >> 2].toFixed(1)}  LAG ${f?.lag ?? 0}  REPAIRS ${get(L.CL_REPAIRS)}`, C.GREY);
-    const board = h.state === L.H_OVER || (held.has('Tab') && h.live);
-    if (board) {
+    if (board && md.teamed) teamBoard(t, { list, slot, md, kit, over: h.state === L.H_OVER, rows, centre });
+    else if (board) {
       const y0 = 6;
       const top = list[0];
       const over = h.state === L.H_OVER;
@@ -622,12 +766,46 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     }
   }
 
+  // A team mode's board (Tab, and once it's over): a header per side with its
+  // score in its colour, its fighters under it by standing (you in yellow),
+  // the kit module's columns and KILLS / DEATHS; the winner in the title.
+  function teamBoard(t, { list, slot, md, kit, over, rows, centre }) {
+    const y0 = 6;
+    const [rs, bs] = md.score;
+    const title = !over ? `${md.name}  ${SIDE[0]} ${rs}  ${SIDE[1]} ${bs}` : md.teamWin === 3 || (!md.teamWin && rs === bs) ? `GAME OVER  A DRAW ${rs} ALL`
+      : `GAME OVER  ${SIDE[(md.teamWin || (rs > bs ? 1 : 2)) - 1]} WINS ${Math.max(rs, bs)} TO ${Math.min(rs, bs)}`;
+    centre(y0, title, C.YELLOW);
+    const cols = [...(kit?.cols || []), { head: 'KILLS', get: (o) => o.kills }, { head: 'DEATHS', get: (o) => o.deaths }];
+    const row = (rank, name, xs) => `${String(rank).padStart(4)}  ${String(name).padEnd(8)}${xs.map((x, k) => '  ' + String(x).padStart(Math.max(6, cols[k].head.length))).join('')}`;
+    centre(y0 + 2, row('RANK', 'PLAYER', cols.map((c) => c.head)), C.GREY);
+    // as many rows as fit, shared out between the sides, yourself always in
+    const sides = [0, 1].map((k) => list.filter((o) => o.team === k));
+    const fit = rows - y0 - 8;
+    const share = [0, 1].map((k) => Math.max(Math.floor(fit / 2), fit - sides[1 - k].length));
+    let y = y0 + 3;
+    for (const k of [0, 1]) {
+      const all = sides[k];
+      const n = Math.min(all.length, share[k]);
+      const mine = all.findIndex((o) => o.slot === slot);
+      const shown = mine >= n ? [...all.slice(0, Math.max(0, n - 1)), all[mine]] : all.slice(0, n);
+      centre(y++, row(SIDE[k], md.score[k], cols.map(() => '')), SIDE_C[k]);
+      for (const o of shown) {
+        const rank = over && o.place ? o.place : list.findIndex((x) => standing(md.mode, x, md.teamWin) === standing(md.mode, o, md.teamWin)) + 1;
+        const name = (o.slot === slot && !WATCH ? 'YOU ' : 'P') + String(o.slot + 1);
+        centre(y++, row(rank, name, cols.map((c) => c.get(o))), o.slot === slot ? C.YELLOW : C.WHITE);
+      }
+      if (all.length > shown.length) centre(y++, `+${all.length - shown.length} MORE`, C.GREY);
+    }
+  }
+
 
   return {
     frame,
     unmount() { off(); held.clear(); set(L.CL_MOVE, 0); set(L.CL_AUTO, 0); if (document.pointerLockElement === lockTarget && lockTarget === canvas) document.exitPointerLock(); },
     capture: (scale = 2) => (last ? capturePng(renderer, u8, last, scale) : null),
-    state: () => ({ slot: get(L.CL_SLOT), clState: get(L.CL_STATE), me, error: host.error, welcome: host.welcome, match: view.hole(), mode: view.mode(), feed: feed.map((f) => f.text) }),
+    // for the gates: in a team mode, mode carries the scores, me its team and carry, and kit what the kit module shows them
+    state: () => ({ slot: get(L.CL_SLOT), clState: get(L.CL_STATE), me, error: host.error, welcome: host.welcome, match: view.hole(), mode: view.mode(), feed: feed.map((f) => f.text),
+      team: me?.team ?? -1, kit: AMC[view.mode().mode]?.state?.(view) ?? null }),
     get locked() { return locked; },
   };
 }
