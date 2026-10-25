@@ -28,6 +28,7 @@ const FALL = 1.5; // s a tile is drawn falling
 const SEA = 275; // ticks past the far rim a cannonball is drawn falling, into the sea
 const SMOKE = 110; // ticks a shot's smoke lasts
 const AIM = 45; // ticks a cannon takes to swing onto its next lane
+const HOT1 = 1, HOT2 = 2.5; // s: a stripe is bright where its cannonball gets within HOT1, dimmer within HOT2
 const BAND = 2 * 1.5 * MC.CN_S; // m a ring of colour is wide: two tiles
 const RINGS = [[0.86, 0.84, 0.78], [0.66, 0.68, 0.72]];
 const CORE = [[0.93, 0.83, 0.6], [0.84, 0.7, 0.48]];
@@ -220,16 +221,27 @@ function shot(sc, out, s, k, tp, now) {
   const yaw = Math.atan2(s.uz[k], s.ux[k]);
   const p = shotAt(s, k, tp, { a: 0, x: 0, y: 0, z: 0, phase: -1 });
   const rim = rimAt(s.r0, tp);
-  // the stripe
+  // the stripe, by how soon the cannonball gets to each part of it: what it
+  // reaches in the next second bright, in the next HOT2 s dimmer, the rest of
+  // the lane faint, so a crowded floor still says which lanes are coming now
   if (p.phase < 2) {
     const a0 = Math.max(s.st[k], p.phase === 1 ? p.a : 0), a1 = farCross(s, k, rim + 0.5 * S);
     if (a1 > a0 + 0.2) {
       const u = Math.max(0, Math.min(1, (tp - (tf - MC.CN_TELE)) / MC.CN_TELE));
       const pulse = p.phase < 0 ? 0.8 + 0.2 * Math.sin(now * TICK * Math.PI * 2 * (1.5 + 4 * u)) : 1;
-      const am = (a0 + a1) / 2;
-      sc.box(s.mx[k] + s.ux[k] * am, PLAT_Y + 0.04, s.mz[k] + s.uz[k] * am, (a1 - a0) / 2, 0.025, rc, yaw, ...RED, LOOK.GLOW, (0.45 + 0.75 * u) * pulse, 0.25, 0.3 + 0.32 * u);
-      // a brighter line down its middle, the way it rolls
-      sc.box(s.mx[k] + s.ux[k] * am, PLAT_Y + 0.05, s.mz[k] + s.uz[k] * am, (a1 - a0) / 2, 0.025, 0.12, yaw, 1, 0.55, 0.3, LOOK.GLOW, 0.9 * pulse, 0, 0.5);
+      const wait = p.phase < 1 ? Math.max(0, (s.tt[k] - tp) * TICK) : 0, front = p.phase === 1 ? p.a : s.st[k];
+      const reach = (secs) => Math.min(a1, Math.max(a0, front + s.v[k] * (secs - wait)));
+      const hot = reach(HOT1), warm = reach(HOT2);
+      const band = (a, b, glow, alpha, w = rc, rgb = RED, y = PLAT_Y + 0.04) => {
+        if (b - a < 0.05) return;
+        const am = (a + b) / 2;
+        sc.box(s.mx[k] + s.ux[k] * am, y, s.mz[k] + s.uz[k] * am, (b - a) / 2, 0.025, w, yaw, ...rgb, LOOK.GLOW, glow * pulse, w === rc ? 0.25 : 0, alpha);
+      };
+      band(a0, hot, 1.2, 0.62);
+      band(hot, warm, 0.8, 0.36);
+      band(warm, a1, 0.45 + 0.3 * u, 0.12 + 0.08 * u);
+      // a brighter line down the middle of what's coming, the way it rolls
+      band(a0, warm, 0.9, 0.5, 0.12, [1, 0.55, 0.3], PLAT_Y + 0.05);
     }
     if (lob && p.phase < 1) {
       const tx = s.mx[k] + s.ux[k] * s.st[k], tz = s.mz[k] + s.uz[k] * s.st[k];
@@ -453,7 +465,7 @@ export default {
     else ctx.right(3, `VOLLEY ${vo.vol + 1}  ${vo.n} ${vo.n === 1 ? 'SHOT' : 'SHOTS'}${vo.gap ? `  EVERY ${(vo.gap * TICK).toFixed(1)}S` : ''}`, C.GREY);
     if (tp < MC.CN_LOBFROM) ctx.right(4, `LOBS IN ${Math.ceil((MC.CN_LOBFROM - tp) * TICK)}S`, C.GREY);
     else if (tp < MC.CN_CRUMBLE) ctx.right(4, `THE RIM CRUMBLES IN ${Math.ceil((MC.CN_CRUMBLE - tp) * TICK)}S`, tp > MC.CN_CRUMBLE - 1250 ? C.ORANGE : C.GREY);
-    else ctx.right(4, rimAt(s.r0, tp) > MC.CN_RMIN ? 'THE RIM IS CRUMBLING' : 'THE RIM HAS GONE AS FAR AS IT GOES', C.ORANGE);
+    else ctx.right(4, rimAt(s.r0, tp) > MC.CN_RMIN ? 'THE RIM IS CRUMBLING' : 'THE RIM HAS STOPPED AT 12 M', C.ORANGE);
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     if (!me || !me.live || me.out || me.falling) return;
     const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
