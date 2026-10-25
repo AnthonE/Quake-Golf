@@ -736,6 +736,10 @@ test('Headhunter\'s client module: the zone drawn with its waypoint, piles as sk
   assert.deepEqual(hud(0), [[1, 2, 'CARRYING 3 SKULLS', C.YELLOW], [1, 3, `ZONE ${d0}M  MOVES IN ${left(z.moves - v.tick)}`, C.GREY], [1, 4, 'BANK THEM IN THE ZONE', C.WHITE]]);
   give(g, 0, 1);
   assert.deepEqual(hud(0)[0], [1, 2, 'CARRYING 1 SKULL', C.YELLOW]);
+  // dead: still the distance, nothing to do yet
+  dead(g, 0);
+  assert.deepEqual(hud(0), [[1, 2, 'CARRYING 1 SKULL', C.YELLOW], [1, 3, `ZONE ${d0}M  MOVES IN ${left(z.moves - v.tick)}`, C.GREY]]);
+  g.dv.setUint8(rec(0) + L.P_FL, fl(g, 0) & ~L.PF_DEAD);
   const last = Object.assign(Object.create(v), { hole: () => ({ ...v.hole(), until: z.moves }) });
   assert.deepEqual(hud(0, last)[1], [1, 3, `ZONE ${d0}M  FIRST TO ${u32(g, L.AH_TARGET)}`, C.GREY], 'the last zone');
   give(g, 3, 0);

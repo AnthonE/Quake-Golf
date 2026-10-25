@@ -6,8 +6,8 @@
 // point each for its side and for itself. A pile left HH_LIFE vanishes. The
 // target is HH_PER a fighter on the larger side as play starts, at least
 // HH_MIN; the most at the clock wins.
-export const HH_MIN = 25;
-export const HH_PER = 3;
+export const HH_MIN = 40;
+export const HH_PER = 5;
 export const HH_MOVE = 5625; // ticks a zone lasts: 45 s
 export const HH_LIFE = 3750; // ticks a pile lies untouched before it's gone: 30 s, from the tick it's laid or added to
 export const HH_TOUCH_R = '1.5'; // m across (and HH_TOUCH_H up or down) to take a pile

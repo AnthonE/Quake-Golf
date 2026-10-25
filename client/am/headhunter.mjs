@@ -122,17 +122,18 @@ export default {
   hud(view, ctx) {
     // (26 cells a line: the shield bar starts at the 28th)
     const z = zoneOf(view);
-    const me = ctx.me?.live && !ctx.me.dead ? ctx.me : null;
+    // (the distance from where you are, dead or alive; in the zone only alive)
+    const me = ctx.me?.live ? ctx.me : null;
     const n = ctx.me?.aux ?? 0;
     ctx.put(1, 2, n ? `CARRYING ${skulls(n)}` : 'NO SKULLS  KILL FOR THEM', n ? C.YELLOW : C.GREY);
     if (!z) return;
     const hd = view.hole(), md = view.mode();
-    const here = me && inZone(z, me.pos);
+    const here = me && !me.dead && inZone(z, me.pos);
     const where = here ? 'IN THE ZONE' : me ? `ZONE ${Math.round(across(me.pos, z.pos))}M` : 'ZONE';
     // when it moves; the last zone of a match never does (the clock ends it first), so the target in its place
     const when = hd.state === L.H_PLAY && z.moves < hd.until ? `MOVES IN ${clock(Math.max(0, z.moves - hd.tick))}` : md.target ? `FIRST TO ${md.target}` : '';
     ctx.put(1, 3, when ? `${where}  ${when}` : where, here ? C.YELLOW : C.GREY);
-    if (n && me && !here) ctx.put(1, 4, 'BANK THEM IN THE ZONE', (ctx.now >> 8) & 1 ? C.YELLOW : C.WHITE);
+    if (n && me && !me.dead && !here && hd.state === L.H_PLAY) ctx.put(1, 4, 'BANK THEM IN THE ZONE', (ctx.now >> 8) & 1 ? C.YELLOW : C.WHITE);
   },
   news(f, ctx) {
     const at = [f.pos[0], f.pos[1] + 0.5, f.pos[2]];
