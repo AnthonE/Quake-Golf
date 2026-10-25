@@ -16,7 +16,6 @@ import * as L from '../../src/layout.mjs';
 import * as AC from '../../src/am/consts.mjs';
 import { C } from '../font.mjs';
 import { SIDE, SIDE_C, SIDE_RGB } from './sides.mjs';
-import { nearestEnemy } from './slayer.mjs';
 
 const ZONE_H = Number(AC.HH_ZONE_H);
 const ZONE_RGB = [1, 0.78, 0.22];
@@ -74,6 +73,23 @@ function carriers(view, but) {
       [d.getFloat32(b + L.P_VX, true), d.getFloat32(b + L.P_VY, true), d.getFloat32(b + L.P_VZ, true)], n, fl & L.PF_BLUE ? 1 : 0]);
   }
   return out;
+}
+
+// The feet of the nearest enemy of slot `me` (at feet `pos`) within `within`
+// m across, carrying skulls (`carrying`) or any: read straight off the
+// records, the other side by its bit (256 AI fighters ask it every 8 ticks).
+function enemy(view, me, pos, within, carrying) {
+  const u8 = view.u8, d = view.dv, side = u8[L.PLAYERS + me * L.PSIZE + L.P_FL] & L.PF_BLUE;
+  let best = null, bd = within;
+  for (let q = 0; q < L.NPLAYER; q++) {
+    const b = L.PLAYERS + q * L.PSIZE, fl = u8[b + L.P_FL];
+    if ((fl & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE || (fl & L.PF_BLUE) === side) continue;
+    if (carrying && !d.getUint16(L.MODE_REC + q * L.MR_SIZE + L.MR_AUX, true)) continue;
+    const x = d.getFloat32(b + L.P_PX, true), z = d.getFloat32(b + L.P_PZ, true);
+    const dd = Math.hypot(x - pos[0], z - pos[2]);
+    if (dd < bd) { bd = dd; best = [x, d.getFloat32(b + L.P_PY, true), z]; }
+  }
+  return best;
 }
 
 // The rim's lights: where the zone's own surface is under each point round
@@ -212,16 +228,11 @@ export default {
     if (n) return best ? { pos: best.pos, r: 1, hurry, hold: false } : { pos: z.pos, r: z.r * (2 / 3), hurry, hold: false };
     if (best) return { pos: best.pos, r: 1, hurry: 0.55, hold: false };
     if (ctx.role === 'defend') return { pos: z.pos, r: z.r * (2 / 3), hurry: 0.3, hold: true };
-    let prey = null, pd = HUNT;
-    for (const [q, pos] of carriers(view, me.slot)) {
-      if (ctx.ally(me.slot, q)) continue;
-      const d = across(pos, me.pos);
-      if (d < pd) { pd = d; prey = pos; }
-    }
+    const prey = enemy(view, me.slot, me.pos, HUNT, true);
     if (prey) return { pos: prey, r: 2, hurry: 0.3, hold: false };
     // nobody carrying near: the nearest enemy, as Team Slayer's hunt (kills are skulls)
-    const [q] = nearestEnemy(view, me);
-    return q < 0 ? null : { pos: view.fighter(q).pos, r: 2, hurry: 0, hold: false };
+    const foe = enemy(view, me.slot, me.pos, Infinity, false);
+    return foe && { pos: foe, r: 2, hurry: 0, hold: false };
   },
   state(view) {
     const z = zoneOf(view), piles = pilesOf(view), carry = [0, 0];

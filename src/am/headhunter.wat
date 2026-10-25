@@ -114,7 +114,7 @@
 ;; slot order, takes every pile its feet are at; each fighter alive in the
 ;; zone with skulls banks them.
 (func $hh_tick (result i32)
-  (local $t i32) (local $p i32) (local $k i32) (local $a i32) (local $n i32) (local $r i32) (local $any i32)
+  (local $t i32) (local $p i32) (local $k i32) (local $a i32) (local $n i32) (local $r i32) (local $any i32) (local $x f32) (local $z f32)
   (local.set $t (i32.load (i32.const @HDR_TICK)))
   (if (i32.and (i32.ge_u (local.get $t) (i32.load (i32.const @(AO + HH_MOVES)))) (i32.lt_u (local.get $t) (i32.load (i32.const @HDR_UNTIL))))
     (then
@@ -141,10 +141,16 @@
       (!for $p (i32.const 0) (i32.const @NPLAYER)
         (if (call $a_alive (local.get $p))
           (then
+            (local.set $x (!at f32 @(PLAYERS + P_PX) (i32.shl (local.get $p) (i32.const 6))))
+            (local.set $z (!at f32 @(PLAYERS + P_PZ) (i32.shl (local.get $p) (i32.const 6))))
             (!for $k (i32.const 0) (i32.const @HH_NPILE)
               (local.set $a (call $hh_pile (local.get $k)))
               (local.set $n (i32.load16_u offset=12 (local.get $a)))
-              (if (local.get $n)
+              ;; (a pile HH_TOUCH_R or more off along either axis is out of
+              ;; $a_near's reach too: the cheap test first, 256 fighters by 30 places)
+              (if (i32.and (i32.ne (local.get $n) (i32.const 0))
+                           (i32.and (f32.lt (f32.abs (f32.sub (f32.load (local.get $a)) (local.get $x))) (f32.const @HH_TOUCH_R))
+                                    (f32.lt (f32.abs (f32.sub (f32.load offset=8 (local.get $a)) (local.get $z))) (f32.const @HH_TOUCH_R))))
                 (then
                   (if (call $a_near (local.get $p) (f32.load (local.get $a)) (f32.load offset=4 (local.get $a)) (f32.load offset=8 (local.get $a))
                                     (f32.const @HH_TOUCH_R) (f32.const @HH_TOUCH_H))
