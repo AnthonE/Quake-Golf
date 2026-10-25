@@ -5,7 +5,7 @@
 // each of its fighters on it. HL_TARGET points win; the most at the clock wins.
 export const HL_TARGET = 100;
 export const HL_MOVE = 7500; // ticks a hill lasts: 60 s
-export const HL_H = '3'; // m up or down of the hill's point a fighter's feet may be and count
+export const HL_H = '2'; // m up or down of the hill's point a fighter's feet may be and count (a roof and the room under it are 4.8 m apart)
 // Its news, FX_MODE with these as size (MX_AM + 8 * 3 ..).
 export const HL_MX_MOVE = 40;
 export const HL_MX_TAKE = 41;
