@@ -433,7 +433,18 @@ export const MAP_TELE = MAP + 0x280; // 16 x 32 B: f32 x, y, z, radius, to x, y,
 export const MAP_HEAD = 0x480; // the bytes above, copied whole
 export const MAP_GROUPS = MAP + 0x480; // 64 x 32 B: f32 x0, y0, z0, x1, y1, z1 | u32 first box, count
 export const MAP_BOXES = MAP + 0xc80; // 512 x 32 B: f32 x0, y0, z0, x1, y1, z1 | u32 material, group
-export const MAP_END = MAP + 0x4c80;
+// The objectives the arena's team modes play for (tools/map.mjs fills them in,
+// defaulting any the map leaves out): the two flags' stands, red's then blue's
+// (f32 x, z, top | u32 0), the skull's spot (the same), and up to NHILL hills
+// (f32 x, z, top, radius), MAP_NHILL of them. Tops as MAP_SPAWNY.
+export const MAP_OBJ = MAP + 0x4c80;
+export const MAP_NHILL = MAP_OBJ; // u32
+export const MAP_FLAGS = MAP_OBJ + 0x10; // 2 x 16 B
+export const MAP_BALL = MAP_OBJ + 0x30; // 16 B
+export const MAP_HILLS = MAP_OBJ + 0x40; // NHILL x 16 B
+export const NHILL = 8;
+export const MAP_OBJ_SIZE = 0xc0;
+export const MAP_END = MAP_OBJ + MAP_OBJ_SIZE;
 export const NBOX = 512;
 export const NGROUP = 64;
 export const NTELE = 16;
@@ -477,6 +488,7 @@ export const KILL_MELEE = 11;
 export const KILL_BEHIND = 12;
 export const KILL_SUPER = 13;
 export const KILL_FALL = 14;
+export const KILL_CARRY = 15; // a flag or the skull swung by its carrier
 
 // More FX kinds, for the arena. A tracer's record is its end (the hit, or
 // where the ray gave out), the weapon as its size, the shot number; a hit's is
@@ -515,16 +527,39 @@ export const M_FIESTA = 0;
 export const M_INFECTION = 1;
 export const M_GUNGAME = 2;
 export const M_JUGGERNAUT = 3;
+// The team modes: red against blue (P_FL's PF_BLUE), each its own files on the
+// kit (AM below): src/am/<key>.wat and .mjs, client/am/<key>.mjs.
+//   M_SLAYER: every kill scores for your side, a death by your own hand takes
+//   one off; AH_TARGET (TS_PER a fighter on the larger side, at least TS_MIN) wins.
+//   M_CTF: a flag on each side's stand; bring theirs to yours while yours is
+//   home; CF_CAPS captures win.
+//   M_ODDBALL: one skull; every second your side holds it is a point; OB_TARGET win.
+//   M_HILL: one hill at a time, moving; every second your side holds it (more
+//   of you on it than of them) is a point; HL_TARGET win.
+// In a team mode everyone spawns on their own half with an assault rifle and
+// a magnum, the map's pads are laid, and a flag's or the skull's carrier has
+// no guns or frags, only a swing that kills (PF_CARRY).
+export const M_SLAYER = 4;
+export const M_CTF = 5;
+export const M_ODDBALL = 6;
+export const M_HILL = 7;
 export const MODES = [
   { name: FIESTA ? 'FIESTA' : 'SLAYER', rules: FIESTA ? 'RANDOM GUNS  MOST KILLS IN 10 MIN' : `${FRAG_LIMIT} KILLS WIN`, ticks: MATCH_TICKS },
   { name: 'INFECTION', rules: 'ZOMBIES HAVE SWORDS  STAY HUMAN FOR 3 MIN', ticks: 22500 },
   { name: 'GUN GAME', rules: 'EVERY KILL A NEW GUN  FIRST SWORD KILL WINS', ticks: 37500 },
   { name: 'JUGGERNAUT', rules: 'KILL THE JUGGERNAUT TO BECOME IT  10 POINTS', ticks: 37500 },
+  { name: 'TEAM SLAYER', rules: 'RED V BLUE  EVERY KILL SCORES FOR YOUR SIDE', ticks: 60000, team: 1, pads: 1 },
+  { name: 'CAPTURE THE FLAG', rules: 'BRING THEIR FLAG HOME TO YOURS  3 TO WIN', ticks: 75000, team: 1, pads: 1 },
+  { name: 'ODDBALL', rules: 'HOLD THE SKULL  A POINT A SECOND  100 TO WIN', ticks: 45000, team: 1, pads: 1 },
+  { name: 'KING OF THE HILL', rules: 'HOLD THE HILL  A POINT A SECOND  IT MOVES', ticks: 45000, team: 1, pads: 1 },
 ];
 export const MODE_TICKS = MODES.map((m) => m.ticks);
-export const ARENA_MODES = [M_FIESTA, M_INFECTION, M_GUNGAME, M_JUGGERNAUT];
+// a room opens on a Fiesta, then free-for-all and team matches by turns
+export const ARENA_MODES = [M_FIESTA, M_SLAYER, M_INFECTION, M_CTF, M_GUNGAME, M_ODDBALL, M_JUGGERNAUT, M_HILL];
 export const FORCE_MODE = 0xa8;
-export const TEAM_MODES = (1 << M_INFECTION) | (1 << M_JUGGERNAUT); // modes with sides: no hurting your own
+export const TEAMED = MODES.reduce((b, m, k) => (m.team ? b | (1 << k) : b), 0); // red against blue
+export const PAD_MODES = MODES.reduce((b, m, k) => (m.pads ? b | (1 << k) : b), 0); // the FIESTA build lays the map's pads for these
+export const TEAM_MODES = (1 << M_INFECTION) | (1 << M_JUGGERNAUT) | TEAMED; // modes with sides: no hurting your own
 export const LADDER = [W_AR, W_BR, W_MAGNUM, W_SHOTGUN, W_PLASMA, W_NEEDLER, W_SNIPER, W_ROCKET, W_SWORD];
 export const JUGG_POINTS = 10;
 export const ZRESPAWN_TICKS = 250; // 2 s: a zombie comes back sooner
@@ -535,9 +570,17 @@ export const AH_HUMANS = REGION + 0x4c; // u32 Infection: live humans, counted e
 export const AH_ZOMBIES = REGION + 0x50; // u32 Infection: live zombies
 export const AH_LEADER = REGION + 0x54; // u32 gun game: the leader + 1; Juggernaut: the juggernaut + 1 (0 none)
 export const AH_WINNER = REGION + 0x58; // u32 gun game: the sword's killer + 1; Juggernaut: who reached JUGG_POINTS + 1
+// The team modes' (TEAMED), red's then blue's where there are two:
+export const AH_SCORE = REGION + 0x5c; // u32 x 2: each side's score (kills, captures, seconds held)
+export const AH_TARGET = REGION + 0x64; // u32 the score that wins, set as play starts (0: none)
+export const AH_TEAMWIN = REGION + 0x68; // u32 set as the match ends: 1 red won, 2 blue, 3 a draw (0 still playing)
+export const AH_TEAMN = REGION + 0x6c; // u32 x 2: live fighters on each side, counted every tick
+export const AH_END = REGION + 0x74; // AH_MODE up to here is cleared as a mode is picked
 // A fighter's side, in P_FL (the prediction reads it: a zombie's legs are predicted):
 export const PF_ZOMBIE = 16; // Infection: a zombie
 export const PF_JUGG = 32; // Juggernaut: the juggernaut
+export const PF_BLUE = 64; // a team mode: on blue (red without it)
+export const PF_CARRY = 128; // a team mode: carrying the flag or the skull (no guns, no frags, a swing that kills)
 // Per fighter, past the spawn points (hashed, in every keyframe, not in the
 // prediction's copy: only the confirmed world reads it), cleared as a mode is picked:
 export const MODE_REC = ARENA + 0x300; // 256 x 8 B
@@ -546,6 +589,14 @@ export const MR_RUNG = 0; // u8 gun game: the rung (0 the assault rifle .. 8 the
 export const MR_PLACE = 1; // u8 where it finished (1 first, ties share), set as a match of a mode ends
 export const MR_POINTS = 2; // u16 Infection: humans infected; Juggernaut: kills as the juggernaut
 export const MR_HUMAN = 4; // u16 Infection: ticks lived as a human
+// A team mode's own (the same bytes): MR_POINTS the fighter's objective score
+// (captures, seconds holding the skull or the hill; Team Slayer's kills are A_KILLS), and
+export const MR_AUX = 4; // u16 a second stat (CTF: flags returned)
+// The team mode's objective (each mode lays its own fields out in it, in
+// src/am/<key>.mjs): hashed and in every keyframe, not in the prediction's
+// copy, cleared as a mode is picked, so a Fiesta leaves it 0.
+export const AO = ARENA + 0xb00; // REGION + 0xcc00
+export const AO_SIZE = 0x400;
 // FX_MODE: a mode's news for the feed, what happened as its size, who as owner, whom as shot.
 export const FX_MODE = 14;
 export const MX_INFECT = 1; // owner infected shot (owner == shot: a human died alone and turned)
@@ -555,6 +606,22 @@ export const MX_RUNG = 4; // owner moved up to rung shot
 export const MX_DEMOTE = 5; // owner was moved down to rung shot
 export const MX_WIN = 6; // owner won the match
 export const MX_JUGG = 7; // owner is the juggernaut
+export const MX_TEAMWIN = 8; // a team mode's match is over: shot AH_TEAMWIN (1 red, 2 blue, 3 a draw), owner 0
+// Each team mode's own news: MX codes MX_AM + 8 k .. + 7 for AM[k] (in its .mjs).
+export const MX_AM = 16;
+
+// The arena's kit of team modes: mode AM[k].mode is src/am/<key>.wat, its
+// hooks $<prefix>_start, _tick and _kill called through (!am) while it is on.
+export const AM = [
+  { mode: M_SLAYER, key: 'slayer', prefix: 'ts' },
+  { mode: M_CTF, key: 'ctf', prefix: 'cf' },
+  { mode: M_ODDBALL, key: 'oddball', prefix: 'ob' },
+  { mode: M_HILL, key: 'hill', prefix: 'hl' },
+];
+export * from './am/slayer.mjs';
+export * from './am/ctf.mjs';
+export * from './am/oddball.mjs';
+export * from './am/hill.mjs';
 
 // ---- Bumper balls: src/ built with BUMPER (build/bumper/game.wasm). The
 // same world, netcode and lockstep; every player is a ball now, and the golf
