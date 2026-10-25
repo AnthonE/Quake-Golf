@@ -583,7 +583,7 @@ test('the client module: draws every phase, frames the maze, writes its HUD line
   }
   assert.ok(near > 400, `${near} of 4000 against a hedge`);
   assert.equal(maze.brain.danger(g.v, M.x0 - 3, C, tick), 1, 'off the maze');
-  // the brain: a goal one cell nearer the middle, from anywhere on the ring
+  // the brain: a goal one cell nearer the middle, from anywhere it can start
   const P = paths(M, epochAt(playT(g)));
   for (const c of [0, M.n - 1, M.n * M.n - 1, M.n * (M.n - 1)]) {
     put(g, 2, ...centreOf(M, c));
