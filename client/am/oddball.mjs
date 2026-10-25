@@ -89,7 +89,7 @@ export default {
     else if (s.state === L.OB_CARRIED) ctx.put(1, row++, `${SIDE[s.side]} HAS THE SKULL  P${s.carrier + 1}`, SIDE_C[s.side]);
     else if (s.state === L.OB_DROPPED) ctx.put(1, row++, `SKULL DOWN  BACK IN ${Math.ceil(s.left / 125)}`, ctx.C.WHITE);
     else ctx.put(1, row++, 'THE SKULL IS FREE', ctx.C.WHITE);
-    if (team >= 0) ctx.put(1, row, `YOUR SIDE ${md.score[team]} S OF ${md.target}`, SIDE_C[team]);
+    if (team >= 0) ctx.put(1, row, `YOUR SIDE ${md.score[team]} S OF ${md.target || L.OB_TARGET}`, SIDE_C[team]); // (the target is set as play starts)
     else ctx.put(1, row, `RED ${md.score[0]} S  BLUE ${md.score[1]} S`, ctx.C.GREY);
   },
   news(f, ctx) {
