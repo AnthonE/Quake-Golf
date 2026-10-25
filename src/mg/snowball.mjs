@@ -31,20 +31,25 @@ export const SB_MELT = 0.0006; // m a tick: 3 m to 2 m in 13 s still
 // radius of its centre (and the one under it); a rolled cell packs hard
 // SB_PACK ticks later, longer than the prediction runs ahead, and is fresh
 // again (snowed over) SB_REFILL ticks after it was rolled. Rolling packed
-// snow wears a ball down SB_WEAR a metre (to SB_B0).
+// snow wears a ball down SB_WEAR a metre (to SB_B0), until the rim is in:
+// the final ring's tracks don't wear.
 export const SB_GN = 128;
 export const SB_GRID = 0;
 export const SB_FOOT = 0.75;
 export const SB_PACK = 300; // 2.4 s
-export const SB_REFILL = 3000; // 20 s
+export const SB_REFILL = 3000; // 24 s
 export const SB_WEAR = 0.008;
 // The edge: a ball on the ground whose skin hangs over the rim is pushed out,
 // SB_TIP m/s a tick times the overhang over its radius (at most 1).
 export const SB_TIP = 0.03;
 // Swallowing: two balls in touching (skins within SB_TOUCH, after the bumps),
 // one under SB_EATK of the other's radius: the small one is out, the big one's
-// square up SB_EAT of the small one's (to SB_BMAX).
+// square up SB_EAT of the small one's (to SB_BMAX). From the rim in
+// (SB_CALM + SB_SHRINK) the line rises to SB_EATK1 at the clock, so any
+// smaller ball can be swallowed by the end; at the clock every ball under the
+// biggest melts (out), the most swallows breaking a tie.
 export const SB_EATK = 0.75;
+export const SB_EATK1 = 1;
 export const SB_EAT = 0.5;
 export const SB_TOUCH = 0.15;
 // The pines: SB_PN plus the field's area over SB_PAREA, at most SB_PMAX, on
@@ -68,7 +73,8 @@ export const SB_NP = 4; // u32 pines
 // PG_S (the confirmed world's, fixed at setup but SB_EATEN).
 export const SB_PINE = 0; // f32 x, z a pine, SB_PMAX of them
 export const SB_SPOT = 256; // f32 x, z where spawn index i starts, 256 of them
-export const SB_EATEN = 2304; // u8 a slot: who swallowed it, plus 1 (0 nobody)
+export const SB_EATEN = 2304; // u16 a slot: who swallowed it, plus 1 (0 nobody, SB_MELTED melted at the clock)
+export const SB_MELTED = 0xffff;
 // A ball's PG_M is its radius, an f32 (PGF_SIZE: $b_rad reads it); PG_SCORE the balls it swallowed.
 // Its FX kinds are FX_MG + 4 * MG_SNOWBALL + k, k 0 to 3: 88 to 91.
 export const SB_FX_EAT = 88; // a swallow: owner the swallower, shot the swallowed, where it was (its centre), size the swallower's radius after

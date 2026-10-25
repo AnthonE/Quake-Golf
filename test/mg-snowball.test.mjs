@@ -10,7 +10,7 @@ import { View, partyWord, PLAT_Y } from '../src/party-view.mjs';
 import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
-import snowball, { stage, rimAt, swallows, tracks, cellAt, freshAt } from '../client/mg/snowball.mjs';
+import snowball, { stage, rimAt, swallows, eatkAt, rimIn, tracks, cellAt, freshAt } from '../client/mg/snowball.mjs';
 import * as L from '../src/layout.mjs';
 import * as MC from '../src/mg/snowball.mjs'; // SB_*: the minigame's own constants
 
@@ -64,13 +64,16 @@ const stampAt = (g, c, t) => g.dv.setUint32(L.PG_BIG + MC.SB_GRID + 4 * c, t, tr
 function packAll(g, ago = MC.SB_PACK + 10) { const t = ago < 0 ? 0 : (g.v.tick - ago) >>> 0; for (let c = 0; c < GN * GN; c++) stampAt(g, c, t); }
 // $sb_push's size step, in f32 as the sim works it, for a ball of radius r
 // whose roll and push left it at (vx, vz): still, it melts; on the ground it
-// grows on fresh snow and wears on packed.
-function sized(r, vx, vz, ground, fresh) {
+// grows on fresh snow and wears on packed (not once the rim is in).
+function sized(r, vx, vz, ground, fresh, wear = true) {
   const sp = f(Math.sqrt(f(f(vx * vx) + f(vz * vz))));
   if (sp < MC.SB_STILL) return Math.max(f(r - f(MC.SB_MELT)), MC.SB_B0);
   if (!ground) return r;
-  return Math.min(Math.max(f(f(f(sp * DT) * (fresh ? f(MC.SB_GROW) : f(-MC.SB_WEAR))) + r), MC.SB_B0), MC.SB_BMAX);
+  return Math.min(Math.max(f(f(f(sp * DT) * (fresh ? f(MC.SB_GROW) : wear ? f(-MC.SB_WEAR) : 0)) + r), MC.SB_B0), MC.SB_BMAX);
 }
+// The largest f32 under x > 0.
+const below = (x) => { const a = new Float32Array([x]); new Uint32Array(a.buffer)[0]--; return a[0]; };
+const eatenBy = (g, q) => g.dv.getUint16(L.PG_S + MC.SB_EATEN + 2 * q, true);
 
 test('the field for 1, 8, 64 and 256: sized for the crowd, sized balls bumping, its pines clear of every spawn, a snowball of 1 m from play', async () => {
   let last = 0;
@@ -190,7 +193,7 @@ test('a snowball grows SB_GROW a metre of fresh snow it covers, wears SB_WEAR a 
     assert.equal(b.radius, sized(1.5, b.vel[0], b.vel[2], true, true), `rolled ${ago} ticks ago`);
     assert.ok(b.radius > 1.5);
   }
-  // still (under SB_STILL), no keys: melting, SB_MELT of its square a tick
+  // still (under SB_STILL), no keys: melting, SB_MELT a tick
   g.step([[L.EV_INPUT, 0, partyWord({ yaw: 0, move: 0 })]]);
   put(g, 0, C - 4, C - 6, { r: 2.5 });
   for (let k = 0; k < 125; k++) {
@@ -364,7 +367,7 @@ test('swallowing: touching, one under 3/4 of the other: out, the big one grows b
   assert.ok(small.out && !big.out, 'P2 swallowed');
   assert.equal(big.radius, f(Math.sqrt(f(f(1.4 * f(1.4 * MC.SB_EAT)) + 4))));
   assert.deepEqual([big.score, big.kos, small.place], [1, 1, 3]);
-  assert.equal(g.v.u8[L.PG_S + MC.SB_EATEN + 1], 1, 'swallowed by P1');
+  assert.equal(eatenBy(g, 1), 1, 'swallowed by P1');
   const e = fxs(g.v, MC.SB_FX_EAT).at(-1);
   assert.deepEqual([e.owner, e.shot, e.size], [0, 1, big.radius]);
   assert.ok(Math.abs(e.pos[1] - (small.pos[1] + 1.4)) < 1e-3, 'where it was, its centre');
@@ -373,6 +376,7 @@ test('swallowing: touching, one under 3/4 of the other: out, the big one grows b
   assert.equal(snowball.sink({ owner: 2 }, (p) => `P${p + 1}`, g.v), null, 'a fall is the frontend\'s');
   // the other way round: the small one in the lower slot
   g = await pair(1.2, 1.7, 0.1);
+  assert.equal(eatenBy(g, 0), 2, 'swallowed by P2');
   assert.ok(g.v.partier(0).out && !g.v.partier(1).out);
   // at 3/4 exactly, no; a skin and a half apart, no; over its head with a gap, no; in touch over it, yes
   for (const [ra, rb, gap, above, eaten] of [[2, 1.5, 0.1, false, false], [2, 1.4, 0.2, false, false], [2, 1.4, 0.3, true, false], [2, 1.4, 0.1, true, true]]) {
@@ -383,6 +387,68 @@ test('swallowing: touching, one under 3/4 of the other: out, the big one grows b
   g = await pair(2.9, 2.1, 0.1);
   assert.equal(g.v.partier(0).radius, MC.SB_BMAX);
   assert.ok(swallows(2.9, 2.1) && !swallows(2, 1.5) && swallows(2, 1.49));
+});
+
+test('the endgame: once the rim is in its tracks don\'t wear and the line rises from SB_EATK to SB_EATK1 at the clock (the client\'s the same); at the clock all but the biggest melt, the most swallows breaking a tie', async () => {
+  const END = MC.SB_CALM + MC.SB_SHRINK;
+  // the line, in f32 as $sb_eatk works it
+  assert.deepEqual([eatkAt(0), eatkAt(END), eatkAt(END + 1375), eatkAt(MC.SB_LEN)], [MC.SB_EATK, MC.SB_EATK, MC.SB_EATK + (MC.SB_EATK1 - MC.SB_EATK) / 2, MC.SB_EATK1]);
+  assert.ok(!rimIn(END - 1) && rimIn(END));
+  // a pair touching in the air, the bigger 2 m, the smaller just under the line and on it
+  for (const tp of [END - 500, END, END + 1, END + 1000, END + 2000, MC.SB_LEN - 1]) {
+    const k = eatkAt(tp), line = f(f(2) * f(k));
+    for (const [rb, eaten] of [[below(line), true], [line, false]]) {
+      const g = await room(3, { clean: true });
+      at(g, tp);
+      const y = PLAT_Y + 4, d = Math.sqrt((2 + rb + 0.1) ** 2 - (rb - 2) ** 2);
+      put(g, 2, C, C + 5);
+      put(g, 0, C - d / 2, C, { y, vx: 2, ground: false, r: 2 });
+      put(g, 1, C + d / 2, C, { y, vx: 2, ground: false, r: rb });
+      g.step();
+      assert.equal(g.v.partier(1).out, eaten, `${tp} into play, the line ${k}: ${rb} of 2 ${eaten ? '' : 'not '}swallowed`);
+    }
+  }
+  // packed tracks: wearing till the rim is in, then not
+  const g = await room(3, { clean: true });
+  put(g, 1, C + 3, C + 4);
+  put(g, 2, C - 3, C + 4);
+  at(g, END - 6);
+  packAll(g);
+  put(g, 0, C - 5, C - 2, { vx: 9, r: 2 });
+  for (let k = 0; k < 16; k++) {
+    const r = rOf(g, 0), worn = playT(g) < END;
+    g.step();
+    const b = g.v.partier(0);
+    assert.equal(b.radius, sized(r, b.vel[0], b.vel[2], b.ground, false, worn), `tick ${playT(g)}`);
+    assert.ok(worn ? b.radius < r : b.radius === r, `${playT(g)} into play: ${r} to ${b.radius}`);
+  }
+  // the clock: four on the snow apart, P3 the biggest (as big as P2, but a swallow more)
+  const clock = async (sizes, scores) => {
+    const h = await room(4, { clean: true });
+    at(h, MC.SB_LEN);
+    sizes.forEach((r, p) => {
+      put(h, p, C + Math.cos(p * Math.PI / 2) * 3.5, C + Math.sin(p * Math.PI / 2) * 3.5, { vx: 0.5 * Math.cos(p * Math.PI / 2), vz: 0.5 * Math.sin(p * Math.PI / 2), r });
+      h.dv.setUint16(rec(p) + L.PG_SCORE, scores[p], true);
+    });
+    h.step();
+    return h;
+  };
+  let h = await clock([1.5, 2, 2, 1.2], [0, 0, 1, 0]);
+  assert.deepEqual([0, 1, 2, 3].map((p) => h.v.partier(p).out), [true, true, false, true]);
+  assert.deepEqual([h.v.party().state, h.v.party().winner], [L.H_OVER, 2]);
+  assert.deepEqual([0, 1, 2, 3].map((p) => h.v.partier(p).place), [4, 4, 1, 4], 'the melted share a place');
+  assert.deepEqual([0, 1, 3].map((p) => eatenBy(h, p)), [MC.SB_MELTED, MC.SB_MELTED, MC.SB_MELTED]);
+  assert.equal(snowball.sink({ owner: 1 }, (p) => `P${p + 1}`, h.v), 'P2 MELTED AT THE CLOCK');
+  // as big and as many swallows: both stay, a shared 1st
+  h = await clock([1.5, 2, 2, 1.2], [0, 1, 1, 0]);
+  assert.deepEqual([0, 1, 2, 3].map((p) => h.v.partier(p).out), [true, false, false, true]);
+  assert.deepEqual([h.v.party().state, h.v.party().winner, h.v.partier(1).place, h.v.partier(2).place], [L.H_OVER, 255, 1, 1]);
+  // a tick before the clock: nobody melts
+  h = await room(4, { clean: true });
+  at(h, MC.SB_LEN - 1);
+  [1.5, 2, 2.5, 1.2].forEach((r, p) => put(h, p, C + Math.cos(p * Math.PI / 2) * 3.5, C + Math.sin(p * Math.PI / 2) * 3.5, { vx: 1.5, r }));
+  h.step();
+  assert.ok([0, 1, 2, 3].every((p) => !h.v.partier(p).out) && h.v.party().state === L.H_PLAY);
 });
 
 test('in slot order: a ball swallowed this tick swallows no more, one that grew is weighed at its size; the last one in wins', async () => {
@@ -408,7 +474,7 @@ test('in slot order: a ball swallowed this tick swallows no more, one that grew 
   assert.deepEqual([h.v.partier(0).place, h.v.partier(1).place, h.v.partier(0).pts], [1, 2, 10]);
 });
 
-test('the prediction matches the confirmed ball bit for bit: growing on fresh snow, wearing on packed, into a pine, heavy on the keys, tipping at the rim as it crumbles, standing still, hopping', async () => {
+test('the prediction matches the confirmed ball bit for bit: growing on fresh snow, wearing on packed, into a pine, heavy on the keys, tipping at the rim as it crumbles, standing still, hopping, on the final ring\'s tracks', async () => {
   const g = await room(3, { seed: 31 });
   const R = g.v.party().size;
   const ps = pines(g);
@@ -463,6 +529,15 @@ test('the prediction matches the confirmed ball bit for bit: growing on fresh sn
   run(partyWord({ yaw: 0, move: 0 }), 200);
   run((k) => partyWord({ yaw: 8192, move: 1, hop: k === 20 ? 1 : 0 }), 100);
   assert.ok(!g.v.partier(0).out);
+  // F: the rim in, on packed snow round the final ring: no wear
+  at(g, MC.SB_CALM + MC.SB_SHRINK - 40);
+  aside(0, -1.5, 1.5);
+  packAll(g);
+  put(g, 0, C, C - 4.5, { r: 1.6 });
+  const worn = rOf(g, 0);
+  run(circle(4.5), 200);
+  assert.ok(!g.v.partier(0).out, 'still in the final ring');
+  assert.ok(rOf(g, 0) >= worn - 40 * 0.1 * MC.SB_WEAR, 'worn only till the rim is in');
 });
 
 test('the prediction across the countdown\'s end: its own ball a snowball of SB_B0 from play\'s first tick', async () => {
@@ -475,8 +550,9 @@ test('the prediction across the countdown\'s end: its own ball a snowball of SB_
 
 // A round of Partier balls on the debug build: no trap, a round played to
 // its end, equal on every tick on 1 and 4 threads.
-for (const [balls, ticks, seed, eats] of [[8, 12500, 2, 1], [64, 12500, 1, 12]]) {
-  test(`a round of ${balls} AI balls on the debug build: no trap, they grow, swallow and fall, half last 25 s, the round ends; equal on 1 and 4 threads`, async () => {
+// Seed 7's 8 go to the clock, and melt.
+for (const [balls, ticks, seed, eats] of [[8, 12500, 2, 1], [8, 12500, 7, 1], [64, 12500, 1, 12]]) {
+  test(`a round of ${balls} AI balls (seed ${seed}) on the debug build: no trap, they grow, swallow and fall, half last 25 s, the round ends with one winner; equal on 1 and 4 threads`, async () => {
     const bytes = partyBytes(true);
     const stats = { start: -1, over: -1, eats: 0, outs: [], big: 0, places: null };
     let seen = 0;
@@ -490,7 +566,7 @@ for (const [balls, ticks, seed, eats] of [[8, 12500, 2, 1], [64, 12500, 1, 12]])
         if (x.kind === L.FX_SINK) stats.outs.push((t - stats.start) * TICK);
       }
       if (g.state === L.H_PLAY) for (let p = 0; p < balls; p++) stats.big = Math.max(stats.big, v.partier(p).radius);
-      if (stats.over < 0 && stats.start >= 0 && g.state === L.H_OVER) { stats.over = t; stats.places = [...Array(balls).keys()].map((p) => v.partier(p).place); }
+      if (stats.over < 0 && stats.start >= 0 && g.state === L.H_OVER) { stats.over = t; stats.winner = g.winner; stats.places = [...Array(balls).keys()].map((p) => v.partier(p).place); }
     } });
     assert.equal(r.sim.error().code, 0);
     assert.ok(stats.over > 0, 'the round ended');
@@ -499,7 +575,8 @@ for (const [balls, ticks, seed, eats] of [[8, 12500, 2, 1], [64, 12500, 1, 12]])
     assert.ok(stats.eats >= eats, `${stats.eats} swallowed`);
     assert.ok(stats.big > 1.5, `the biggest ${stats.big.toFixed(2)} m`);
     assert.ok(stats.outs.filter((s) => s < 25).length <= balls / 2, `outs at ${stats.outs.map((s) => s.toFixed(0))}`);
-    assert.ok(stats.places.every((x) => x >= 1 && x <= balls) && stats.places.includes(1), `places ${stats.places}`);
+    assert.ok(stats.places.every((x) => x >= 1 && x <= balls) && stats.places.filter((x) => x === 1).length === 1, `places ${stats.places}`);
+    assert.ok(stats.winner < balls, `one winner, P${stats.winner + 1}`);
     const parsed = parseLog(r.log);
     const n = stats.over + 50;
     const a = await replay({ bytes: partyBytes(), log: parsed, ticks: n, threads: 1, tag: 't1' });
@@ -537,6 +614,16 @@ test('the client module: draws the countdown, play and the result and its balls,
   assert.equal(fr.shape, 'disc');
   assert.ok(Math.abs(fr.radius - rimAt(g.v.party().size, g.v.party().t) - 1) < 1e-3);
   for (const s of [snowball.hint, snowball.rules]) assert.ok(s.length <= 70 && /^[ -_]*$/.test(s), `the title card's line in the 3x5 font: ${s}`);
+  // the last ring and the clock's last 10 s: their HUD lines
+  for (const [tp, want] of [[MC.SB_CALM + MC.SB_SHRINK + 100, 'LAST RING'], [MC.SB_LEN - 200, 'AT THE CLOCK']]) {
+    at(g, tp);
+    g.step();
+    for (let p = 0; p < 4; p++) put(g, p, C + Math.cos(p * 1.57) * 3.5, C + Math.sin(p * 1.57) * 3.5, { vx: 3, r: 1 + 0.2 * p });
+    draw();
+    lines.length = 0;
+    snowball.hud(g.v, { ...hctx, slot: 0, me: g.v.partier(0) });
+    assert.ok(lines.some((l) => l[1].startsWith(want)), lines.map((l) => l[1]).join(' / '));
+  }
   // the result
   g.dv.setUint32(L.HDR_UNTIL, g.v.tick, true);
   for (let k = 0; k < 3; k++) g.step();

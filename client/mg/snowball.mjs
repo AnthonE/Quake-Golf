@@ -9,7 +9,7 @@
 // round it and a few pebbles turning with it as it rolls (the module draws
 // the balls: drawsBalls), its size the record's PG_M (src/mg/snowball.wat);
 // in play a red ring round one that can swallow you, a green one round one
-// you can swallow. The brain: away from the balls that can swallow it (and
+// you can swallow (the line rising once the rim is in). The brain: away from the balls that can swallow it (and
 // their way), it hunts the one it can swallow that it reaches soonest,
 // leading it; with neither near it rolls on the way with the most fresh snow
 // (the more skilled, the keener), never standing still; once the rim is
@@ -42,8 +42,18 @@ export function rimAt(r0, tp) {
 }
 // A ball's radius on the view's bank, as $b_rad reads it in a sized round.
 export const radiusOf = (view, p) => Math.max(view.dv.getFloat32(L.PLAYERS + (view.bank || 0) + p * L.PSIZE + L.PG_M, true), MC.SB_B0);
-// Can a ball of radius a swallow one of radius b?
-export const swallows = (a, b) => Math.fround(b) < Math.fround(Math.fround(a) * Math.fround(MC.SB_EATK));
+// $sb_eatk in f32: the swallowing line tp ticks into play, SB_EATK till the
+// rim is in, then up to SB_EATK1 at the clock.
+const f = Math.fround;
+export function eatkAt(tp) {
+  const k = tp - (MC.SB_CALM + MC.SB_SHRINK);
+  if (k <= 0) return MC.SB_EATK;
+  return Math.min(f(f(f(f(k) * f(MC.SB_EATK1 - MC.SB_EATK)) / f(MC.SB_LEN - MC.SB_CALM - MC.SB_SHRINK)) + f(MC.SB_EATK)), MC.SB_EATK1);
+}
+// Is the rim in (no more wear) tp ticks into play?
+export const rimIn = (tp) => tp >= MC.SB_CALM + MC.SB_SHRINK;
+// Can a ball of radius a swallow one of radius b, the line at k?
+export const swallows = (a, b, k = MC.SB_EATK) => f(b) < f(f(a) * f(k));
 
 // The snow's cell under (x, z) ($sb_cell), -1 off the grid; is it fresh on tick t ($sb_fresh)?
 export function cellAt(cx, x, z) {
@@ -98,7 +108,9 @@ function world(view) {
     const list = grid.get(k);
     if (list) list.push(b); else grid.set(k, [b]);
   }
-  w = { tick, bank: o, balls, grid, big, st: stage(view), start: dv.getUint32(L.HDR_START + o, true), claims: new Map() };
+  const tp = tpOf(view, tick);
+  // the line now, and as a bot will meet it (a round trip on)
+  w = { tick, bank: o, balls, grid, big, st: stage(view), start: dv.getUint32(L.HDR_START + o, true), claims: new Map(), tp, eatk: eatkAt(tp), eatkSoon: eatkAt(tp + 40) };
   WORLDS.set(dv.buffer, w);
   return w;
 }
@@ -126,9 +138,9 @@ function sizeUp(me, w) {
   const x = me.pos[0], z = me.pos[2];
   const d2 = (b) => (b.x - x) ** 2 + (b.z - z) ** 2;
   const all = within(w, x, z, 30, me.slot, []);
-  NEAR.threats = all.filter((b) => swallows(b.r, me.radius) && d2(b) < 24 * 24).sort((a, b) => d2(a) - d2(b) || a.slot - b.slot).slice(0, 8);
+  NEAR.threats = all.filter((b) => swallows(b.r, me.radius, w.eatkSoon) && d2(b) < 24 * 24).sort((a, b) => d2(a) - d2(b) || a.slot - b.slot).slice(0, 8);
   // a margin under the line: its size is a round trip old
-  NEAR.prey = all.filter((b) => b.r < me.radius * MC.SB_EATK * 0.985);
+  NEAR.prey = all.filter((b) => b.r < me.radius * w.eatk * 0.985);
   return NEAR;
 }
 
@@ -225,7 +237,7 @@ function plan(view, me, bot, w) {
   // little for keeping on as it goes; kept for half a second
   mem.mode = 'grow';
   if (mem.grow && t - mem.grow.at < 62 && Math.hypot(mem.grow.x - x, mem.grow.z - z) > 4) return [mem.grow.x, mem.grow.z];
-  const near = within(w, x, z, 14, me.slot, []).filter((b) => !swallows(r, b.r));
+  const near = within(w, x, z, 14, me.slot, []).filter((b) => !swallows(r, b.r, w.eatk));
   // how much it cares for fresh snow: a weak player rolls the tracks as often as not
   const fresh = 0.15 + 1.6 * skill * skill;
   let best = null, score = -Infinity;
@@ -355,6 +367,7 @@ export default {
     const cam = ctx.cam || [cx, PLAT_Y + 50, cx];
     const ms = ctx.ms || 16;
     const myR = ctx.pme && !ctx.pme.out ? ctx.pme.radius : ctx.me && !ctx.me.out ? ctx.me.radius : 0;
+    const kk = eatkAt(tp);
     for (let p = 0; p < L.NPLAYER; p++) {
       const a = L.PLAYERS + p * L.PSIZE;
       const fl = view.u8[a + L.P_FL];
@@ -385,8 +398,8 @@ export default {
       }
       // in play: a ring on the snow round one that can swallow you (red) or that you can swallow (green)
       if (g.state === L.H_PLAY && !own && myR > 0 && (fl & L.PF_FALL) === 0) {
-        if (swallows(r, myR)) out.decals?.push({ pos: [x, PLAT_Y + 0.03, z], radius: r * 1.35, width: 0.22, color: [...THREAT, 0.7], kind: DECAL.RING });
-        else if (swallows(myR, r)) out.decals?.push({ pos: [x, PLAT_Y + 0.03, z], radius: r * 1.3, width: 0.16, color: [...PREY, 0.55], kind: DECAL.RING });
+        if (swallows(r, myR, kk)) out.decals?.push({ pos: [x, PLAT_Y + 0.03, z], radius: r * 1.35, width: 0.22, color: [...THREAT, 0.7], kind: DECAL.RING });
+        else if (swallows(myR, r, kk)) out.decals?.push({ pos: [x, PLAT_Y + 0.03, z], radius: r * 1.3, width: 0.16, color: [...PREY, 0.55], kind: DECAL.RING });
       }
     }
   },
@@ -411,7 +424,8 @@ export default {
 
   // the feed's line for a ball swallowed (the rest fell)
   sink(f, name, view) {
-    const by = view?.u8?.[L.PG_S + MC.SB_EATEN + f.owner];
+    const by = view?.dv?.getUint16(L.PG_S + MC.SB_EATEN + 2 * f.owner, true);
+    if (by === MC.SB_MELTED) return `${name(f.owner)} MELTED AT THE CLOCK`;
     return by ? `${name(by - 1)} SWALLOWED ${name(f.owner)}` : null;
   },
 
@@ -430,17 +444,18 @@ export default {
     const rho = Math.hypot(me.pos[0] - st.cx, me.pos[2] - st.cx), R = rimAt(st.r0, tp);
     let threat = null, td = Infinity;
     for (const b of w.balls) {
-      if (b.slot === ctx.slot || !swallows(b.r, r)) continue;
+      if (b.slot === ctx.slot || !swallows(b.r, r, w.eatk)) continue;
       const d = Math.hypot(b.x - me.pos[0], b.z - me.pos[2]) - b.r - r;
       if (d < td) { td = d; threat = b; }
     }
     if (threat && td < 8) ctx.centre(row, `P${threat.slot + 1} CAN SWALLOW YOU  ${Math.max(0, Math.round(td))} M`, C.RED);
     else if (rho + r > R - 0.5) ctx.centre(row, 'THE EDGE  GET IN', C.ORANGE);
     else if (Math.hypot(me.vel[0], me.vel[2]) < MC.SB_STILL && tp > 125) ctx.centre(row, 'STANDING STILL  YOU MELT', C.CYAN);
-    else if (me.ground && !freshAt(view, cellAt(st.cx, me.pos[0], me.pos[2]), view.tick)) ctx.centre(row, 'OLD TRACKS WEAR YOU DOWN  FIND FRESH SNOW', C.GREY);
+    else if (me.ground && !rimIn(tp) && !freshAt(view, cellAt(st.cx, me.pos[0], me.pos[2]), view.tick)) ctx.centre(row, 'OLD TRACKS WEAR YOU DOWN  FIND FRESH SNOW', C.GREY);
     else if (tp < 500) ctx.centre(row, 'ROLL FRESH SNOW TO GROW', C.CYAN);
-    else ctx.centre(row, `YOU CAN SWALLOW ANYONE UNDER ${(r * MC.SB_EATK).toFixed(1)} M`, C.GREEN);
+    else ctx.centre(row, `YOU CAN SWALLOW ANYONE UNDER ${(r * w.eatk).toFixed(2)} M`, C.GREEN);
     if (tp >= MC.SB_CALM - 250 && tp < MC.SB_CALM + 250) ctx.centre(row + 1, 'THE EDGE IS CRUMBLING', C.ORANGE);
+    else if (rimIn(tp)) ctx.centre(row + 1, MC.SB_LEN - tp < 1250 ? 'AT THE CLOCK ALL BUT THE BIGGEST MELT' : 'LAST RING  ANY BIGGER BALL SWALLOWS BY THE CLOCK', C.ORANGE);
   },
 
   brain: {
