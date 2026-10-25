@@ -167,6 +167,21 @@ test('the HUD\'s waypoints land where the shader\'s project() puts them', () => 
   assert.equal(PALETTE.length, 8);
 });
 
+// Walk route() a waypoint at a time from feet `from` (each leg must be clear at knee, chest and head) until it
+// gives the goal itself; the waypoints.
+function walkRoute(v, from, goal) {
+  const legs = [];
+  let p = from;
+  for (let i = 0; i < 8; i++) {
+    const w = route(v, p, goal);
+    assert.ok(walkable(v, p, w), `leg ${i} from ${p.map(Math.round)} to ${w.map(Math.round)} is clear`);
+    legs.push(w);
+    if (w === goal) return legs;
+    p = [w[0], v.stand(w[0], w[2], w[1] + 0.6), w[2]];
+  }
+  assert.fail(`no way from ${from} to ${goal}`);
+}
+
 test('route(): doors found on Blood Gulch; into each base\'s room by one from mid-field, then to the flag; out and round to a roof', async () => {
   const g = await world(1);
   const v = g.v;
@@ -178,19 +193,7 @@ test('route(): doors found on Blood Gulch; into each base\'s room by one from mi
   assert.deepEqual(doors(0).sort(), [[377, 21.3, 501.5, 377, 21.3, 511.7], [386, 21, 501.5, 386, 21, 504.2], [386, 21, 523.9, 386, 21, 519.8], [366.5, 25.8, 511.9, 383.2, 25.8, 511.9], [403.5, 21, 512, 400.8, 21, 512]].sort());
   assert.equal(nav.rings[1].doors.length, 5, 'blue\'s, the same turned round');
   assert.deepEqual([nav.rings[3].doors, nav.rings[4].doors], [[], []], 'the rocks have none');
-  // walk the route a waypoint at a time (each leg must be clear at knee, chest and head) until it gives the goal itself
-  const walk = (from, goal) => {
-    const legs = [];
-    let p = from;
-    for (let i = 0; i < 8; i++) {
-      const w = route(v, p, goal);
-      assert.ok(walkable(v, p, w), `leg ${i} from ${p.map(Math.round)} to ${w.map(Math.round)} is clear`);
-      legs.push(w);
-      if (w === goal) return legs;
-      p = [w[0], v.stand(w[0], w[2], w[1] + 0.6), w[2]];
-    }
-    assert.fail(`no way from ${from} to ${goal}`);
-  };
+  const walk = (from, goal) => walkRoute(v, from, goal);
   const isDoor = (gi, w) => nav.rings[gi].doors.some((d) => d.in === w || d.out === w);
   for (const [side, gi, x] of [['red', 0, 392], ['blue', 1, 632]]) {
     const flag = at(x, 512);
@@ -222,6 +225,24 @@ test('route(): doors found on Blood Gulch; into each base\'s room by one from mi
   walk(at(512, 540), at(632, 512, 26.3));
   const cave = walk(at(512, 540), at(512, 574));
   assert.ok(cave.some((w) => isDoor(2, w)), `the cave by an end: ${JSON.stringify(cave)}`);
+});
+
+test('route(): onto hill 3 in the cave by an end, from mid-field, from the ridge and from the cave\'s roof over it', async () => {
+  const g = await world(1);
+  const v = g.v;
+  const nav = navOf(v);
+  const at = (x, z, top) => [x, v.stand(x, z, top), z];
+  const isDoor = (gi, w) => nav.rings[gi].doors.some((d) => d.in === w || d.out === w);
+  // the hill in the cave stands on its floor, 8 m under the roof's slab, which lies flush with the ground either side
+  const [hx, hz, top] = v.map().hills[3];
+  const hill = at(hx, hz, top);
+  assert.deepEqual([hill[1], at(hx, hz, 40)[1], v.height(hx, hz - 4), v.height(hx, hz + 4)], [21, 29, 29, 29]);
+  for (const from of [at(512, 512), at(512, 590), at(512, 578, 40), at(510.6, 573.3, 40), at(522.1, 577.9, 40), at(500, 571, 40)]) {
+    const legs = walkRoute(v, from, hill);
+    assert.ok(legs.some((w) => isDoor(2, w)), `from ${from}: in by an end, ${JSON.stringify(legs)}`);
+    // from up on the slab, never straight at the hill under it: round the ring and off its end first
+    if (from[1] > 28) assert.ok(legs.length >= 3 && legs[0][1] > 28, `from ${from}: off the roof first, ${JSON.stringify(legs)}`);
+  }
 });
 
 test('the AI fighter: roles by rank on its side, a hunt in Team Slayer, a carrier swings and never shoots', async () => {

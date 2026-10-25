@@ -196,7 +196,8 @@ function ringStep(view, r, p, s) {
 // Where feet `from` should walk next on the way to feet `goal`: the goal when
 // nothing of the map stands between; out of the building it's in by the
 // cheapest door it sees (round to another door when the goal is in the same
-// building out of sight: up to its roof, say); into the goal's building by
+// building out of sight: up to its roof, say; off a roof with no door on it,
+// the cave's, round its ring as from outside); into the goal's building by
 // the cheapest door whose inside sees the goal, walking the ring to it if it
 // can't be walked to straight; round a building in the way on its ring.
 export function route(view, from, goal) {
@@ -217,7 +218,11 @@ export function route(view, from, goal) {
       }
       if (c < bc) { bc = c; best = { e, out }; }
     }
-    return best ? (best.out ? best.e.out : best.e.in) : goal;
+    if (best) return best.out ? best.e.out : best.e.in;
+    // no door in sight: up on its roof over a goal under it (the cave's, over
+    // the hill in it), off the roof's end and in by a door as from outside;
+    // anywhere else, straight at the goal
+    if (gi !== fi || from[1] < goal[1] + 2) return goal;
   }
   if (gi >= 0) {
     const r = nav.rings[gi];
