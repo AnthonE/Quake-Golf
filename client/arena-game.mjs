@@ -725,9 +725,9 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     if (f?.live) {
       if (f.dead) centre(Math.floor(rows / 2) + 2, `RESPAWN IN ${Math.ceil(f.respawn / 125)}`, C.YELLOW);
       else if (f.carry) {
-        // a carrier has no guns or frags, only a swing that kills
+        // a carrier has no guns or frags, only a swing that kills (a spectator's click turns to the next fighter)
         centre(rows - 3, `CARRYING THE ${kit?.carry === 'skull' ? 'SKULL' : 'FLAG'}`, C.YELLOW);
-        centre(rows - 2, 'NO GUNS  CLICK OR Q SWINGS', C.WHITE);
+        if (!WATCH) centre(rows - 2, 'NO GUNS  CLICK OR Q SWINGS', C.WHITE);
       } else {
         const arm = ARMS[f.weapon];
         if (arm) {
