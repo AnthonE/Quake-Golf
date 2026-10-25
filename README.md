@@ -560,8 +560,10 @@ node net/play.mjs --fireplace --bots 0   # just people
 ```
 
 Click (or Enter) to sit down; then each game's own controls. `?bot=1` sits a
-guest at the controls; `?watch=1` spectates; F goes fullscreen; T, while the
-room is in view, changes its theme (`?theme=<id>` picks one).
+guest at the controls; `?watch=1` spectates; F goes fullscreen. While the room
+is in view, T changes its theme (`?theme=<id>` picks one), B and H your ball
+and hat, and L lists your achievements (`?look=<word>` wears a look for one
+visit).
 
 **How it fits on the engine.** `build/fireplace/game.wasm` is golf, the arena,
 bumper balls and party in one module: `tools/asm.mjs` expands each exactly as
@@ -643,7 +645,45 @@ node tools/serve.mjs                            # then /client/room.html?theme=<
 node --test test/themes.test.mjs
 ```
 
-**Results.** `test/fireplace.test.mjs` (9 tests, 57 s here): the prefixer; one
+**Looks.** A look is a ball and a hat a player picks, and everyone in the room
+sees it: ten balls (the house colours, beach, candy, zebra, melon, pumpkin,
+snowball, eight ball, gold, marshmallow) and seven hats (a cap, a beanie, a
+headband, a helmet, none, a pumpkin head, a crown), listed in
+`client/looks.mjs`. A look is drawing only. The page writes its word
+(the ball in the low byte, the hat in the next) to `CL_LOOK`, the net worker
+sends it on the stream when it changes, and the relay keeps a word a slot and
+sends the table to every session that asked for looks in its hello (flag 4),
+then what changed, at most every 250 ms (`docs/wire.md`). A slot that empties
+goes back to 0, the house look. No tick, record, replay or hash carries a
+look, so the sims build to the same sha256 with or without them, and the Xbox,
+`tiny-client` and an edge relay, which never ask, never see one. Bumper balls
+and party draw the ball's pattern (beach panels, bands, ribs, a solid, metal,
+an eight ball's spot) and the hat on the rider's head, a few lines each in
+their shaders' ball and head cases; golf and the arena tint the golfer and the
+fighter the ball's colour (a team mode's sides still win). Look 0 draws exactly
+as the riders always have: the seat's colours, alpha 1, the slot for a seed.
+Musical Pads and Paint Party mark what is whose by the seat's colour, so their
+balls keep it there (`seatColors`); the hat still shows. The page keeps your
+pick in this browser. `client/party-render-demo.html?scene=wardrobe` shows
+every ball and hat.
+
+**Achievements.** Twelve, in `client/achievements.mjs`, kept in this browser:
+a first game, the top three, a win, two and three wins in a row, first,
+second and third, 25 and 100 marshmallows, 25 games, every game of the
+playlist played and won, and a game with 32 or more in it. Each is a test over
+a tally of results, and a result is what the confirmed world holds while a
+game's end is on screen (`FP_STAGE` 1): the game, this slot's place
+(`FP_LAST`) and marshmallows (`FP_GOT`), and how many were in it. So every
+machine reads the same bits for it; the page counts its own slot's, once per
+game (a key of the room, the games played and the game, so a keyframe that
+shows the same end again counts nothing). Four open a look: the pumpkin head,
+the eight ball, the gold ball and the crown (the marshmallow ball takes 100
+marshmallows). What one opened shows under the standings, and L lists them on
+the TV, six a page. They are this browser's record, not the room's: signing in
+with Elo Pros, and the referee's standings as their evidence, come next
+(`docs/roadmap.md`).
+
+**Results.** `test/fireplace.test.mjs` (10 tests): the prefixer; one
 module with every export; the playlist on the debug build from bumper balls
 round to bumper balls again, the room coming and going (each game's matches:
 two rounds, three minigames, one match cut to 3 min, one hole; everyone in
@@ -657,7 +697,13 @@ with `0xA7` on top turned off it; the playlist equal on every tick on 1 and 4
 threads through bumper balls and the switch into party; and keyframes taken
 just into party, mid-party, mid-arena and mid-golf, each restored into a sim
 sitting in bumper balls' world, its terrain and map rebuilt, every tick after
-equal to a run that never left. The determinism matrix replays 145,000 ticks
+equal to a run that never left; and the achievements' tally fed every held
+end of that playlist for three slots, twice each as a page sees a hold, which
+counts each game a slot was in once, with its marshmallows and wins.
+`test/looks.test.mjs` and `test/achievements.test.mjs` hold the rest: the house
+look as the riders were, every pattern and style the lists use present in both
+shaders, earned looks naming real achievements, and each achievement's test.
+The determinism matrix replays 145,000 ticks
 of twelve guests, the playlist round once with the minigames and the arena's
 modes as they stand at this commit: bumper balls, party from 191 s (Tag, The
 Wall, Bomb Rain), the arena from 392 s (Juggernaut, drawn from the eight),
@@ -674,6 +720,10 @@ holds up the page's GPU for about 40 s while party's pipelines compile
 carry on, and it catches up. The switch tick costs 30 to 46 ms (measured
 with the machine busy) on the relay's referee and every client (most of it
 the 512 x 512 terrain each game builds); the sim workers catch up past it.
+With looks, `net/run-fireplace.mjs --chrome 2` (240 s, 15 guests): 17
+sessions, 3,959 interval hashes checked, all equal, the room into party, and
+each Chrome page's look in both pages' tables at its slot (the gate's
+`looksWentRound`).
 
 ```sh
 node --test test/fireplace.test.mjs
@@ -682,8 +732,8 @@ node harness/matrix.mjs --ticks 145000 --log logs/fireplace.qgl --wasm build/fir
 node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--res 960x600] [--port 4433]
 ```
 
-Not done yet: a vote for what's next, names, and a way to lean back from the
-TV mid-game.
+Not done yet: a vote for what's next, names, achievements that follow a
+player off this browser, and a way to lean back from the TV mid-game.
 
 ## Bumper balls
 

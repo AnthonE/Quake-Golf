@@ -18,6 +18,7 @@ export const MAX_SPRITE = 256;
 export const MAX_BEAM = 128;
 export const MAX_RECT = 128;
 const FAR = 700;
+const NO_TINTS = new Uint32Array(L.NPLAYER); // a page with no looks: every seat its own colour
 // The HUD text's colours by C.* (client/font.mjs), for the shader and for rects drawn to match it.
 export const PALETTE = [[1, 1, 1], [1, 0.85, 0.25], [1, 0.35, 0.3], [0.4, 1, 0.4], [0.6, 0.6, 0.6], [0.5, 0.85, 1], [1, 0.6, 0.2], [0.8, 0.55, 1]];
 const vec3 = (c) => `vec3f(${c.map((v) => v.toFixed(3)).join(', ')})`;
@@ -292,6 +293,12 @@ fn slotColor(s: u32) -> vec3f {
   let h = f32(s) * 0.618034;
   return 0.5 + 0.4 * cos(6.2832 * (fract(h) + vec3f(0.0, 0.33, 0.67)));
 }
+// a look's colour for slot p (client/looks.mjs tint, after the player records), else the seat's
+fn tintOf(p: u32, seat: vec3f) -> vec3f {
+  let w = players[${L.NPLAYER * L.PSIZE / 4}u + min(p, 255u)];
+  if (p > 255u || (w >> 24u) == 0u) { return seat; }
+  return vec3f(f32((w >> 16u) & 255u), f32((w >> 8u) & 255u), f32(w & 255u)) / 255.0;
+}
 
 fn project(q: vec3f) -> vec4f {
   let r = q - u.cam.xyz;
@@ -321,7 +328,7 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
     let vel = vec3f(pf(b, ${L.P_VX}u), pf(b, ${L.P_VY}u), pf(b, ${L.P_VZ}u));
     center = vec3f(pf(b, ${L.P_PX}u), pf(b, ${L.P_PY}u) + 0.92, pf(b, ${L.P_PZ}u)) + vel * dt;
     half = vec2f(0.5, 0.92);
-    color = vec4f(slotColor(i), 1.0);
+    color = vec4f(tintOf(i, slotColor(i)), 1.0);
     // the match's sides: red and blue by PF_BLUE; Infection's zombies green, the juggernaut gold, everyone else one blue
     if (u.map.z > 1.5) { color = select(vec4f(0.92, 0.22, 0.16, 1.0), vec4f(0.22, 0.42, 1.0, 1.0), (fl & ${L.PF_BLUE}u) != 0u); }
     else if (u.map.z > 0.5) { color = vec4f(0.3, 0.5, 0.95, 1.0); }
@@ -599,7 +606,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
 
   const ubuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const storage = (size) => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  const playerBuf = storage(L.NPLAYER * L.PSIZE);
+  const playerBuf = storage(L.NPLAYER * L.PSIZE + L.NPLAYER * 4); // the records, then each slot's tint
   const projBuf = storage(L.NPROJ * L.JSIZE);
   const spriteBuf = storage(MAX_SPRITE * 48);
   const beamBuf = storage(MAX_BEAM * 48);
@@ -696,6 +703,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
       if (s.graph) device.queue.writeBuffer(graphBuf, 0, s.graph);
       device.queue.writeBuffer(ubuf, 0, uf);
       device.queue.writeBuffer(playerBuf, 0, u8, L.PLAYERS, L.NPLAYER * L.PSIZE);
+      device.queue.writeBuffer(playerBuf, L.NPLAYER * L.PSIZE, s.tints ?? NO_TINTS);
       device.queue.writeBuffer(projBuf, 0, u8, s.proj ?? L.PROJ, L.NPROJ * L.JSIZE);
       sprites.forEach((p, k) => {
         const c = p.color;

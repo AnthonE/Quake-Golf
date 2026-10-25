@@ -40,6 +40,7 @@ import { readClock } from './clock.mjs';
 import { NetGraph } from './netgraph.mjs';
 import { Partier } from './party-bot.mjs';
 import { epoch, predict, corrector, capturePng, listeners } from './host.mjs';
+import { riderSprites } from './looks.mjs';
 
 const TURN = 16384;
 const TICK = 0.008;
@@ -381,14 +382,15 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       const speed = Math.hypot(src.vel[0], src.vel[2]);
       const ang = (roll.get(p) || 0) + speed * ms / 1000 / r;
       roll.set(p, ang % (2 * Math.PI * 64));
-      const col = slotColor(p);
+      // its look (client/looks.mjs); a minigame that marks what is whose by the seat's colour keeps the balls in theirs
+      const rs = riderSprites(p, mod.seatColors ? h.look(p) & ~0xff : h.look(p));
       // the rider faces where the ball does (you: where you look), bobbing a little as it rolls
       const face = own ? yaw / TURN * 2 * Math.PI : src.yaw;
       const fv = [Math.cos(face), 0, Math.sin(face)];
       const bob = Math.abs(Math.sin(ang * 2)) * Math.min(1, speed / 6) * 0.06;
-      solid.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r, color: [...col, 1], kind: SPRITE.BALL, minpx: 1, vel: src.vel, roll: ang, seed: p });
-      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.22 + bob, pos[2]], size: 0.34, color: [...col, 1], kind: SPRITE.BODY, minpx: 1 });
-      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.78 + bob, pos[2]], size: 0.3, color: [...col, 1], kind: SPRITE.HEAD, minpx: 1, vel: fv });
+      solid.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r, color: rs.ball.color, kind: SPRITE.BALL, minpx: 1, vel: src.vel, roll: ang, seed: rs.ball.seed });
+      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.22 + bob, pos[2]], size: 0.34, color: rs.body.color, kind: SPRITE.BODY, minpx: 1 });
+      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.78 + bob, pos[2]], size: 0.3, color: rs.head.color, kind: SPRITE.HEAD, minpx: 1, vel: fv });
       if (src.item) solid.push({ pos: [pos[0], pos[1] + 2 * r + 1.55, pos[2]], size: 0.26, color: [...PU_COLOR[src.item], 1], kind: SPRITE.ORB, minpx: 1 });
       if (own) solid.push({ pos: [pos[0], pos[1] + 2 * r + (src.item ? 2.15 : 1.65) + 0.1 * Math.sin(now / 200), pos[2]], size: 0.3, color: [1, 1, 0.4, 1], kind: SPRITE.ARROW, minpx: 2 });
       if (src.dash) glow.push({ pos: [pos[0] - src.vel[0] * 0.05, pos[1] + r, pos[2] - src.vel[2] * 0.05], size: r * 1.3, color: [0.4, 0.85, 1, 0.5], kind: SPRITE.FLASH, minpx: 1 });

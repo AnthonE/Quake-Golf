@@ -19,6 +19,7 @@ import { readClock } from './clock.mjs';
 import { NetGraph } from './netgraph.mjs';
 import { Fighter } from './arena-bot.mjs';
 import { predict, corrector, capturePng, listeners } from './host.mjs';
+import { tintsOf } from './looks.mjs';
 
 const TURN = 16384;
 const ARMS = L.ARMS;
@@ -618,6 +619,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       cam, yaw: camYaw, pitch: camPitch, zoom, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, slot: tgt ? watched : slot < 0 ? 999 : slot,
       solid, glow, beams, rects, tracker, text, graph, marker, hurt, scope: zoom >= 4, sides: md.teamed ? 2 : ((1 << md.mode) & L.TEAM_MODES) !== 0 ? 1 : 0, zone: out.zone,
       crosshair: FIXED ? 7 : (f?.carry ? 5 : CROSS[f?.weapon] ?? 0) + (playing && !f.dead && onTarget(f, cam) ? 8 : 0), gap: spread / 30 + kick * 3,
+      tints: tintsOf(host),
     };
     renderer.frame(u8, last, target);
   }

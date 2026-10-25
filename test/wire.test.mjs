@@ -220,3 +220,19 @@ test('the control stream: sync, ping, pong, keyframes with and without digests, 
   assert.deepEqual(d.digests, digests);
   assert.equal(await W.readControl(sr), null);
 });
+
+test('looks: a hello asks for them, a client sends its own, the relay sends pairs, and an old hello asks for none', async () => {
+  const prefix = new Uint8Array(8);
+  assert.equal(W.decodeHello(W.encodeHello({ maxDatagram: 1200, wasmPrefix: prefix, looks: true })).looks, true);
+  assert.equal(W.decodeHello(W.encodeHello({ maxDatagram: 1200, wasmPrefix: prefix, watch: true, resume: 4 })).looks, false);
+  assert.deepEqual(W.decodeClient(W.encodeLook(0x0605)), { type: W.T_LOOK, look: 0x0605 });
+  assert.equal(W.encodeLook(1).length, 16, 'the relay reads client messages 16 bytes at a time');
+  const parts = [W.encodeLooks([[0, 0x0102], [255, 0xffffffff]]), W.encodePong(5, 6), W.encodeLooks([[7, 0]])];
+  const all = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
+  parts.reduce((o, p) => (all.set(p, o), o + p.length), 0);
+  let off = 0;
+  const sr = W.bufferedReader({ read: async () => (off >= all.length ? { done: true } : { value: all.slice(off, (off += 7)), done: false }) });
+  assert.deepEqual(await W.readControl(sr), { type: W.T_LOOK, looks: [[0, 0x0102], [255, 0xffffffff]] });
+  assert.deepEqual(await W.readControl(sr), { type: W.T_PONG, nonce: 5, serverTick: 6 });
+  assert.deepEqual(await W.readControl(sr), { type: W.T_LOOK, looks: [[7, 0]] });
+});

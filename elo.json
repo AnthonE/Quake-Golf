@@ -11,6 +11,14 @@
       "check": "review"
     },
     {
+      "id": "fireplace-look",
+      "title": "a ball or a hat for Fireplace",
+      "what": "A new look players can pick on the couch, which everyone in the room sees: one entry at the end of BALLS or HATS in client/looks.mjs (a pattern and two colours, or a hat's style and colour). client/party-render-demo.html?scene=wardrobe shows every one. A new pattern or hat style is a few lines in the bumper and party shaders.",
+      "deliverable": "PR: accepted into AnthonE/Quake-Golf",
+      "read_first": "CONTRIBUTING.md",
+      "check": "review"
+    },
+    {
       "id": "fireplace-minigame",
       "title": "a Party minigame",
       "what": "A new round for Party, and so for Fireplace. node tools/new-mg.mjs <key> <prefix> \"<NAME>\" writes one that builds and plays (a sumo ring); make it yours. Ideas are in docs/roadmap.md's kits table: Snowball, Full Tilt, Big Fans, Hoop Hop, Pinball. Its tests, the determinism matrix and the online gate must pass in CI.",

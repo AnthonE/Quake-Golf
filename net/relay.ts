@@ -124,6 +124,7 @@ type Slot = {
   keys: number; syncing: boolean; lastSync: number; lastDesync: number; lastReport: number; reports: Map<number, bigint>;
   token: number; // a native session's, 0 for WebTransport
   watch: boolean; // a spectator: no slot (slot -1), no words
+  looks?: boolean; // its hello asked for the room's looks (W.HELLO_LOOKS)
   ghost?: boolean; // a slot held for its player after a takeover, with no session
   leave?: (why: string) => void;
 };
@@ -145,6 +146,16 @@ const watchers = new Set<Slot>();
 function* everyone() { for (const s of slots) if (s) yield s; yield* watchers; }
 // a session that has left (or a slot since taken by someone else)
 const gone = (s: Slot) => (s.watch ? !watchers.has(s) : slots[s.slot] !== s);
+// Each slot's look (client/looks.mjs): drawing only, beside the sim and never
+// in the record, the replay or a hash. A session that asked for looks gets the
+// table after its welcome and then what changed, at most every LOOKS_MS; a
+// slot that empties goes back to 0, the house look.
+const looks = new Uint32Array(W.NP);
+const lookDirty = new Set<number>();
+const LOOKS_MS = 250;
+const lookTable = () => [...looks.keys()].filter((p) => looks[p]).map((p) => [p, looks[p]] as [number, number]);
+const sendLooks = (s: Slot, pairs: [number, number][]) => { if (s.looks && pairs.length) s.ctl.write(W.encodeLooks(pairs)).catch(() => {}); };
+const setLook = (p: number, look: number) => { if (looks[p] !== look >>> 0) { looks[p] = look >>> 0; lookDirty.add(p); } };
 // every slot's word on the newest closed tick (0 for a slot nobody holds): what the next tick is coded against
 let prevWords = new Uint32Array(W.NP);
 let events: { slot: number; kind: number; tick: number }[] = [];
@@ -397,7 +408,7 @@ function closeTick(T: number, now: number) {
   for (let p = 0; p < W.NP; p++) {
     const s = slots[p];
     if (!s || T < s.joinTick) continue;
-    if (T >= s.leaveTick) { stats.silent += s.pendingLate; slots[p] = null; continue; }
+    if (T >= s.leaveTick) { stats.silent += s.pendingLate; slots[p] = null; setLook(p, 0); continue; }
     if (s.leaveTick === Infinity && now - Math.max(s.lastRecv, stallEnd) > SILENT_MS) {
       stats.leaves.silent = (stats.leaves.silent || 0) + 1;
       stats.leaveAt.push(Number(((now - E) / 1000).toFixed(2)));
@@ -529,7 +540,7 @@ async function admit(d: Door) {
   stats.clientMaxDatagram.push(hello!.maxDatagram);
   const joinTick = watch || claim ? closed + 1 : scheduleEvent(p, W.EV_JOIN, closed + 1 + 4);
   if (roomStart < 0) startRoom(joinTick);
-  const s = newSlot(p, joinTick, { writer: d.datagrams as WritableStreamDefaultWriter<Uint8Array>, ctl: d.sw, maxDatagram, close: d.close, token: d.token, watch });
+  const s = newSlot(p, joinTick, { writer: d.datagrams as WritableStreamDefaultWriter<Uint8Array>, ctl: d.sw, maxDatagram, close: d.close, token: d.token, watch, looks: hello!.looks });
   // the ghost's word goes on until this player's first one lands
   if (claim) { s.last = claim.last; s.missing = claim.missing; stats.resumed++; }
   if (watch) {
@@ -542,6 +553,7 @@ async function admit(d: Door) {
   }
   await d.sw.write(W.encodeWelcome({ slot: p, maxDatagram, joinTick, seed: roomSeed, serverTick: Math.floor(serverNow()) + 1, roomStart, token: d.token, watch }));
   log(`${watch ? 'a spectator' : `slot ${p}`} joins at ${joinTick}, room ${roomStart}${d.token ? ' (native)' : ''}`);
+  sendLooks(s, lookTable());
   sendKey(s, W.SYNC.JOIN);
   const leave = (why: string) => {
     if (watch) {
@@ -565,6 +577,7 @@ async function admit(d: Door) {
       const m = W.decodeClient(buf);
       if (m?.type === W.T_PING) { stats.pongs++; s.ctl.write(W.encodePong(m.nonce, serverNow())).catch(() => {}); }
       if (m?.type === W.T_SYNC && performance.now() - s.lastSync > 1000) sendKey(s, m.reason);
+      if (m?.type === W.T_LOOK && !watch && !gone(s)) setLook(p, m.look ?? 0);
     }
   })().then(() => leave('stream-end'), () => leave('stream-error'));
   s.leave = leave;
@@ -867,6 +880,12 @@ function writeStatus() {
   return Deno.writeTextFile(tmp, JSON.stringify(st) + '\n').then(() => Deno.rename(tmp, statusPath)).catch((e) => console.error('relay: status: ' + e));
 }
 if (statusPath) { writeStatus(); setInterval(writeStatus, STATUS_MS); }
+setInterval(() => {
+  if (!lookDirty.size) return;
+  const pairs = [...lookDirty].map((p) => [p, looks[p]] as [number, number]);
+  lookDirty.clear();
+  for (const s of everyone()) sendLooks(s, pairs);
+}, LOOKS_MS);
 setInterval(() => {
   if (edge || roomStart < 0) return;
   const behind = (closed - roomStart - refAt) * W.TICK_MS / 1000;

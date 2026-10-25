@@ -14,12 +14,12 @@ import { readClock } from './clock.mjs';
 import { NetGraph } from './netgraph.mjs';
 import { Roller } from './bumper-bot.mjs';
 import { epoch, predict, corrector, capturePng, listeners } from './host.mjs';
+import { riderSprites } from './looks.mjs';
 
 const TURN = 16384;
 // the power-ups' colours, and what the HUD says about each
 export const PU_COLOR = [[1, 1, 1], [1, 0.3, 0.25], [0.3, 0.8, 1], [1, 0.85, 0.2], [1, 0.55, 0.15], [0.5, 1, 0.45]];
 const PU_HINT = ['', 'BIG AND HEAVY', 'A BURST OF SPEED', 'SHOVE EVERYONE NEAR', 'A ROCKET WHERE YOU FACE', 'A HIGH JUMP, A STOMP'];
-const slotColor = (s) => { const h = (s * 0.618034) % 1; return [0, 0.33, 0.67].map((o) => 0.55 + 0.4 * Math.cos(6.2832 * (h + o))); };
 const ordinal = (n) => `${n}${[, 'ST', 'ND', 'RD'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'TH'}`;
 
 export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, skill = 0.8, sens: SENS = 3, hud, present = true, showGraph: graphOn = false, external = false } = {}) {
@@ -273,14 +273,14 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       const speed = Math.hypot(src.vel[0], src.vel[2]);
       const ang = (roll.get(p) || 0) + speed * ms / 1000 / r;
       roll.set(p, ang % (2 * Math.PI * 64));
-      const col = slotColor(p);
+      const rs = riderSprites(p, h.look(p)); // its look (client/looks.mjs)
       // the rider faces where the ball does (you: where you look), bobbing a little as it rolls
       const face = own ? yaw / TURN * 2 * Math.PI : src.yaw;
       const fv = [Math.cos(face), 0, Math.sin(face)];
       const bob = Math.abs(Math.sin(ang * 2)) * Math.min(1, speed / 6) * 0.06;
-      solid.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r, color: [...col, 1], kind: SPRITE.BALL, minpx: 1, vel: src.vel, roll: ang, seed: p });
-      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.22 + bob, pos[2]], size: 0.34, color: [...col, 1], kind: SPRITE.BODY, minpx: 1 });
-      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.78 + bob, pos[2]], size: 0.3, color: [...col, 1], kind: SPRITE.HEAD, minpx: 1, vel: fv });
+      solid.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r, color: rs.ball.color, kind: SPRITE.BALL, minpx: 1, vel: src.vel, roll: ang, seed: rs.ball.seed });
+      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.22 + bob, pos[2]], size: 0.34, color: rs.body.color, kind: SPRITE.BODY, minpx: 1 });
+      solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.78 + bob, pos[2]], size: 0.3, color: rs.head.color, kind: SPRITE.HEAD, minpx: 1, vel: fv });
       if (src.item) solid.push({ pos: [pos[0], pos[1] + 2 * r + 1.55, pos[2]], size: 0.26, color: [...PU_COLOR[src.item], 1], kind: SPRITE.ORB, minpx: 1 });
       if (own) solid.push({ pos: [pos[0], pos[1] + 2 * r + (src.item ? 2.15 : 1.65) + 0.1 * Math.sin(now / 200), pos[2]], size: 0.3, color: [1, 1, 0.4, 1], kind: SPRITE.ARROW, minpx: 2 });
       if (src.dash) glow.push({ pos: [pos[0] - src.vel[0] * 0.05, pos[1] + r, pos[2] - src.vel[2] * 0.05], size: r * 1.3, color: [0.4, 0.85, 1, 0.5], kind: SPRITE.FLASH, minpx: 1 });

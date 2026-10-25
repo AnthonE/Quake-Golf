@@ -46,6 +46,8 @@ export async function createHost({ wasm, q = new URLSearchParams(location.search
   };
   h.set(L.CL_SLOT, -1);
   h.set(L.CL_PITCH, 512);
+  // a slot's look word (client/looks.mjs): this player's own as picked, the rest as the relay sent them
+  h.look = (p) => (p === h.get(L.CL_SLOT) ? h.get(L.CL_LOOK) : h.u32[(L.CL_LOOKS >> 2) + p]) >>> 0;
   // the prediction's own instance: it writes only PRED
   h.px = (await WebAssembly.instantiate(module, { env: { mem: memory } })).exports;
   const adapter = await navigator.gpu?.requestAdapter();
@@ -74,7 +76,7 @@ export async function createHost({ wasm, q = new URLSearchParams(location.search
       if (m.desync) h.desyncs.push(m.desync);
     };
     for (const w of [h.net, h.sim]) w.onerror = (e) => { h.error = String(e.message || e); e.preventDefault?.(); };
-    h.net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch, arena, fireplace }, [ch.port1]);
+    h.net.postMessage({ url, certHash, memory, prefix, simPort: ch.port1, impair: parseImpair(q.get('impair')), watch, arena, fireplace, looks: true }, [ch.port1]);
     h.sim.postMessage({ module, memory, netPort: ch.port2, threads }, [ch.port2]);
     addEventListener('pagehide', () => h.net.postMessage({ leave: true }));
   };
