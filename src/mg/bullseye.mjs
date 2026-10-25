@@ -9,12 +9,12 @@
 // the client imports this file itself.
 // The house: the bull and the three rings out from the middle, m, all times
 // the house's scale, the root of the balls in times BE_HS (at least 1, so up
-// to 100 balls play these sizes).
+// to 64 balls play these sizes; 256 play them twice as big).
 export const BE_R1 = 1.5; // the bull
 export const BE_R2 = 4; // the red ring
 export const BE_R3 = 7; // the white
 export const BE_R4 = 10; // the blue: the house's edge
-export const BE_HS = 0.1;
+export const BE_HS = 0.125;
 export const BE_PTS = [5, 3, 2, 1]; // what a ball in the bull, the red, the white, the blue scores at a bell
 // The ice: the house's edge plus BE_M0 plus BE_MK times the root of the balls in, at most BE_RMAX.
 export const BE_M0 = 8;

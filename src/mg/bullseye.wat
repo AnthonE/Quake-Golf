@@ -1,6 +1,6 @@
 ;; BULLSEYE: an icy disc over the sea, sized for the crowd, and the house
 ;; painted in its middle: the bull (BE_R1) and three rings out to its edge
-;; (BE_R2, BE_R3, BE_R4), scaled up past 100 balls. Every BE_END the bell
+;; (BE_R2, BE_R3, BE_R4), scaled up past 64 balls. Every BE_END the bell
 ;; rings an end: each ball in then, in slot order, scores by the ring its
 ;; centre is in (BE_PTS: 5 the bull down to 1 the blue; twice that the last
 ;; BE_DOUBLE ends), and from the next tick a shove wave runs out from the

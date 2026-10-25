@@ -72,7 +72,7 @@ test('the ice and the house for 1, 8, 64 and 256: sized for the crowd, every bal
     assert.equal(r.size, want.rad, `${r.size} m of ice for ${n}`);
     assert.equal(st.rad, want.rad);
     assert.deepEqual(st.ring, want.ring, `the house for ${n}`);
-    assert.equal(want.hs, n === 256 ? f32(16 * MC.BE_HS) : 1, 'the house grows only past 100 balls');
+    assert.equal(want.hs, n === 256 ? 2 : 1, 'the house grows only past 64 balls, twice as big for 256');
     assert.ok(r.size > last, 'the ice grows with the crowd');
     last = r.size;
     for (let p = 0; p < n; p++) {

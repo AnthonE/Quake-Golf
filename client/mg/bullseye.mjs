@@ -304,10 +304,12 @@ export default {
         } else if (!me.out) ctx.banner?.(`END ${f.shot}  NOTHING`, C.GREY, 1500);
       }
       if (f.shot === MC.BE_ENDS - MC.BE_DOUBLE) ctx.feed?.('THE LAST THREE ENDS SCORE DOUBLE', C.ORANGE);
-      else if (f.owner < L.NPLAYER && f.owner !== ctx.slot && f.size) ctx.feed?.(`END ${f.shot}  ${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} BEST`, C.WHITE);
     } else if (f.kind === MC.BE_FX_BULL) {
       if (f.owner === ctx.slot) ctx.sound?.holed?.();
-      else if (d < 40) ctx.sound?.tick?.();
+      else {
+        ctx.feed?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} IN THE BULL  +${f.size}`, C.YELLOW);
+        if (d < 40) ctx.sound?.tick?.();
+      }
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 3.5, color: [1, 0.85, 0.35, 0.9], kind: SPRITE.FLASH, life: 600, grow: true });
     }
   },
