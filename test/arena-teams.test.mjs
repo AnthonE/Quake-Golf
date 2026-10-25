@@ -481,8 +481,9 @@ test('Team Slayer with eight AI fighters: no trap on the debug build, the same h
   let last = null;
   const { log, scores: fighters } = await playArena({ bytes: debug, seed: forcedSeed(L.M_SLAYER), bots: 8, ticks, leaveAt: 1000,
     onTick: (t, v) => { last = { score: [v.dv.getUint32(L.AH_SCORE, true), v.dv.getUint32(L.AH_SCORE + 4, true)], n: [v.dv.getUint32(L.AH_TEAMN, true), v.dv.getUint32(L.AH_TEAMN + 4, true)] }; } });
-  // (the bots take everyone for a teammate until their side is in the view: what this checks is the sim)
   assert.deepEqual(last.n, [4, 4]);
+  // they fight across the sides only, and the kills score
+  assert.ok(last.score[0] + last.score[1] > 0, `scores ${last.score}`);
   assert.ok(fighters.every((f) => f.place === 0));
   const parsed = parseLog(log);
   const a = await replay({ bytes, log: parsed, ticks, threads: 1, tag: 'ts1' });
