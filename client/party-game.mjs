@@ -27,6 +27,8 @@
 //   facing(view, slot) -> radians, optional: which way a new round's countdown turns you (default: frame()'s centre)
 //   sink(f, name, view) -> the feed's line for an FX_SINK (f; name(p) as fx's), optional: null for the usual FELL / KNOCKED OUT
 //   music(view, ptick) -> false to hush the round's music for now (optional; ptick the prediction's clock, as draw's)
+//   drawsBalls: true, optional: draw() draws the balls themselves (ctx.own is where your own is drawn, [x, y, z] its
+//     bottom, or null), the frontend only their riders, what they hold, their shadows and their dots
 //   hud(view, ctx): ctx { put(x, y, str, c), centre(y, str, c), right(y, str, c), rect(x0, y0, x1, y1, r, g, b, a)
 //     (HUD pixels: a cell is 4 x 6), rows, C, slot, me (partier() or null), now, t (s into play) }.
 //     The frontend keeps rows 0 and 1 (the clock, who's left or the scores, the round's name), the middle band
@@ -311,7 +313,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       const winner = toWinner && view.bumper(g.winner).live && !view.bumper(g.winner).out;
       if (!winner && (watched < 0 || !inBall(watched))) watched = nextIn(watched, 1);
       if (watched >= 0) {
-        tgt = view.bumper(watched);
+        tgt = view.partier(watched);
         tgtPos = [0, 1, 2].map((k) => tgt.pos[k] + tgt.vel[k] * dt);
       }
     }
@@ -368,14 +370,14 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     const out = { scene, solid, glow, beams, decals, casters: extra, paint: null, music: true };
     const t = g.state === L.H_PLAY ? g.t * TICK + dt : 0;
     const pt = g.state === L.H_PLAY ? (ptick - g.start) * TICK : 0;
-    mod.draw?.(view, { tick: g.tick, dt, t, ptick, pt, now, ms, cam, slot, me, pme, view, pview, sound }, out);
+    mod.draw?.(view, { tick: g.tick, dt, t, ptick, pt, now, ms, cam, slot, me, pme, view, pview, sound, own: mine ? tgtPos : null }, out);
     const tune = g.state === L.H_PLAY && out.music !== false && (mod.music?.(view, ptick) ?? true);
     sound.music(g.state === L.H_PLAY ? (view.dv.getUint32(L.HDR_SEED, true) ^ Math.imul(g.hole + 7, 0x9e3779b9)) >>> 0 : null, tune);
 
     // the balls, their riders and what they hold, rockets, then what glows
     const casters = [];
     for (let p = 0; p < L.NPLAYER; p++) {
-      const b = view.bumper(p);
+      const b = view.partier(p);
       if (!b.live || b.out) { casters.push([0, -1000, 0, 0]); continue; }
       const own = mine && p === slot;
       const src = own ? mine : b;
@@ -392,7 +394,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       const face = own ? yaw / TURN * 2 * Math.PI : src.yaw;
       const fv = [Math.cos(face), 0, Math.sin(face)];
       const bob = Math.abs(Math.sin(ang * 2)) * Math.min(1, speed / 6) * 0.06;
-      solid.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r, color: [...col, 1], kind: SPRITE.BALL, minpx: 1, vel: src.vel, roll: ang, seed: p });
+      if (!mod.drawsBalls) solid.push({ pos: [pos[0], pos[1] + r, pos[2]], size: r, color: [...col, 1], kind: SPRITE.BALL, minpx: 1, vel: src.vel, roll: ang, seed: p });
       solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.22 + bob, pos[2]], size: 0.34, color: [...col, 1], kind: SPRITE.BODY, minpx: 1 });
       solid.push({ pos: [pos[0], pos[1] + 2 * r + 0.78 + bob, pos[2]], size: 0.3, color: [...col, 1], kind: SPRITE.HEAD, minpx: 1, vel: fv });
       if (src.item) solid.push({ pos: [pos[0], pos[1] + 2 * r + 1.55, pos[2]], size: 0.26, color: [...PU_COLOR[src.item], 1], kind: SPRITE.ORB, minpx: 1 });

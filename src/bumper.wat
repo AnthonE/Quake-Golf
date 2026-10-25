@@ -56,10 +56,25 @@
   (i32.const -1))
 #endif
 
-;; A ball's radius and weight, MEGA or not.
+;; A ball's radius and weight, MEGA or not. In party, a round that sizes its
+;; balls (PGF_SIZE) keeps each one's radius in its PG_M, an f32 (B_RAD while
+;; that is less), and a ball weighs its radius cubed. The flags are read from
+;; the confirmed header on either bank: the prediction never lays a round
+;; out, so its copy's are the same.
 (func $b_rad (param $pb i32) (result f32)
+#if PARTY
+  (if (i32.and (i32.load (i32.const @PG_FLAGS)) (i32.const @PGF_SIZE))
+    (then (return (f32.max (!at f32 @(PLAYERS + PG_M) (local.get $pb)) (f32.const @B_RAD)))))
+#endif
   (select (f32.const @MEGA_RAD) (f32.const @B_RAD) (!at u16 @(PLAYERS + B_MEGA) (local.get $pb))))
 (func $b_mass (param $pb i32) (result f32)
+#if PARTY
+  (local $r f32)
+  (if (i32.and (i32.load (i32.const @PG_FLAGS)) (i32.const @PGF_SIZE))
+    (then
+      (local.set $r (call $b_rad (local.get $pb)))
+      (return (f32.mul (f32.mul (local.get $r) (local.get $r)) (local.get $r)))))
+#endif
   (select (f32.const @MEGA_M) (f32.const 1) (!at u16 @(PLAYERS + B_MEGA) (local.get $pb))))
 
 ;; Uniform in [0, 1).

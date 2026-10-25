@@ -814,6 +814,7 @@ export const PK_OUT = 0; // out is out: the last ball in wins
 export const PK_SCORE = 1; // a ball that falls comes back; placed by PG_SCORE at the end
 export const PGF_BUMPS = 1; // PG_FLAGS: balls bump
 export const PGF_NOKICK = 2; // PG_FLAGS: a bump has no kick, only what the balls bring (elastic)
+export const PGF_SIZE = 4; // PG_FLAGS: a ball's radius is its PG_M, an f32 (B_RAD while that's less), its weight the radius cubed
 export const P_COUNT = 750; // 6 s countdown, the minigame's title up
 export const P_OVER = 625; // 5 s of the result
 export const FX_MG = 32; // minigame k's own FX kinds are FX_MG + 4k .. FX_MG + 4k + 3
