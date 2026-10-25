@@ -10,7 +10,10 @@
 //     kill feed's KILL_CARRY.
 //   hud(view, ctx): its own lines, rows 2 to 4 at the top left (rows 0 and 1
 //     there are the frontend's: your side and kills; the clock is row 0's
-//     middle, the score bar rows 4 and 5's middle, banners the middle band).
+//     middle, the score bar rows 4 and 5's middle, banners the middle band),
+//     each within cols 1 to 26: the shields and health take rows 1 to 3 from
+//     col 27 (x 108 of 320), and the score bar's text is centred on row 4
+//     (from col 30 at its widest with a target of 100).
 //     ctx { put(x, y, s, c), centre(y, s, c), right(y, s, c) (text cells, 80
 //     across), rect(x0, y0, x1, y1, r, g, b, a) (320 x 200 units, under the
 //     text), rows, C, slot (the fighter shown), me (its fighter(), from the

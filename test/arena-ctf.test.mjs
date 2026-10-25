@@ -650,7 +650,7 @@ test('CTF\'s client: the flags from AO (from the map in the countdown); HUD line
   put(g, 0, STAND[1][0], STAND[1][2], FLOOR);
   g.step();
   const take = fxs(g.v, L.FX_MODE, L.CF_MX_TAKE, from)[0];
-  assert.deepEqual(hudOf(g, 0, 0), [[2, 'YOUR FLAG  HOME', C.RED], [3, 'THEIR FLAG  YOU HAVE IT', C.CYAN], [4, 'YOU HAVE THE FLAG  RUN HOME', C.WHITE]]);
+  assert.deepEqual(hudOf(g, 0, 0), [[2, 'YOUR FLAG  HOME', C.RED], [3, 'THEIR FLAG  YOU HAVE IT', C.CYAN], [4, 'RUN HOME TO SCORE', C.WHITE]]);
   assert.deepEqual(hudOf(g, 1, 1), [[2, 'YOUR FLAG  TAKEN BY P1', C.YELLOW], [3, 'THEIR FLAG  HOME', C.RED]]);
   assert.deepEqual(newsOf(g, take, 0), { said: [['YOU TOOK THE BLUE FLAG', C.RED]], shown: [['YOU HAVE THE FLAG  RUN HOME', C.YELLOW]] });
   assert.deepEqual(newsOf(g, take, 1), { said: [['P1 TOOK THE BLUE FLAG', C.RED]], shown: [['YOUR FLAG IS TAKEN', C.CYAN]] });
@@ -708,10 +708,14 @@ test('CTF\'s client draws both flags on their stands, one lying, one over its ca
   assert.deepEqual([drawn(drawOf(g, -1, 0)).length, marks(drawOf(g, -1, 0))], [1, [['HOME', C.RED]]], 'a spectator watching it: as it sees it');
   assert.deepEqual(marks(drawOf(g, -1)), [], 'a spectator watching nobody');
   assert.deepEqual(marks(drawOf(g, 1)), [['TAKE', C.RED], ['KILL', C.RED]]);
-  // blue 1 takes red's: HOME  WAIT for red 0; blue 1 kills red 0, so blue's lies: RETURN for blue, TAKE for red
+  // blue 1 takes red's: HOME  WAIT for red 0, and its HUD says so (each line within 26 cells, clear of the
+  // shields and the score bar); blue 1 kills red 0, so blue's lies: RETURN for blue, TAKE for red
   put(g, 1, STAND[0][0], STAND[0][2], FLOOR);
   g.step();
   assert.deepEqual(marks(drawOf(g, 0)), [['HOME  WAIT', C.RED], ['KILL', C.CYAN]]);
+  const lines = hudOf(g, 0, 0);
+  assert.deepEqual(lines, [[2, 'YOUR FLAG  TAKEN BY P2', C.YELLOW], [3, 'THEIR FLAG  YOU HAVE IT', C.CYAN], [4, 'WAIT AT HOME FOR YOUR FLAG', C.WHITE]]);
+  assert.ok([...lines, ...hudOf(g, 1, 1), ...hudOf(g, -1, -1)].every(([, t]) => t.length <= 26));
   sword(g, 1, 0, 500, 540);
   assert.deepEqual(marks(drawOf(g, 3)), [['ESCORT', C.CYAN], ['RETURN', C.CYAN]]);
   assert.deepEqual(marks(drawOf(g, 2)), [['TAKE', C.CYAN], ['KILL', C.CYAN]]);

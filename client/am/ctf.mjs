@@ -74,7 +74,8 @@ export default {
     const mine = fs[ctx.team], theirs = fs[1 - ctx.team];
     ctx.put(1, 2, `YOUR FLAG  ${says(mine, ctx.slot)}`, mine.state === L.CF_HOME ? SIDE_C[ctx.team] : ctx.C.YELLOW);
     ctx.put(1, 3, `THEIR FLAG  ${says(theirs, ctx.slot)}`, SIDE_C[1 - ctx.team]);
-    if (ctx.me?.carry && !ctx.me.dead) ctx.put(1, 4, mine.state === L.CF_HOME ? 'YOU HAVE THE FLAG  RUN HOME' : 'YOU HAVE THE FLAG  YOURS MUST BE HOME', (ctx.now >> 8) & 1 ? ctx.C.YELLOW : ctx.C.WHITE);
+    // carrying: what to do with it (a capture needs your own home; row 3 already says you have it)
+    if (ctx.me?.carry && !ctx.me.dead) ctx.put(1, 4, mine.state === L.CF_HOME ? 'RUN HOME TO SCORE' : 'WAIT AT HOME FOR YOUR FLAG', (ctx.now >> 8) & 1 ? ctx.C.YELLOW : ctx.C.WHITE);
   },
 
   // The feed in the doer's side's colour (the flag's for CF_MX_HOME, the one
