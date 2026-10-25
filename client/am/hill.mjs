@@ -116,8 +116,10 @@ export default {
     if (far > 0) out.beams.push({ a: [x, y + 2, z], b: [x, y + 30, z], width: 0.3, color: [...rgb, 0.3 * far] });
     // the waypoint, rising with the distance so its distance line stays clear
     // of the disc far off (3 m up to 30 m away, 8 m from 80), and not over
-    // your head while you're on it
-    const me = ctx.me?.live && !ctx.me.dead ? ctx.me : null;
+    // the head of the fighter shown (yours, a spectator's watched one) while
+    // it's on it
+    const eye = ctx.shown >= 0 ? view.fighter(ctx.shown) : null;
+    const me = eye?.live && !eye.dead ? eye : null;
     const up = Math.min(8, Math.max(3, d / 10));
     if (!me || !onHill(h, me.pos)) out.markers.push({ pos: [x, y + up, z], label: me && me.team >= 0 && h.hold === me.team + 1 ? 'HOLD' : 'HILL', color: WHO_C[h.hold], kind: 'hill' });
   },

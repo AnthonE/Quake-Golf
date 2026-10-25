@@ -549,7 +549,9 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const kit = AMC[md.mode];
     const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
     const playT = h.state === L.H_PLAY ? (h.tick - h.start) * 0.008 + dt : 0;
-    if (kit && st >= 1) kit.draw(view, { dt, dtPred, now, t: playT, slot, me, pme, cam, view, pview }, out);
+    // the fighter whose eyes the camera has: yours, or the one a spectator watches (none for a fixed camera)
+    const shown = FIXED ? -1 : tgt ? watched : slot;
+    if (kit && st >= 1) kit.draw(view, { dt, dtPred, now, t: playT, slot, shown, me, pme, cam, view, pview }, out);
     // sprites: the objective's, the pads' guns, then what glows
     const solid = out.solid;
     for (const p of view.pads()) {

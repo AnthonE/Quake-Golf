@@ -518,9 +518,9 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   goHill(g, 1); // red's roof
   const h = hill(g);
   assert.deepEqual(hillOf(g.v), { at: 1, moves: h.moves, pos: h.pos, r: 6, hold: 0, on: [0, 0], held: [0, 0] });
-  const draw = (slot, now = 0, cam = [470, 30, 540]) => {
+  const draw = (slot, now = 0, cam = [470, 30, 540], shown = slot) => {
     const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
-    kit.draw(g.v, { now, slot, me: g.v.fighter(slot), cam, view: g.v }, out);
+    kit.draw(g.v, { now, slot, shown, me: slot >= 0 ? g.v.fighter(slot) : null, cam, view: g.v }, out);
     return out;
   };
   // nobody's: white, pulsing softly, painted only within HL_H of the roof; lights round the rim, a pillar, its waypoint
@@ -534,6 +534,7 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   g.step();
   assert.deepEqual([draw(2).zone.color, draw(2).zone.pulse, draw(2).markers[0].label, draw(1).markers[0].label, draw(1).markers[0].color], [SIDE_RGB[0], 1, 'HOLD', 'HILL', C.RED]);
   assert.deepEqual([draw(0).markers, draw(2, 0, [395, 27, 515]).beams], [[], []]);
+  assert.deepEqual([draw(-1, 0, undefined, 0).markers, draw(-1, 0, undefined, 2).markers[0].label], [[], 'HOLD'], 'a spectator: as the one it watches');
   assert.deepEqual([20, 50, 120].map((m) => draw(2, 0, [392 + m, 30, 512]).markers[0].pos[1] - h.pos[1]), [3, 5, 8], 'the waypoint higher further off');
   // contested: flashing red and blue
   on(g, 1, 1.5, 0);

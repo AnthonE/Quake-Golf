@@ -125,7 +125,9 @@ export default {
 
   draw(view, ctx, out) {
     const fs = flags(view);
-    const team = ctx.me?.live && view.teamed() ? ctx.me.team : -1;
+    // the side of the fighter shown (a spectator's watched one), as the HUD's lines
+    const eye = ctx.shown >= 0 ? view.fighter(ctx.shown) : null;
+    const team = eye?.live && view.teamed() ? eye.team : -1;
     const pulse = 0.5 + 0.5 * Math.sin(ctx.now / 250);
     for (const fl of fs) {
       const k = fl.k;
@@ -133,20 +135,20 @@ export default {
       const home = fl.state === L.CF_HOME;
       out.glow.push({ pos: [fl.stand[0], fl.stand[1] + 0.1, fl.stand[2]], size: 1.8, color: [...SIDE_RGB[k], home ? 0.75 : 0.3 + 0.4 * pulse], kind: 6, minpx: 1 });
       if (fl.state === L.CF_CARRIED) {
-        // over its carrier's shoulder, where the carrier is drawn (but not over yours: it's in your hands)
-        if (fl.by !== ctx.slot) out.solid.push(pennant(feet(view, fl.by, ctx.dt).map((v, i) => v + (i === 1 ? 1.1 : 0)), k, 0.42));
+        // over its carrier's shoulder, where the carrier is drawn (but not over the one shown: it's in your hands)
+        if (fl.by !== ctx.shown) out.solid.push(pennant(feet(view, fl.by, ctx.dt).map((v, i) => v + (i === 1 ? 1.1 : 0)), k, 0.42));
       } else {
         out.solid.push(pennant(fl.pos, k));
         if (!home) out.glow.push({ pos: [fl.pos[0], fl.pos[1] + 0.15, fl.pos[2]], size: 1.1, color: [...SIDE_RGB[k], 0.4 + 0.4 * pulse], kind: 3, minpx: 1 });
       }
     }
     if (team < 0) return;
-    // waypoints: the enemy's flag (TAKE, or ESCORT your side's carrier, or HOME when it's you), your own away
+    // waypoints: the enemy's flag (TAKE, or ESCORT your side's carrier, or HOME when it's the one shown), your own away
     // from home; over a carrier, above the flag it carries
     const theirs = fs[1 - team], mine = fs[team];
     const up = (p, h = 2.9) => [p[0], p[1] + h, p[2]];
     if (theirs.state === L.CF_CARRIED) {
-      if (theirs.by === ctx.slot) out.markers.push({ pos: up(mine.stand), label: mine.state === L.CF_HOME ? 'HOME' : 'HOME  WAIT', color: SIDE_C[team], kind: 'flag' });
+      if (theirs.by === ctx.shown) out.markers.push({ pos: up(mine.stand), label: mine.state === L.CF_HOME ? 'HOME' : 'HOME  WAIT', color: SIDE_C[team], kind: 'flag' });
       else out.markers.push({ pos: up(feet(view, theirs.by, ctx.dt), 3.6), label: 'ESCORT', color: SIDE_C[team], kind: 'flag' });
     } else out.markers.push({ pos: up(theirs.pos), label: 'TAKE', color: SIDE_C[1 - team], kind: 'flag' });
     if (mine.state === L.CF_DROPPED) out.markers.push({ pos: up(mine.pos), label: 'RETURN', color: SIDE_C[team], kind: 'flag' });

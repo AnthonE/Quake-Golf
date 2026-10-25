@@ -26,8 +26,12 @@
 //     6 a ring), life (ms), grow }), sound, dist (m from the camera), C, now,
 //     view }.
 //   draw(view, ctx, out): this frame's world objects. ctx { dt (s past the
-//     confirmed tick, to now), now (ms), t (s into play), slot, me (fighter(),
-//     confirmed), pme (the prediction's, or null), cam [x, y, z], view, pview }.
+//     confirmed tick, to now), now (ms), t (s into play), slot (yours, -1 for
+//     a spectator), shown (the fighter the camera's in: yours, or the one a
+//     spectator watches; -1 for none: draw nothing over its head, and its
+//     side is the one the waypoints speak to, as the HUD's), me (fighter()
+//     of slot, confirmed), pme (the prediction's, or null), cam [x, y, z],
+//     view, pview }.
 //     out { solid: [] (sprites, upright, one depth at the middle: { pos (the
 //     middle), size (half its width, m), aspect (height / width), color:
 //     [r, g, b, a], kind, minpx (px at least) }; kind 7 a flag on its pole
