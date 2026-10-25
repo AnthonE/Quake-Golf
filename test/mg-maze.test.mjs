@@ -512,7 +512,7 @@ test('the client module: draws every phase, frames the maze, writes its HUD line
   at(g, MC.MZ_PERIOD - 100);
   g.step();
   text = draw();
-  assert.ok(text.includes('DOORS MOVING') || maskOf(M, 0) === maskOf(M, 1), text);
+  assert.equal(text.includes('DOORS MOVING'), M.doors.some((D) => ((maskOf(M, 0) ^ maskOf(M, 1)) >> D.g) & 1), text);
   put(g, 1, C, C);
   g.step();
   text = draw();

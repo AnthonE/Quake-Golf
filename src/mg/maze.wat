@@ -105,7 +105,8 @@
 ;; from the middle cell (each step to an undug neighbour the PRNG picks,
 ;; back up the stack when there's none), so every cell has one path to the
 ;; middle; the room round the pad; the halls; loops and doors from the
-;; hedges left inside; then the doors' groups for each epoch, a few of them
+;; hedges left inside (more loops the bigger the maze: a crowd needs ways
+;; round a queue); then the doors' groups for each epoch, a few of them
 ;; turned over each time (at least one).
 (func $mz_lay (param $n i32)
   (local $c i32) (local $i i32) (local $j i32) (local $sp i32) (local $opts i32) (local $cnt i32) (local $r i32) (local $dir i32) (local $nb i32)

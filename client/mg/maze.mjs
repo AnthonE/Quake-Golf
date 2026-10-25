@@ -518,7 +518,8 @@ export default {
         ctx.glow?.({ pos: [f.pos[0] + Math.cos(a) * 1.5, f.pos[1] + 2 + (i & 1), f.pos[2] + Math.sin(a) * 1.5], size: 0.9, color: [[1, 0.85, 0.2], [0.4, 1, 0.4], [1, 0.95, 0.6]][i % 3].concat(1), kind: SPRITE.SPARK, life: 700 });
       }
     } else if (f.kind === MC.MZ_FX_BONK) {
-      if (mine || d < 20) ctx.sound?.land?.(Math.min(12, f.size * 1.5));
+      // a thud into the hedge, softer the further off
+      if (mine || d < 20) ctx.sound?.land?.(f.size * (mine ? 1.5 : 8 / (d + 8)));
     } else if (f.kind === MC.MZ_FX_WARN) {
       if (f.shot) { ctx.banner?.('THE DOORS ARE ABOUT TO MOVE', C.ORANGE, 1600); ctx.sound?.tick?.(); }
     } else if (f.kind === MC.MZ_FX_DOORS) {
@@ -550,7 +551,7 @@ export default {
       }
     } else if (list[0]) ctx.put(1, 0, list[0].home ? `P${list[0].slot + 1} WON IT` : `LEADER P${list[0].slot + 1}`, C.WHITE);
     const t = g.t, e = epochAt(t), left = ((e + 1) * MC.MZ_PERIOD - t) * TICK;
-    const moving = ((maskOf(M, e) ^ maskOf(M, e + 1)) & 0xff) !== 0;
+    const flip = maskOf(M, e) ^ maskOf(M, e + 1), moving = M.doors.some((D) => (flip >>> D.g) & 1);
     if (moving && left <= MC.MZ_WARN * TICK) ctx.right(3, 'DOORS MOVING', Math.floor((ctx.now ?? 0) / 150) & 1 ? C.ORANGE : C.YELLOW);
     else ctx.right(3, `DOORS MOVE IN ${Math.ceil(left)}`, C.GREY);
     const home = list.filter((x) => x.home).length;
