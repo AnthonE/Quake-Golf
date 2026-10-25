@@ -1,0 +1,25 @@
+{
+  "replay": "replays/fireplace-64.qgr",
+  "out": "film/out/fireplace-trailer.mp4",
+  "size": [1280, 720],
+  "fps": 30,
+  "theme": "grandma",
+  "fade": 0.6,
+  "shots": [
+    { "couch": 4 },
+    { "sit": 5 },
+    { "at": 40, "len": 4, "caption": "Bumper balls\non a crumbling cheese" },
+    { "at": 150, "len": 3.5 },
+    { "at": 200, "len": 4, "caption": "Party\na minigame a round" },
+    { "at": 300, "len": 3 },
+    { "at": 395, "len": 3 },
+    { "at": 440, "len": 4, "caption": "The arena" },
+    { "at": 520, "len": 3 },
+    { "at": 604, "len": 6, "theme": "christmas-eve", "caption": "Marshmallows\nfor the top three" },
+    { "at": 650, "len": 4, "theme": "haunted" },
+    { "at": 750, "len": 3, "caption": "Up to 256\nin one room" },
+    { "at": 870, "len": 4, "caption": "Golf" },
+    { "at": 920, "len": 3 },
+    { "back": 6, "theme": "grandma", "caption": "Fireplace\nin your browser" }
+  ]
+}

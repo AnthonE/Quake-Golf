@@ -11,3 +11,4 @@ xbox/*.obj
 xbox/*.d
 xbox/*.exe
 xbox/*.lib
+film/out/

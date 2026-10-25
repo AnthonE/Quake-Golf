@@ -1,7 +1,9 @@
 // Sound from noise and a few oscillators: a blast is a low-passed noise burst
 // that falls off with distance, a shot a short crack, a sink a rising whoosh,
 // and the rest are blips. The music is bytebeat (see tune below).
-export function createSound({ music = true } = {}) {
+// context: an audio context to play into instead of a new AudioContext (the
+// film's offline one, client/film.mjs).
+export function createSound({ music = true, context = null } = {}) {
   let ac = null;
   let noise = null;
   let song = null; // { key, src, gain }
@@ -10,7 +12,7 @@ export function createSound({ music = true } = {}) {
   const wake = () => {
     if (ac) return;
     try {
-      ac = new AudioContext();
+      ac = context || new AudioContext();
       noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
       const d = noise.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
