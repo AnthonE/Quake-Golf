@@ -8,6 +8,9 @@ import { compileMap } from '../tools/map.mjs';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import * as L from '../src/layout.mjs';
+import ob, { skullOf } from '../client/am/oddball.mjs';
+import { SIDE_C } from '../client/am/sides.mjs';
+import { C } from '../client/font.mjs';
 
 // Oddball (src/am/oddball.wat): one skull, taken by touch, a point a second
 // for the side holding it. Helpers as test/arena-teams.test.mjs has them; the
@@ -541,25 +544,118 @@ test('a Fiesta after an Oddball match: its region exactly a Fiesta\'s (the mode 
   assert.equal(fl(g, 0) & L.PF_CARRY, 0);
 });
 
-test('Oddball with 8 and 16 AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads', async (t) => {
+test('Oddball\'s client module: the skull as AO has it; drawn where it lies, over a carrier but your own, its waypoint; HUD lines, news, the board\'s column; the AI fighter\'s goals', async () => {
+  // before play starts AO is clear: the skull reads as at its spot
+  debugModule ||= await WebAssembly.compile(arenaBytes(true));
+  const memory = newMemory();
+  const sim = new Sim(await instantiate(debugModule, memory), memory);
+  sim.init(forcedSeed(L.M_ODDBALL));
+  sim.feedPlayers([[L.EV_JOIN, 0]]);
+  sim.x.step();
+  const cv = new View(memory.buffer);
+  assert.equal(cv.hole().state, L.H_COUNT);
+  const early = skullOf(cv);
+  assert.deepEqual([early.state, early.carrier, early.pos[0], early.pos[2]], [L.OB_HOME, -1, 512, 512]);
+  assert.ok(Math.abs(early.pos[1] - 19.69) < 0.01);
+
+  const g = await room(4); // 0 and 2 red, 1 and 3 blue
+  const v = g.v;
+  const draw = (slot) => {
+    const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
+    ob.draw(v, { dt: 0, now: 0, t: 1, slot, me: v.fighter(slot), pme: null, cam: [0, 0, 0], view: v, pview: v }, out);
+    return out;
+  };
+  const hud = (slot) => {
+    const lines = [];
+    const me = v.fighter(slot);
+    ob.hud(v, { put: (x, y, s, c) => lines.push([y, s, c]), centre() {}, right() {}, rect() {}, rows: 33, C, slot, me, team: me.team, now: 0, t: 1 });
+    return lines;
+  };
+  const ctx = (slot) => ({ role: 'attack', rank: 0, view: v, ally: (p, q) => v.ally(p, q), slot, t: v.tick });
+  const spot = skullOf(v).spot;
+  // free at its spot: the skull with its glow, SKULL over it; everyone runs for it
+  let out = draw(0);
+  assert.deepEqual(out.solid.map((o) => [o.kind, o.pos[0], o.pos[2]]), [[8, 512, 512]]);
+  assert.ok(out.solid[0].pos[1] > spot[1] && out.glow.length === 1);
+  assert.deepEqual(out.markers.map((m) => [m.label, m.color, m.kind]), [['SKULL', C.YELLOW, 'skull']]);
+  assert.deepEqual(hud(0), [[2, 'THE SKULL IS FREE', C.WHITE], [3, 'YOUR SIDE 0 S OF 100', C.RED]]);
+  for (const p of [0, 1, 2, 3]) assert.deepEqual(ob.goal(v, v.fighter(p), ctx(p)), { pos: spot, r: 1, hurry: 1, hold: false });
+  // blue 1 takes it: over its head, KILL to red, GUARD to blue, nothing over 1 itself
+  take(g, 1);
+  const c = v.fighter(1);
+  out = draw(0);
+  assert.deepEqual(out.solid.map((o) => o.pos), [[c.pos[0], c.pos[1] + 2.25, c.pos[2]]]);
+  assert.deepEqual(out.markers.map((m) => [m.label, m.color]), [['KILL', SIDE_C[1]]]);
+  assert.deepEqual(draw(3).markers.map((m) => [m.label, m.color]), [['GUARD', SIDE_C[1]]]);
+  out = draw(1);
+  assert.deepEqual([out.solid, out.markers], [[], []]);
+  assert.deepEqual(hud(0)[0], [2, 'BLUE HAS THE SKULL  P2', SIDE_C[1]]);
+  assert.deepEqual(hud(1).slice(0, 2), [[2, 'YOU HAVE THE SKULL', C.YELLOW], [3, 'STAY ALIVE', C.YELLOW]]);
+  // goals: red hunts it, shooting on the way; blue's other stays by it
+  assert.deepEqual(ob.goal(v, v.fighter(0), ctx(0)), { pos: c.pos, r: 2, hurry: 0.8, hold: false });
+  assert.deepEqual(ob.goal(v, v.fighter(3), ctx(3)), { pos: c.pos, r: 6, hurry: 0.2, hold: true });
+  // the carrier: holds where it is with no enemy near; away from one inside 35 m, staying in the map
+  put(g, 1, 500, 540); put(g, 3, 503, 541); put(g, 0, 440, 470); put(g, 2, 450, 470);
+  g.step();
+  let me = v.fighter(1);
+  assert.deepEqual(ob.goal(v, me, ctx(1)), { pos: me.pos, r: 3, hurry: 1, hold: true });
+  put(g, 0, 490, 540);
+  g.step();
+  me = v.fighter(1);
+  const go = ob.goal(v, me, ctx(1));
+  const [x0, x1, z0, z1] = v.map().bounds;
+  assert.ok(go.hold && Math.hypot(go.pos[0] - me.pos[0], go.pos[2] - me.pos[2]) > 10, 'it moves');
+  assert.ok(Math.hypot(go.pos[0] - 490, go.pos[2] - 540) > Math.hypot(me.pos[0] - 490, me.pos[2] - 540) + 8, 'away from red 0');
+  assert.ok(go.pos[0] > x0 + 19 && go.pos[0] < x1 - 19 && go.pos[2] > z0 + 19 && go.pos[2] < z1 - 19, 'inside the map');
+  // dropped: its countdown on the HUD
+  lay(g, 520, v.height(520, 520), 520, 1000);
+  assert.deepEqual(hud(0)[0], [2, 'SKULL DOWN  BACK IN 8', C.WHITE]);
+  assert.deepEqual(draw(0).markers.map((m) => m.label), ['SKULL']);
+  // news: feed lines in the side's colour, a banner for whoever's it concerns
+  const feed = [], banners = [], glows = [];
+  const nctx = (slot) => ({ slot, me: v.fighter(slot), name: (p) => (p === slot ? 'YOU' : `P${p + 1}`), team: (p) => (p < L.NPLAYER ? team(g, p) : -1),
+    feed: (s, col) => feed.push([s, col]), banner: (s, col) => banners.push([s, col]), glow: (x) => glows.push(x), sound: { pickup() {} }, dist: 10, C, now: 0, view: v });
+  const f = (size, owner, shot) => ({ tick: v.tick, kind: L.FX_MODE, owner, shot, pos: [512, 20, 512], size });
+  ob.news(f(L.OB_MX_TAKE, 1, 1), nctx(0));
+  ob.news(f(L.OB_MX_TAKE, 1, 1), nctx(1));
+  ob.news(f(L.OB_MX_TAKE, 1, 1), nctx(3));
+  ob.news(f(L.OB_MX_DROP, 1, 1), nctx(0));
+  ob.news(f(L.OB_MX_RESET, 255, 0), nctx(0));
+  assert.deepEqual(feed, [['P2 TOOK THE SKULL', C.CYAN], ['YOU TOOK THE SKULL', C.CYAN], ['P2 TOOK THE SKULL', C.CYAN], ['P2 DROPPED THE SKULL', C.CYAN], ['THE SKULL IS BACK', C.WHITE]]);
+  assert.deepEqual(banners, [['BLUE HAS THE SKULL', C.CYAN], ['YOU HAVE THE SKULL', C.YELLOW], ['YOUR SIDE HAS THE SKULL', C.CYAN]]);
+  assert.equal(glows.length, 5);
+  // the board's column: seconds carrying it
+  setPoints(g, 2, 17);
+  assert.deepEqual(ob.cols.map((k) => [k.head, k.get(v.fighter(2))]), [['SKULL', '17']]);
+  assert.deepEqual(ob.state(v).skull, { state: L.OB_DROPPED, carrier: -1, side: 1, held: skullOf(v).held, left: 1000 });
+});
+
+test('Oddball with 8 and 16 AI fighters: the skull taken, carried, dropped and scored for by both sides in 20,000 ticks; no trap on the debug build, the same hash on every tick on 1 and 4 threads', async (t) => {
   const [debug, bytes] = [arenaBytes(true), arenaBytes()];
-  for (const [bots, ticks] of [[8, 20000], [16, 6000]]) {
-    const seen = { takes: 0, drops: 0, resets: 0 };
-    let last = null, k0 = 0;
+  const ticks = 20000;
+  for (const bots of [8, 16]) {
+    // takes and drops by side (news), points by side (each rise of AH_SCORE: a new match starts it from 0)
+    const takes = [0, 0], drops = [0, 0], points = [0, 0];
+    let resets = 0, k0 = 0, was = [0, 0], n = null;
     const { log } = await playArena({ bytes: debug, seed: forcedSeed(L.M_ODDBALL), bots, ticks, leaveAt: 1000,
       onTick: (tick, v) => {
         for (let k = Math.max(k0, v.fxCount() - L.FX_MAX); k < v.fxCount(); k++) {
           const f = v.fx(k);
           if (f.kind !== L.FX_MODE) continue;
-          if (f.size === L.OB_MX_TAKE) seen.takes++;
-          if (f.size === L.OB_MX_DROP) seen.drops++;
-          if (f.size === L.OB_MX_RESET) seen.resets++;
+          if (f.size === L.OB_MX_TAKE) takes[f.shot]++;
+          if (f.size === L.OB_MX_DROP) drops[f.shot]++;
+          if (f.size === L.OB_MX_RESET) resets++;
         }
         k0 = v.fxCount();
-        last = { score: [v.dv.getUint32(L.AH_SCORE, true), v.dv.getUint32(L.AH_SCORE + 4, true)], n: [v.dv.getUint32(L.AH_TEAMN, true), v.dv.getUint32(L.AH_TEAMN + 4, true)] };
+        const score = [v.dv.getUint32(L.AH_SCORE, true), v.dv.getUint32(L.AH_SCORE + 4, true)];
+        for (const k of [0, 1]) points[k] += Math.max(0, score[k] - was[k]);
+        was = score;
+        n = [v.dv.getUint32(L.AH_TEAMN, true), v.dv.getUint32(L.AH_TEAMN + 4, true)];
       } });
-    t.diagnostic(`${bots} fighters, ${ticks} ticks: ${JSON.stringify(seen)}, scores ${last.score}`);
-    assert.deepEqual(last.n, [bots / 2, bots / 2]);
+    t.diagnostic(`${bots} fighters: takes ${takes}, drops ${drops}, resets ${resets}, points ${points}`);
+    assert.deepEqual(n, [bots / 2, bots / 2]);
+    assert.ok(takes.every((k) => k >= 3) && drops.every((k) => k >= 2), `${bots}: the skull changes hands`);
+    assert.ok(points.every((k) => k >= 10), `${bots}: both sides score`);
     const parsed = parseLog(log);
     const a = await replay({ bytes, log: parsed, ticks, threads: 1, tag: `ob${bots}x1` });
     const b = await replay({ bytes, log: parsed, ticks, threads: 4, tag: `ob${bots}x4`, startWorkers });
