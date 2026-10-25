@@ -4,9 +4,10 @@
 // round its rim, a pillar of light that reads across the map, and a ZONE
 // waypoint with its distance (not over the head of the fighter shown while
 // it stands in it). Each pile of skulls: a heap of up to three where it lies,
-// glowing, the nearest few with a +N waypoint. A carrier's skulls stacked over
-// its head (up to five), the nearest few with their count in its side's
-// colour; your own are your HUD's. The HUD: what you carry, the zone's
+// glowing. A carrier's skulls stacked over its head (up to five); your own
+// are your HUD's. The nearest few piles in front of the fighter shown get a
+// +N waypoint, the nearest few carriers their count in its side's colour,
+// none where it would sit on another. The HUD: what you carry, the zone's
 // distance and when it moves; the board's SKULLS (banked) and CARRIED. The
 // brain: a fighter carrying skulls runs to the zone, hurrying more the more
 // it carries, taking piles on its way; the rest go for a pile near them,
@@ -110,6 +111,29 @@ function rimOf(view, z) {
   return rim;
 }
 
+// The waypoints a frame puts up, as seen from the camera at cam: always(p)
+// takes one's place, room(p) says whether another may go up and takes its
+// place if so: in front of the eye (within FRONT of where it faces, yaw;
+// none without one), as one to the side would be pulled to the screen's
+// edge on top of others, and not within APART across and up of one already up.
+const FRONT = 0.55; // rad either side (the screen's half-width is 0.68)
+const APART = [0.1, 0.15]; // rad across and up: about a label's width and its three rows
+const turn = (a) => ((a % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+function waypoints(cam, yaw) {
+  const up = [];
+  const dir = (p) => { const dx = p[0] - cam[0], dz = p[2] - cam[2]; return [Math.atan2(dz, dx), Math.atan2(p[1] - cam[1], Math.hypot(dx, dz))]; };
+  return {
+    always(p) { up.push(dir(p)); },
+    room(p) {
+      if (yaw === undefined) return false;
+      const [h, v] = dir(p);
+      if (Math.abs(turn(h - yaw)) > FRONT || up.some(([a, b]) => Math.abs(turn(h - a)) < APART[0] && Math.abs(v - b) < APART[1])) return false;
+      up.push([h, v]);
+      return true;
+    },
+  };
+}
+
 // A heap of up to three skulls lying at p (feet): one on the ground, then one
 // beside it, then one on top; and a stack of up to five over a head at p.
 const HEAP = [[0, 0.24, 0], [0.34, 0.2, 0.1], [0.16, 0.5, 0.05]];
@@ -165,11 +189,13 @@ export default {
     const me = eye?.live && !eye.dead ? eye : null;
     const from = me ? me.pos : ctx.cam;
     const dt = ctx.dt || 0;
-    let room = SPRITES;
+    // where the eye faces (your own: the prediction's), for the waypoints that go up only in front of it
+    const yaw = eye?.live ? (ctx.shown === ctx.slot && ctx.pme ? ctx.pme : eye).yaw : undefined;
+    const mark = waypoints(ctx.cam, yaw);
     if (z) {
       const [x, y, zz] = z.pos;
       // brighter while the fighter shown has skulls to bank
-      const pulse = me?.aux ? 0.75 + 0.25 * Math.sin(ctx.now / 150) : 0.5;
+      const pulse = me?.aux ? 0.8 + 0.2 * Math.sin(ctx.now / 150) : 1;
       out.zone = { x, z: zz, r: z.r, y, h: ZONE_H, color: ZONE_RGB, pulse };
       for (const [px, py, pz, k] of rimOf(view, z)) {
         const a = 0.45 + 0.45 * Math.max(0, Math.sin(ctx.now / 180 - k * 0.8));
@@ -180,11 +206,16 @@ export default {
       const far = Math.min(1, Math.max(0, (d - 12) / 30));
       if (far > 0) out.beams.push({ a: [x, y + 2, zz], b: [x, y + 30, zz], width: 0.3, color: [...ZONE_RGB, 0.3 * far] });
       // the waypoint, rising with the distance (3 m up to 30 m away, 8 m from 80) so its distance line stays clear of the disc
-      if (!me || !inZone(z, me.pos)) out.markers.push({ pos: [x, y + Math.min(8, Math.max(3, d / 10)), zz], label: 'ZONE', color: C.YELLOW, kind: 'hill' });
+      const pos = [x, y + Math.min(8, Math.max(3, d / 10)), zz];
+      if (!me || !inZone(z, me.pos)) { mark.always(pos); out.markers.push({ pos, label: 'ZONE', color: C.YELLOW, kind: 'hill' }); }
     }
-    // the piles, nearest first: a heap each and a glow under it, the nearest few with a +N waypoint
+    // nearest first, a pile's heap and a carrier's stack, out of SPRITES: the carriers' first call on up to half
+    const near = (list) => list.map((o) => ({ ...o, d: Math.hypot(o.pos[0] - from[0], o.pos[1] - from[1], o.pos[2] - from[2]) })).sort((a, b) => a.d - b.d || a.k - b.k);
+    const cs = near(carriers(view, ctx.shown).map(([q, pos, vel, n, side]) => ({ k: q, pos: [0, 1, 2].map((i) => pos[i] + vel[i] * dt), n, side })));
+    const piles = near(pilesOf(view));
+    let room = SPRITES - Math.min(SPRITES >> 1, cs.reduce((n, c) => n + Math.min(5, c.n), 0));
+    // the piles: a heap each and a glow under it, the nearest few with a +N waypoint
     const bob = 0.06 * Math.sin(ctx.now / 300);
-    const piles = pilesOf(view).map((p) => ({ ...p, d: Math.hypot(p.pos[0] - from[0], p.pos[1] - from[1], p.pos[2] - from[2]) })).sort((a, b) => a.d - b.d || a.k - b.k);
     let marks = 0;
     for (const p of piles) {
       const at = heap(p.pos, p.n, bob);
@@ -194,18 +225,19 @@ export default {
       // fading as it runs out: its last 5 s it blinks
       const fade = p.left < 625 ? 0.25 + 0.25 * Math.sin(ctx.now / 90) : 0.45;
       out.glow.push({ pos: [p.pos[0], p.pos[1] + 0.3, p.pos[2]], size: 0.8, color: [1, 0.95, 0.7, fade], kind: 3, minpx: 1 });
-      if (marks < PILE_MARKS && p.d < PILE_SEEN) { marks++; out.markers.push({ pos: [p.pos[0], p.pos[1] + 1.3, p.pos[2]], label: `+${p.n}`, color: C.WHITE, kind: 'skull' }); }
+      const pos = [p.pos[0], p.pos[1] + 1.3, p.pos[2]];
+      if (marks < PILE_MARKS && p.d < PILE_SEEN && mark.room(pos)) { marks++; out.markers.push({ pos, label: `+${p.n}`, color: C.WHITE, kind: 'skull' }); }
     }
-    // the carriers but the fighter shown, nearest first: a stack over each head, where the renderer draws it (the confirmed world run on by dt)
-    const cs = carriers(view, ctx.shown).map(([q, pos, vel, n, side]) => ({ q, pos: [0, 1, 2].map((k) => pos[k] + vel[k] * dt), n, side }))
-      .map((c) => ({ ...c, d: Math.hypot(c.pos[0] - from[0], c.pos[1] - from[1], c.pos[2] - from[2]) })).sort((a, b) => a.d - b.d || a.q - b.q);
+    // the carriers but the fighter shown: a stack over each head, where the renderer draws it (the confirmed world run on by dt), the nearest few with the count
+    room = SPRITES - out.solid.length;
     marks = 0;
     for (const c of cs) {
       const at = stack(c.pos, c.n);
       if (at.length > room) break;
       room -= at.length;
       for (const pos of at) out.solid.push({ pos, size: 0.17, aspect: 1, color: [...SKULL_RGB, 1], kind: 8, minpx: 2 });
-      if (marks < CARRY_MARKS && c.d < CARRY_SEEN) { marks++; out.markers.push({ pos: [c.pos[0], at[at.length - 1][1] + 0.9, c.pos[2]], label: String(c.n), color: SIDE_C[c.side], kind: 'skull' }); }
+      const pos = [c.pos[0], at[at.length - 1][1] + 0.9, c.pos[2]];
+      if (marks < CARRY_MARKS && c.d < CARRY_SEEN && mark.room(pos)) { marks++; out.markers.push({ pos, label: String(c.n), color: SIDE_C[c.side], kind: 'skull' }); }
     }
   },
   cols: [{ head: 'SKULLS', get: (o) => String(o.points) }, { head: 'CARRIED', get: (o) => String(o.aux) }],

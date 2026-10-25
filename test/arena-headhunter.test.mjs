@@ -685,41 +685,50 @@ test('Headhunter\'s client module: the zone drawn with its waypoint, piles as sk
   };
   // the zone: gold, painted only within HH_ZONE_H of the roof; lights round the rim on the roof, a pillar, ZONE
   let out = draw(0);
-  assert.deepEqual(out.zone, { x: 392, z: 512, r: 6, y: z.pos[1], h: 2, color: [1, 0.78, 0.22], pulse: 0.5 });
+  assert.deepEqual(out.zone, { x: 392, z: 512, r: 6, y: z.pos[1], h: 2, color: [1, 0.78, 0.22], pulse: 1 });
   assert.ok(out.glow.length === 12 && out.glow.every((x) => Math.abs(Math.hypot(x.pos[0] - 392, x.pos[2] - 512) - 6 * 0.97) < 1e-6 && Math.abs(x.pos[1] - z.pos[1] - 0.35) < 1e-6), 'the rim, on the roof');
   assert.deepEqual(out.beams.map((b) => [b.a, b.b]), [[[392, z.pos[1] + 2, 512], [392, z.pos[1] + 30, 512]]]);
   assert.deepEqual(out.markers, [{ pos: [392, z.pos[1] + 8, 512], label: 'ZONE', color: C.YELLOW, kind: 'hill' }]);
   assert.deepEqual(out.solid, []);
-  // in it, nothing over your head; a spectator as the one it watches; brighter carrying
+  // in it, nothing over your head; a spectator as the one it watches; carrying, it pulses
   on(g, 0);
   g.step();
   assert.deepEqual([draw(0).markers, draw(-1, { shown: 0 }).markers, draw(-1, { shown: 2 }).markers.map((m) => m.label)], [[], [], ['ZONE']]);
   away(g, [0]);
   give(g, 0, 2);
-  assert.ok(draw(0, { now: 300 }).zone.pulse > 0.5);
-  // piles: a heap of up to three skulls each, nearest first, the nearest three within 30 m with +N
+  const pulses = [0, 235, 706].map((now) => draw(0, { now }).zone.pulse);
+  assert.ok(pulses.every((x) => x >= 0.6 && x <= 1) && Math.max(...pulses) - Math.min(...pulses) > 0.3, `${pulses}`);
+  // piles: a heap of up to three skulls each; a +N waypoint on the nearest three within 30 m in front of
+  // where the fighter shown faces (0 faces +x), none behind or well to the side, none over another's
   clearPiles(g);
   const fy = (x, zz) => v.height(x, zz);
-  lay(g, 0, 480, fy(480, 540), 540, 1); lay(g, 1, 474, fy(474, 548), 548, 7); lay(g, 2, 490, fy(490, 540), 540, 2);
-  lay(g, 3, 465, fy(465, 556), 556, 3); lay(g, 4, 600, fy(600, 600), 600, 4);
+  const eyeOf = (p) => { const f = v.fighter(p).pos; return [f[0], f[1] + 1.6, f[2]]; };
+  const ahead = [[480, 536, 1], [480, 544, 7], [490, 540, 2], [500, 540.5, 3], [460, 540, 4], [484, 552, 5]];
+  ahead.forEach(([x, zz, n], k) => lay(g, k, x, fy(x, zz), zz, n));
   g.step();
   give(g, 0, 0);
-  out = draw(0);
+  assert.equal(v.fighter(0).yaw, 0);
+  out = draw(0, { cam: eyeOf(0) });
   const skulls = out.solid.filter((s) => s.kind === 8);
-  assert.equal(skulls.length, 3 + 1 + 3 + 2 + 3, 'by how many: at most three a pile');
-  assert.ok(skulls.every((s) => s.size === 0.24), JSON.stringify(skulls.map((s) => [s.size, s.pos])));
-  assert.deepEqual(out.markers.filter((m) => m.kind === 'skull').map((m) => [m.label, m.color]), [['+7', C.WHITE], ['+1', C.WHITE], ['+3', C.WHITE]]);
-  // carriers but the fighter shown: a stack over each head (five at most), the nearest three within 35 m with the count in its side's colour
+  assert.equal(skulls.length, ahead.reduce((n, [, , c]) => n + Math.min(3, c), 0), 'by how many: at most three a pile');
+  assert.ok(skulls.every((s) => s.size === 0.24));
+  assert.deepEqual(out.markers.filter((m) => m.kind === 'skull').map((m) => [m.label, m.color]), [['+1', C.WHITE], ['+7', C.WHITE], ['+2', C.WHITE]],
+    'not the 4 behind, the 5 to the side, nor the 3 behind the 2 from here');
+  // carriers but the fighter shown: a stack over each head (five at most); the count over the nearest three within 35 m in front, in its side's colour
   clearPiles(g);
   away(g, [0, 1, 2, 3, 4, 5]);
-  give(g, 1, 3); give(g, 2, 9); give(g, 3, 1); give(g, 4, 2); give(g, 0, 4);
+  put(g, 1, 485, 538); put(g, 2, 490, 545); put(g, 3, 500, 541); put(g, 5, 495, 540 - 10 / 3); // (5 in line behind 1 from 0's eye)
+  give(g, 1, 3); give(g, 2, 9); give(g, 3, 1); give(g, 4, 2); give(g, 5, 5); give(g, 0, 4);
   g.step();
-  out = draw(0);
+  out = draw(0, { cam: eyeOf(0) });
   const heads = out.solid.filter((s) => s.kind === 8);
-  assert.equal(heads.length, 3 + 5 + 1 + 2, 'not 0\'s own');
+  assert.equal(heads.length, 3 + 5 + 1 + 2 + 5, 'not 0\'s own');
   const c2 = v.fighter(2).pos;
   assert.deepEqual(heads.filter((s) => s.pos[0] === c2[0] && s.pos[2] === c2[2]).map((s) => +(s.pos[1] - c2[1]).toFixed(2)), [2.2, 2.56, 2.92, 3.28, 3.64]);
-  assert.deepEqual(out.markers.filter((m) => m.kind === 'skull').map((m) => [m.label, m.color]), [['3', SIDE_C[1]], ['9', SIDE_C[0]], ['1', SIDE_C[1]]]);
+  assert.deepEqual(out.markers.filter((m) => m.kind === 'skull').map((m) => [m.label, m.color]), [['3', SIDE_C[1]], ['9', SIDE_C[0]], ['1', SIDE_C[1]]], '5 hidden behind 1, 4 to the side');
+  // a spectator watching 0 sees what 0 does; with nobody shown (a fixed camera), the heaps and stacks but no waypoints on them
+  assert.deepEqual(draw(-1, { shown: 0, cam: eyeOf(0) }).markers, out.markers);
+  assert.deepEqual(draw(-1, { shown: -1, cam: eyeOf(0) }).markers.filter((m) => m.kind === 'skull'), []);
   // the sprites stay inside their share of the renderer's
   for (let k = 0; k < AC.HH_NPILE; k++) lay(g, k, 400 + 3 * k, fy(400 + 3 * k, 500), 500, 5);
   for (let p = 0; p < 6; p++) give(g, p, 40);
