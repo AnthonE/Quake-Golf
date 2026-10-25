@@ -241,9 +241,9 @@ test('a team mode\'s loadout: an assault rifle out, a magnum on the back, two fr
   assert.ok(g.v.pads().find((p) => p.k === rocket.k).wait > 0, 'gone for a while');
 });
 
-test('own halves: a team mode\'s fighter spawns only among the spawns nearer its own flag', async () => {
+test('own halves: a team mode\'s fighter spawns only among the spawns nearer its own flag, never on the middle line', async () => {
   const halves = MAP.spawns.map((s) => half(s.x, s.z, MAP.flags));
-  assert.deepEqual([halves.filter((h) => h === 0).length, halves.filter((h) => h === 1).length], [14, 18]);
+  assert.deepEqual([0, 1, 2].map((k) => halves.filter((h) => h === k).length), [14, 16, 2]);
   const g = await room(L.M_SLAYER, 8, 11);
   const used = [new Set(), new Set()];
   for (let k = 0; k < 40; k++) {

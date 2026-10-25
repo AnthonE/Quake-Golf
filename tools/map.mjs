@@ -158,7 +158,7 @@ export function compileMap(dir = mapDir()) {
     hills = [[...mid, GROUND, r], ...flags.map((f) => [(mid[0] + f[0]) / 2, (mid[1] + f[1]) / 2, GROUND, r])];
   }
   const sides = [0, 0];
-  for (const s of spawns) sides[half(s.x, s.z, flags)]++;
+  for (const s of spawns) { const k = half(s.x, s.z, flags); if (k < 2) sides[k]++; }
   ['red', 'blue'].forEach((team, k) => { if (!sides[k]) fail(`no spawn on ${team}'s half (the spawns nearer its flag at ${flags[k][0]}, ${flags[k][1]} than the other)`); });
 
   // ---- the bytes: the head as MAP lays it out, the groups, the boxes, the images
@@ -213,11 +213,13 @@ export function compileMap(dir = mapDir()) {
 }
 
 // Whose half of the map (x, z) is on, as the sim's $a_half reckons it in f32:
-// 0 red's if strictly nearer red's flag than blue's, else 1 blue's.
+// 0 red's if strictly nearer red's flag than blue's, 1 blue's if strictly
+// nearer blue's, 2 neither's (as far from both).
 export function half(x, z, flags) {
   const f = Math.fround;
   const d2 = ([fx, fz]) => { const dx = f(f(x) - f(fx)), dz = f(f(z) - f(fz)); return f(f(dx * dx) + f(dz * dz)); };
-  return d2(flags[0]) < d2(flags[1]) ? 0 : 1;
+  const r = d2(flags[0]), b = d2(flags[1]);
+  return r < b ? 0 : r > b ? 1 : 2;
 }
 
 // The segment as WAT text: a passive data segment, copied out by memory.init.
