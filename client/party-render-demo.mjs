@@ -414,6 +414,34 @@ const SCENES = {
     title(s, r, 'SEE-THROUGH', 'ALPHA UNDER 1: DRAWN AFTER, DEPTH-TESTED, NOT WRITTEN');
   },
 
+  // solids turned by a roll about their own x axis, then a yaw: a table tipped toward the camera's right, a
+  // drum of slats on its side (its axis along x) with a slot open, a cylinder along z, hoops of short boxes
+  rolled(s, r) {
+    s.env = 'day';
+    const sc = s.scene, rand = rng(17);
+    sc.box(CX, FLOOR - 0.5, CX, 22, 0.5, 14, 0, 0.78, 0.8, 0.84, LOOK.MATTE);
+    sc.box(CX - 11, FLOOR + 2.5, CX + 4, 6, 0.4, 6, 0.6, 0.95, 0.95, 0.95, LOOK.CHECKER, 1, 0.5, 1, undefined, 0.35);
+    for (let k = 0; k < 24; k++) {
+      if (k === 5 || k === 6) continue; // the slot
+      const a = (k + 0.5) / 24 * 2 * Math.PI, R = 3.2;
+      sc.box(CX + 1, FLOOR + 3.6 + Math.cos(a) * R, CX + 4 + Math.sin(a) * R, 4.5, 0.18, R * Math.PI / 24 * 0.92, 0, ...(k % 2 ? [0.95, 0.3, 0.25] : [0.95, 0.92, 0.85]), LOOK.PLASTIC, 0, 0, 1, undefined, a);
+    }
+    sc.cyl(CX + 13, FLOOR + 2, CX + 4, 2, 4, 0.3, 0.55, 1, LOOK.METAL, 0, 0, 1, undefined, Math.PI / 2, 0);
+    for (let h = 0; h < 2; h++) {
+      const hx = CX - 6 + h * 12, hz = CX - 5, yaw = h ? 0.7 : 0, R = 2;
+      for (let k = 0; k < 20; k++) {
+        const a = (k + 0.5) / 20 * 2 * Math.PI;
+        const [lx, ly, lz] = [0, Math.cos(a) * R, Math.sin(a) * R];
+        sc.box(hx + Math.cos(yaw) * lx - Math.sin(yaw) * lz, FLOOR + R + 0.3 + ly, hz + Math.sin(yaw) * lx + Math.cos(yaw) * lz, 0.18, 0.12, R * Math.PI / 20, yaw, ...(h ? [1, 0.8, 0.2] : [0.3, 0.9, 0.5]), h ? LOOK.GLOW : LOOK.PLASTIC, h ? 0.8 : 0, 0, 1, undefined, a);
+      }
+    }
+    crowd(s, 8, 6, FLOOR, rand, { cz: CX - 9 });
+    s.yaw = Math.PI / 2; s.pitch = -0.38;
+    s.cam = [CX, FLOOR + 11, CX - 24];
+    s.extent = 24; s.mini[3] = 24; s.miniShape = 'square';
+    title(s, r, 'ROLLED', 'A TABLE TIPPED  A DRUM OF SLATS  A CYLINDER ON ITS SIDE  HOOPS');
+  },
+
   // ice cracking, a from 0 to 1 along each row; the back row frosted over (b 0.6)
   cracks(s, r) {
     s.env = 'snow';

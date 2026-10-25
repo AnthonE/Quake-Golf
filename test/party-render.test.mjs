@@ -44,6 +44,14 @@ test('party renderer: a Scene packs 16 floats a solid', () => {
   assert.equal(seed(0), seed(1));
   assert.notEqual(seed(0), seed(2));
   assert.ok(Number.isInteger(seed(0)) && seed(0) >= 0 && seed(0) < 4096);
+  // a roll rides in the shape's float in 1/65536 turns, the shape still its low two bits (the draw order reads it so)
+  s.clear();
+  s.box(0, 0, 0, 1, 1, 1, 0, 1, 1, 1, LOOK.MATTE, 0, 0, 1, 3, Math.PI / 2);
+  s.cyl(0, 0, 0, 2, 3, 1, 1, 1, LOOK.MATTE, 0, 0, 1, 3, -Math.PI / 2, 0.25);
+  s.hex(0, 0, 0, 2, 0.25, 0, 1, 1, 1, LOOK.MATTE, 0, 0, 1, 3, 2 * Math.PI);
+  const w = (i) => s.data[i * 16 + 3];
+  assert.deepEqual([w(0) & 3, w(0) >> 2, w(1) & 3, w(1) >> 2, w(2) & 3, w(2) >> 2], [SHAPE.BOX, 16384, SHAPE.CYL, 49152, SHAPE.HEX, 0]);
+  assert.equal(s.data[16 + 7], 0.25, "a cylinder on its side takes a yaw");
 });
 
 // The main pass culls back faces and the shadow pass front ones: every triangle must face out.
