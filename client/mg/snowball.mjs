@@ -125,11 +125,15 @@ function sizeUp(me, w) {
   NEAR.slot = me.slot; NEAR.w = w; NEAR.r = me.radius;
   const x = me.pos[0], z = me.pos[2];
   const d2 = (b) => (b.x - x) ** 2 + (b.z - z) ** 2;
-  NEAR.threats = within(w, x, z, 24, me.slot, []).filter((b) => swallows(b.r, me.radius)).sort((a, b) => d2(a) - d2(b) || a.slot - b.slot).slice(0, 8);
+  const all = within(w, x, z, 30, me.slot, []);
+  NEAR.threats = all.filter((b) => swallows(b.r, me.radius) && d2(b) < 24 * 24).sort((a, b) => d2(a) - d2(b) || a.slot - b.slot).slice(0, 8);
   // a margin under the line: its size is a round trip old
-  NEAR.prey = within(w, x, z, 30, me.slot, []).filter((b) => b.r < me.radius * MC.SB_EATK * 0.985);
+  NEAR.prey = all.filter((b) => b.r < me.radius * MC.SB_EATK * 0.985);
   return NEAR;
 }
+
+// danger's memo for one think: the view and the record it was handed
+const DANGER = { view: null, me: null, off: true, n: null, r: 1, m: 1, r0: 0, cx: 0, start: 0, tick: 0 };
 
 // How far in off the rim a ball of radius r rolling at sp m/s wants to keep:
 // its skin, and the more the heavier and faster (it turns and stops r times slower).
@@ -444,18 +448,26 @@ export default {
     // a big fast ball needs, a risk; near a ball that can swallow it, where
     // that one will be, worse the closer
     danger(view, x, z, tick, me) {
-      const b = ball(view, me);
-      if (!b || b.out || !playing(view)) return 0;
-      const w = world(view), st = w.st;
-      const r = b.radius, sp = Math.hypot(b.vel[0], b.vel[2]);
-      const R = rimAt(st.r0, tpOf(view, tick));
-      const rho = Math.hypot(x - st.cx, z - st.cx);
+      // what doesn't change over one think's 90 asks, worked out at its first
+      const D = DANGER;
+      if (D.view !== view || D.me !== me) {
+        D.view = view; D.me = me;
+        const b = ball(view, me);
+        D.off = !b || b.out || !playing(view);
+        if (!D.off) {
+          const w = world(view);
+          D.n = sizeUp(b, w); D.r = b.radius; D.m = margin(b.radius, Math.hypot(b.vel[0], b.vel[2]));
+          D.r0 = w.st.r0; D.cx = w.st.cx; D.start = w.start; D.tick = w.tick;
+        }
+      }
+      if (D.off) return 0;
+      const r = D.r, m = D.m, n = D.n;
+      const R = rimAt(D.r0, (tick - D.start) | 0);
+      const rho = Math.hypot(x - D.cx, z - D.cx);
       let v = 0;
       if (rho > R - 0.3) return 1;
-      const m = margin(r, sp);
       if (rho + m > R) v = Math.min(0.9, 0.35 + 0.55 * (rho + m - R) / m);
-      const n = sizeUp(b, w);
-      const tau = Math.max(0, Math.min(1, (tick - w.tick) * TICK));
+      const tau = Math.max(0, Math.min(1, (tick - D.tick) * TICK));
       for (let i = 0; i < n.threats.length; i++) {
         const e = n.threats[i];
         const reach = e.r + r + 2.5;
