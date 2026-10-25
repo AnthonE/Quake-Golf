@@ -29,7 +29,7 @@ const PLATE_R = Number(AC.AS_PLATE_R);
 // The brain's distances (m), tuned on AI fighters over 20,000 ticks, seeds
 // 7 to 16 for eight and 7 to 12 for sixteen. A carrier running straight at
 // the plate with its escorts beside it, hunted by everyone on the other side
-// shooting on the run, never got there in six runs: one enemy on its back
+// shooting on the run, never reached it in five runs: one enemy on its back
 // kills it in two seconds. Its hunters stopping to fight whoever they meet
 // first: 4 plants in 10 runs of eight, 1 in 6 of sixteen. Going by a flank
 // and zigzagging too, its escorts standing in the way of the shots and
