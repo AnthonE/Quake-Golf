@@ -38,7 +38,7 @@
 // Handshake on a client-opened bidirectional stream, which stays open for the
 // whole session; the client ending it means it has left (a native client, the
 // Xbox, uses a TCP connection to the relay's native port as the stream):
-//   hello   (24 B): 0x10 | proto | u16 client max datagram | u8[8] sha-256(game.wasm) prefix | u32 room | u32 nonce | u8 flags (1: watch, 2: resume) | u8 slot | 2 B 0
+//   hello   (24 B): 0x10 | proto | u16 client max datagram | u8[8] sha-256(game.wasm) prefix | u32 room | u32 nonce | u8 flags (1: watch, 2: resume, 4: looks) | u8 slot | 2 B 0
 //   welcome (32 B): 0x11 | slot | u16 server max datagram | u32 join_tick | u32 seed | u32 server_tick | u32 tick_us | u8 send_every | u8 nb | u16 np | u32 room_start | u32 token
 //   watching (32 B): 0x17, then as a welcome with slot 0: a spectator's
 //   reject  (4 B):  0x1f | reason (1 wasm mismatch, 2 room full, 3 protocol, 4 spectators only, 5 nothing to watch yet) | 0 | 0
@@ -55,6 +55,7 @@
 // Client to server:
 //   sync (16 B): 0x12 | reason (SYNC.*) | 0 | 0 | u32 have (the client's next server tick) | 8 B 0
 //   ping (16 B): 0x15 | 0 | 0 | 0 | u32 nonce | 8 B 0
+//   look (16 B): 0x18 | 0 | 0 | 0 | u32 the player's look word (client/looks.mjs) | 8 B 0
 // Server to client, from the referee's keyframes and the relay's record:
 //   key  (16 B + extra + packed): 0x14 | reason (SYNC.*) | 0 | 0 | u32 tick | u32 raw bytes | u32 packed bytes,
 //        then for a desync u32 interval | u32 0 | 128 x u64 the referee's slice digests of it,
@@ -62,6 +63,12 @@
 //   fill (16 B + body): 0x13 | 0 | 0 | 0 | u32 from | u32 n | u32 body bytes, then n ticks:
 //        u8 parts | parts x (u16 bytes | the part)
 //   pong (16 B): 0x16 | 0 | 0 | 0 | u32 nonce | f64 the server's tick when it answered, fractional
+//   looks (16 B + 8n): 0x18 | 0 | u16 n | 12 B 0, then n x (u16 slot | u16 0 | u32 look word)
+//        Only to a session whose hello set flag 4: every slot's look after its
+//        welcome, then the ones that changed. A look is drawing only, beside the
+//        sim and never in it (no record, replay or hash holds one); a slot that
+//        leaves goes back to 0, the house look. A client that never sets the
+//        flag (the Xbox, tiny-client, an edge relay) never sees the message.
 //
 // Native clients (net/relay.ts --native-port, TCP and UDP on one number): the
 // stream above is the TCP connection; datagrams are UDP to the same port, the
@@ -83,10 +90,12 @@ export const T_KEY = 0x14;
 export const T_PING = 0x15;
 export const T_PONG = 0x16;
 export const T_WATCHING = 0x17;
+export const T_LOOK = 0x18;
 export const T_REJECT = 0x1f;
 export const REJECT = { WASM: 1, FULL: 2, PROTO: 3, WATCH_ONLY: 4, EMPTY: 5 };
 export const HELLO_WATCH = 1;
 export const HELLO_RESUME = 2;
+export const HELLO_LOOKS = 4;
 // why a keyframe is sent: a join, or a resync for an old hole, a client far behind, or a hash mismatch
 export const SYNC = { JOIN: 0, HOLE: 1, BEHIND: 2, DESYNC: 3 };
 export const EV_JOIN = 1;
@@ -397,7 +406,7 @@ export function stampTrailer(buf, { inAck, slack, late, flags = 0 }) {
   return buf;
 }
 
-export function encodeHello({ maxDatagram, wasmPrefix, room = 0, nonce = 0, watch = false, resume = -1 }) {
+export function encodeHello({ maxDatagram, wasmPrefix, room = 0, nonce = 0, watch = false, resume = -1, looks = false }) {
   const buf = new Uint8Array(24);
   const dv = new DataView(buf.buffer);
   dv.setUint8(0, T_HELLO);
@@ -406,7 +415,7 @@ export function encodeHello({ maxDatagram, wasmPrefix, room = 0, nonce = 0, watc
   buf.set(wasmPrefix.subarray(0, 8), 4);
   dv.setUint32(12, room, true);
   dv.setUint32(16, nonce >>> 0, true);
-  buf[20] = (watch ? HELLO_WATCH : 0) | (resume >= 0 ? HELLO_RESUME : 0);
+  buf[20] = (watch ? HELLO_WATCH : 0) | (resume >= 0 ? HELLO_RESUME : 0) | (looks ? HELLO_LOOKS : 0);
   buf[21] = resume >= 0 ? resume : 0;
   return buf;
 }
@@ -414,7 +423,7 @@ export function encodeHello({ maxDatagram, wasmPrefix, room = 0, nonce = 0, watc
 export function decodeHello(buf) {
   if (buf.length < 24 || buf[0] !== T_HELLO) return null;
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  return { proto: dv.getUint8(1), maxDatagram: dv.getUint16(2, true), wasmPrefix: buf.slice(4, 12), room: dv.getUint32(12, true), nonce: dv.getUint32(16, true), watch: !!(buf[20] & HELLO_WATCH), resume: buf[20] & HELLO_RESUME ? buf[21] : -1 };
+  return { proto: dv.getUint8(1), maxDatagram: dv.getUint16(2, true), wasmPrefix: buf.slice(4, 12), room: dv.getUint32(12, true), nonce: dv.getUint32(16, true), watch: !!(buf[20] & HELLO_WATCH), resume: buf[20] & HELLO_RESUME ? buf[21] : -1, looks: !!(buf[20] & HELLO_LOOKS) };
 }
 
 export function encodeWelcome({ slot, maxDatagram, joinTick, seed, serverTick, roomStart = 0, token = 0, watch = false }) {
@@ -447,7 +456,7 @@ export function decodeWelcome(buf) {
   };
 }
 
-// The client's 16-byte stream messages: sync and ping.
+// The client's 16-byte stream messages: sync, ping and look.
 export function encodeSync(reason, have) {
   const buf = new Uint8Array(16);
   const dv = new DataView(buf.buffer);
@@ -465,13 +474,36 @@ export function encodePing(nonce) {
   return buf;
 }
 
+export function encodeLook(look) {
+  const buf = new Uint8Array(16);
+  const dv = new DataView(buf.buffer);
+  dv.setUint8(0, T_LOOK);
+  dv.setUint32(4, look >>> 0, true);
+  return buf;
+}
+
 export function decodeClient(buf) {
   if (buf.length < 16) return null;
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   if (buf[0] === T_SYNC) return { type: T_SYNC, reason: buf[1], have: dv.getUint32(4, true) };
   if (buf[0] === T_PING) return { type: T_PING, nonce: dv.getUint32(4, true) };
+  if (buf[0] === T_LOOK) return { type: T_LOOK, look: dv.getUint32(4, true) };
   return null;
 }
+
+// The relay's looks: [slot, look word] pairs, one message.
+export function encodeLooks(pairs) {
+  const buf = new Uint8Array(16 + 8 * pairs.length);
+  const dv = new DataView(buf.buffer);
+  dv.setUint8(0, T_LOOK);
+  dv.setUint16(2, pairs.length, true);
+  pairs.forEach(([slot, look], k) => { dv.setUint16(16 + 8 * k, slot, true); dv.setUint32(20 + 8 * k, look >>> 0, true); });
+  return buf;
+}
+const decodeLooks = (body) => {
+  const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  return Array.from({ length: body.length >> 3 }, (_, k) => [dv.getUint16(8 * k, true), dv.getUint32(8 * k + 4, true)]);
+};
 
 export function encodePong(nonce, serverTick) {
   const buf = new Uint8Array(16);
@@ -499,7 +531,8 @@ export function encodeKeyHead({ reason, tick, raw, packed, interval = 0, digests
 }
 
 // The server's stream messages after the welcome, read whole:
-// { type, from, n, body } for a fill; { type, reason, tick, raw, interval, digests, packed } for a key; { type, nonce, serverTick } for a pong.
+// { type, from, n, body } for a fill; { type, reason, tick, raw, interval, digests, packed } for a key; { type, nonce, serverTick } for a pong;
+// { type, looks: [[slot, look], ...] } for looks.
 export async function readControl(sr) {
   const head = await sr.read(16);
   if (head.length < 16) return null;
@@ -519,6 +552,7 @@ export async function readControl(sr) {
     return m;
   }
   if (head[0] === T_PONG) return { type: T_PONG, nonce: dv.getUint32(4, true), serverTick: dv.getFloat64(8, true) };
+  if (head[0] === T_LOOK) return { type: T_LOOK, looks: decodeLooks(await sr.read(8 * dv.getUint16(2, true))) };
   throw new Error(`unknown control message 0x${head[0].toString(16)}`);
 }
 

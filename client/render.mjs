@@ -10,6 +10,7 @@ import { GRAPH_N, GRAPH_PANELS } from './netgraph.mjs';
 export const COLS = 80; // HUD cells of 4 x 6 px
 const FAR = 900;
 const MAX_FLASH = 64;
+const NO_TINTS = new Uint32Array(L.NPLAYER); // a page with no looks: every seat its own colour
 // the third array (vz) ends at 6 x BALL_CAP floats; flags and owners follow
 const BALL_WORDS = 6 * L.BALL_CAP + L.BALL_CAP / 4 + L.BALL_CAP / 2;
 
@@ -160,6 +161,12 @@ fn slotColor(s: u32) -> vec3f {
   let h = f32(s) * 0.618034;
   return 0.55 + 0.45 * cos(6.2832 * (fract(h) + vec3f(0.0, 0.33, 0.67)));
 }
+// a look's colour for slot p (client/looks.mjs tint, after the player records), else the seat's
+fn tintOf(p: u32, seat: vec3f) -> vec3f {
+  let w = players[${L.NPLAYER * L.PSIZE / 4}u + min(p, 255u)];
+  if (p > 255u || (w >> 24u) == 0u) { return seat; }
+  return vec3f(f32((w >> 16u) & 255u), f32((w >> 8u) & 255u), f32(w & 255u)) / 255.0;
+}
 
 // world point -> screen x, y (px), forward depth, px per metre
 fn project(q: vec3f) -> vec4f {
@@ -191,7 +198,9 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
     let vel = select(vec3f(0.0), vec3f(balls[i + ${3 * L.BALL_CAP}u], balls[i + ${4 * L.BALL_CAP}u], balls[i + ${5 * L.BALL_CAP}u]), (fl & ${L.F_AWAKE}u) != 0u);
     center = vec3f(balls[i], balls[i + ${L.BALL_CAP}u], balls[i + ${2 * L.BALL_CAP}u]) + vel * dt;
     half = vec2f(${L.PHYS.R});
-    color = vec4f(mix(vec3f(1.0), slotColor(owner), select(0.25, 0.0, owner == u32(u.cup.w))), 1.0);
+    // a look shows more than the seat's tint does
+    let looked = owner < 256u && (players[${L.NPLAYER * L.PSIZE / 4}u + min(owner, 255u)] >> 24u) != 0u;
+    color = vec4f(mix(vec3f(1.0), tintOf(owner, slotColor(owner)), select(select(0.25, 0.6, looked), 0.0, owner == u32(u.cup.w))), 1.0);
     kind = 0u;
     minpx = 0.8;
   } else if (i < ${L.BALL_CAP + L.NPLAYER}u) {
@@ -201,7 +210,7 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
     let vel = vec3f(pf(b, ${L.P_VX}u), pf(b, ${L.P_VY}u), pf(b, ${L.P_VZ}u));
     center = vec3f(pf(b, ${L.P_PX}u), pf(b, ${L.P_PY}u) + 0.9, pf(b, ${L.P_PZ}u)) + vel * dt;
     half = vec2f(0.45, 0.9);
-    color = vec4f(slotColor(p), 1.0);
+    color = vec4f(tintOf(p, slotColor(p)), 1.0);
     kind = 1u;
     minpx = 1.0;
   } else if (i < ${L.BALL_CAP + L.NPLAYER + L.NPROJ}u) {
@@ -388,7 +397,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
   const ubuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const storage = (size) => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const ballBuf = storage(BALL_WORDS * 4);
-  const playerBuf = storage(L.NPLAYER * L.PSIZE);
+  const playerBuf = storage(L.NPLAYER * L.PSIZE + L.NPLAYER * 4); // the records, then each slot's tint
   const projBuf = storage(L.NPROJ * L.JSIZE);
   const flashBuf = storage(MAX_FLASH * 32);
   const hudBuf = storage(COLS * rows * 4);
@@ -469,6 +478,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
         device.queue.writeBuffer(ballBuf, (6 * L.BALL_CAP + L.BALL_CAP / 4) * 4, u8, L.OWNER, ((n + 1) & ~1) * 2);
       }
       device.queue.writeBuffer(playerBuf, 0, u8, L.PLAYERS, L.NPLAYER * L.PSIZE);
+      device.queue.writeBuffer(playerBuf, L.NPLAYER * L.PSIZE, s.tints ?? NO_TINTS);
       device.queue.writeBuffer(projBuf, 0, u8, s.proj ?? L.PROJ, L.NPROJ * L.JSIZE);
       s.flashes.slice(0, MAX_FLASH).forEach((f, k) => flashData.set([f.pos[0], f.pos[1], f.pos[2], 0, f.age, f.size, f.kind, 0], k * 8));
       device.queue.writeBuffer(flashBuf, 0, flashData);

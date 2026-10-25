@@ -153,6 +153,9 @@ export const CL_RX_REPAIR = NET + 196; // u32 bytes of repair datagrams received
 export const CL_RX_STREAM = NET + 200; // u32 bytes of keyframes and fills received
 export const CL_TX = NET + 204; // u32 bytes of input datagrams sent
 export const CL_HEARD = NET + 208; // u32 closed ticks heard, by any of them
+// Looks (client/looks.mjs), drawing only: the relay carries them beside the ticks.
+export const CL_LOOK = NET + 212; // u32 this player's look, written by the page; the net worker sends it when it changes
+export const CL_LOOKS = NET + 2048; // u32[256] every slot's look as the relay last sent it (0: the house look)
 // Input words by server tick (& 255), written by the net worker as it samples them:
 export const CL_WORDS = NET + 1024;
 export const PLAY_BASE = 2; // ticks of playout delay past the earliest arrival, before jitter

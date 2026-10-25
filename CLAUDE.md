@@ -17,7 +17,7 @@ what comes next.
 ```sh
 npm ci && sh tools/install-deno.sh   # once: wabt, binaryen, Deno 2.9.7 in .tools/
 npm run build                        # every sim; prints each wasm's sha256
-npm test                             # node --test test/*.test.mjs, 429 tests, about 6 min
+npm test                             # node --test test/*.test.mjs, 442 tests, 6 to 8 min
 node --test test/bumper.test.mjs     # one file
 node harness/matrix.mjs --ticks 20000 --log logs/x.qgl --wasm build/<sim>/game.wasm   # Node, Deno, Chrome x JIT tiers x 1/2/4 threads
 node net/play.mjs [--arena [--mode k] | --bumper | --party [--mg k] | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
@@ -129,6 +129,14 @@ shell whose own command line contains the name: it kills that shell.
   Grandma's writes out every default. A new colour goes in `COLORS`, the
   shader and CONTRIBUTING.md's table (`test/themes.test.mjs` checks all
   three); `elo.json`'s mods are written from the themes (`node tools/elo.mjs`).
+- A player's look (`client/looks.mjs`: a ball and a hat) is drawing only: the
+  relay carries each slot's word beside the ticks (hello flag 4, `T_LOOK`),
+  never in a tick, record or hash. The lists are append-only (a look's number
+  goes on the wire); look 0 draws exactly as the riders always have, and a new
+  pattern or hat style goes in both bumper's and party's shaders
+  (`test/looks.test.mjs` checks). Achievements (`client/achievements.mjs`)
+  test results read from the confirmed world while a game's end is held, and
+  are kept in the browser, like the look.
 - `elo.json` is Fireplace's manifest for its Elo Pros store row (jobs, mods);
   CONTRIBUTING.md is the outside contributor's guide, pay included.
 

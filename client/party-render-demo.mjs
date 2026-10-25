@@ -5,9 +5,10 @@
 // traces/party-render-<scene>.png; in a browser it draws the one in ?scene=
 // (or flips through them all, a click for the next), moving.
 //   ?orbit=0 holds the camera still
-//   ?scene=looks  ?env=night (any scene, another backdrop)  ?scene=crowd~over (seen from high over the edge)  ?res=1280x800  ?present=0
+//   ?scene=looks  ?scene=wardrobe (every ball and hat a player can pick, client/looks.mjs)  ?env=night (any scene, another backdrop)  ?scene=crowd~over (seen from high over the edge)  ?res=1280x800  ?present=0
 import { createRenderer, Scene, LOOK, SPRITE, COLS, DECAL, ENVS } from './party-render.mjs';
 import { put, C } from './font.mjs';
+import { BALLS, HATS, packLook, riderSprites } from './looks.mjs';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('screen');
@@ -37,15 +38,15 @@ function frameState(W, H, HS) {
 }
 
 // A ball and its rider, as the frontends draw them: casters[slot] its shadow, the sprites its picture.
-function ball(s, p, x, y, z, { vel = [0, 0, 0], roll = 0, face, own = false, item = 0, r = 1 } = {}) {
-  const col = slotColor(p);
+function ball(s, p, x, y, z, { vel = [0, 0, 0], roll = 0, face, own = false, item = 0, r = 1, look = 0 } = {}) {
+  const rs = riderSprites(p, look);
   const f = face ?? Math.atan2(vel[2], vel[0]);
   const fv = [Math.cos(f), 0, Math.sin(f)];
   while (s.casters.length <= p) s.casters.push([0, -1000, 0, 0]);
   s.casters[p] = [x, y, z, r];
-  s.solid.push({ pos: [x, y + r, z], size: r, color: [...col, 1], kind: SPRITE.BALL, minpx: 1, vel, roll, seed: p });
-  s.solid.push({ pos: [x, y + 2 * r + 0.22, z], size: 0.34, color: [...col, 1], kind: SPRITE.BODY, minpx: 1 });
-  s.solid.push({ pos: [x, y + 2 * r + 0.78, z], size: 0.3, color: [...col, 1], kind: SPRITE.HEAD, minpx: 1, vel: fv });
+  s.solid.push({ pos: [x, y + r, z], size: r, color: rs.ball.color, kind: SPRITE.BALL, minpx: 1, vel, roll, seed: rs.ball.seed });
+  s.solid.push({ pos: [x, y + 2 * r + 0.22, z], size: 0.34, color: rs.body.color, kind: SPRITE.BODY, minpx: 1 });
+  s.solid.push({ pos: [x, y + 2 * r + 0.78, z], size: 0.3, color: rs.head.color, kind: SPRITE.HEAD, minpx: 1, vel: fv });
   if (item) s.solid.push({ pos: [x, y + 2 * r + 1.55, z], size: 0.26, color: [1, 0.85, 0.2, 1], kind: SPRITE.ORB, minpx: 1 });
   if (own) s.solid.push({ pos: [x, y + 2 * r + 1.65, z], size: 0.3, color: [1, 1, 0.4, 1], kind: SPRITE.ARROW, minpx: 2 });
 }
@@ -125,6 +126,24 @@ const SCENES = {
     s.focus = [CX, CX]; s.extent = 24;
     s.mini[3] = 24; s.miniShape = 'square';
     title(s, r, 'EVERY LOOK ON EVERY SHAPE', 'BOX  CYLINDER  HEX  SPHERE   DECALS: RING DISC ZONE TARGET');
+  },
+
+  // every ball a player can pick at the back (on the house hat), and in front every hat (on the house ball), rolling toward the camera
+  wardrobe(s, r) {
+    s.env = 'day';
+    s.yaw = Math.PI / 2; s.pitch = -0.3;
+    s.cam = [CX, FLOOR + 5, CX - 17];
+    s.scene.box(CX, FLOOR - 0.5, CX, 24, 0.5, 12, 0, 0.78, 0.8, 0.84, LOOK.MATTE);
+    const row = (list, z, gap, look, p0) => list.forEach((x, k) => {
+      const px = CX + (list.length - 1) * gap / 2 - k * gap;
+      ball(s, p0 + k, px, FLOOR, z, { vel: [0, 0, -2], roll: (s.time / 1000) * 1.5 + k, face: -Math.PI / 2 + 0.4, look: look(k) });
+      label(s, r, [px, z > CX ? FLOOR + 3.6 + (k & 1) * 0.7 : FLOOR - 0.3, z], x.name, x.unlock ? C.YELLOW : C.WHITE);
+    });
+    row(BALLS, CX + 3, 2.6, (k) => packLook(k, 0), 0);
+    row(HATS, CX - 7, 2.6, (k) => packLook(0, k), 16);
+    s.slot = -1;
+    s.focus = [CX, CX]; s.extent = 24;
+    title(s, r, 'EVERY BALL AND HAT', 'IN YELLOW: EARNED WITH AN ACHIEVEMENT');
   },
 
   // three floors of hex ice, cracking under the crowd; tiles that went, tiles going
