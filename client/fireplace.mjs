@@ -5,9 +5,12 @@
 // then it closes in again. One host (client/host.mjs) on Fireplace's sim,
 // every game's frontend mounted in turn on its own canvas (golf, the arena,
 // bumper balls, party); while the room is in view, the game draws into a
-// texture the TV shows.
+// texture the TV shows. B and H, while the room is in view, change your ball
+// and hat (client/looks.mjs), which everyone in the room sees; L lists your
+// achievements (client/achievements.mjs). Both are kept in this browser.
 //   ?theme=<id> the room in client/themes/<id>.json (T cycles them while the room is in view)
 //   ?bot=1 sits a guest (client/fireplace-bot.mjs) at the controls, and sits down at once
+//   ?look=<word> wears that look (client/looks.mjs packLook) for this visit, earned or not, and keeps nothing
 //   ?watch=1 spectates; ?url=, ?hash=, ?impair=, ?sens=, ?res=, ?music=0 as the games'
 import * as L from '../src/layout.mjs';
 import { unpackArena, modeName } from '../src/arena-view.mjs';
@@ -18,6 +21,8 @@ import { createRoom, SCREEN, COUCH, cardText, cardFire } from './room-render.mjs
 import { loadTheme, themeList, savedTheme, saveTheme, FALLBACK, DEFAULT } from './themes.mjs';
 import { Guest } from './fireplace-bot.mjs';
 import { readClock } from './clock.mjs';
+import { BALLS, HATS, packLook, unpackLook, savedLook, saveLook, nextOpen, wearable, isOpen, drawLook, lookName } from './looks.mjs';
+import { ACHIEVEMENTS, loadTally, saveTally, emptyTally, record, readResult, gotSet } from './achievements.mjs';
 
 const q = new URLSearchParams(location.search);
 const stage = document.getElementById('stage');
@@ -28,6 +33,9 @@ const BOT = q.get('bot') === '1';
 const WATCH = q.get('watch') === '1';
 const SENS = Number(q.get('sens') || 3);
 const ZOOM_MS = 1700;
+const LOOK_MS = 5000; // how long B or H keeps your look on the TV
+const LIST_MS = 12000; // and L your achievements
+const PER_PAGE = 6; // achievements a page, in type the TV can show from the couch
 // what each game's picture lights the room with, roughly: golf's grass, the
 // arena's grey, the cheese, party's sky
 const TV_LIGHT = [[0.45, 0.7, 0.45], [0.6, 0.65, 0.6], [1, 0.85, 0.5], [0.55, 0.75, 1]];
@@ -53,6 +61,31 @@ async function main() {
   const genome = (await (await fetch('../xbox/golfer.h')).text()).match(/GOLFER_DEFAULT "(qg2:[A-Za-z0-9_-]+)"/)[1];
   const guest = BOT ? new Guest(0, (Math.random() * 1e9) | 0, Number(q.get('skill') || 0.8), genome) : null;
 
+  // ---- your look and your achievements, kept in this browser; a guest at the controls or a spectator keeps neither
+  const KEEP = !BOT && !WATCH;
+  let tally = KEEP ? loadTally() : emptyTally();
+  let got = gotSet(tally);
+  let look = q.has('look') ? Number(q.get('look')) >>> 0 : KEEP ? wearable(savedLook(), got) : 0;
+  set(L.CL_LOOK, look);
+  let lookAt = -1e9, listAt = -1e9, listPage = 0; // when B or H, and L, last put their card on the TV; the list's page
+  let heldKey = '', opened = []; // the game held now, and what its end opened
+  const wear = (w) => { look = w; set(L.CL_LOOK, w); saveLook(w); lookAt = performance.now(); listAt = -1e9; };
+  // the looks an achievement opens
+  const opens = (id) => [...BALLS, ...HATS].filter((x) => x.unlock === id).map(lookName);
+  // what this slot did in the game just held, counted once
+  function tallyUp() {
+    const slot = get(L.CL_SLOT);
+    if (!KEEP || slot < 0) return;
+    const r = readResult(view, slot, get(L.CL_ROOM));
+    if (r.key !== heldKey) { heldKey = r.key; opened = []; }
+    const next = record(tally, r);
+    if (next.tally === tally) return;
+    tally = next.tally;
+    saveTally(tally);
+    got = gotSet(tally);
+    opened = next.opened;
+  }
+
   // ---- the scene: on the couch, closing in on the TV, in the game, pulling back
   let scene = 'couch'; // couch -> tuning -> in <-> out
   let zoom = 0, zoomFrom = 0, zoomTo = 0, zoomAt = 0;
@@ -75,7 +108,20 @@ async function main() {
   stage.addEventListener('click', () => { if (scene === 'couch') sitDown(); else if (!document.pointerLockElement && !BOT && !WATCH) stage.requestPointerLock(); });
   addEventListener('keydown', (e) => {
     if (scene === 'couch' && (e.code === 'Enter' || e.code === 'Space')) sitDown();
-    if (e.code === 'KeyT' && !e.repeat && !(scene === 'in' && zoom >= 0.999)) nextTheme();
+    const roomInView = !(scene === 'in' && zoom >= 0.999);
+    if (e.code === 'KeyT' && !e.repeat && roomInView) nextTheme();
+    if (KEEP && roomInView && !e.repeat) {
+      const { ball, hat } = unpackLook(look);
+      if (e.code === 'KeyB') wear(packLook(nextOpen(BALLS, ball, got), hat));
+      if (e.code === 'KeyH') wear(packLook(ball, nextOpen(HATS, hat, got)));
+      // L: the list's first page, then its next, then away
+      if (e.code === 'KeyL') {
+        const open = performance.now() - listAt < LIST_MS;
+        listPage = open ? listPage + 1 : 0;
+        listAt = listPage < LIST_PAGES ? performance.now() : -1e9;
+        lookAt = -1e9;
+      }
+    }
     if (e.code === 'KeyF' && !e.repeat) {
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen().then(() => navigator.keyboard?.lock?.()).catch(() => {});
@@ -142,11 +188,19 @@ async function main() {
     g2.fillRect(0, 0, 640, 400);
     text('CH 3', 620, 18, 3, '#7fbf7f', 'right');
     if (kind === 'title' || now - themeAt < 4000) roomLine();
+    if (kind === 'look') return lookCard(t);
+    if (kind === 'list') return listCard();
     if (kind === 'title' || kind === 'tuning') {
       pixelFire(320, 150, 9, t);
       text('FIREPLACE', 320, 178, 11, '#ffcf6a', 'center');
       text('A ROOMFUL OF GAMES, COME AND GO AS YOU LIKE', 320, 250, 3, '#c9b89a', 'center');
       text(GAMES_LINE, 320, 275, 3, '#8ea0b8', 'center');
+      if (KEEP) {
+        drawLook(g2, 578, 128, 22, Math.max(0, get(L.CL_SLOT)), look, t);
+        const { ball, hat } = unpackLook(look);
+        const s = `B: ${BALLS[ball].name}  H: ${HATS[hat].name}  L: ACHIEVEMENTS ${Object.keys(tally.got).length}/${ACHIEVEMENTS.length}`;
+        text(s, 320, 300, s.length * 12 <= 620 ? 3 : 2, '#8ea0b8', 'center');
+      }
       if (kind === 'tuning') text(host.error ? 'NO SIGNAL' : 'TUNING IN...', 320, 330, 5, host.error ? '#ff6a5a' : '#ffffff', 'center');
       else if (Math.floor(t * 1.5) % 2) text(BOT ? 'A GUEST SITS DOWN' : 'CLICK TO SIT DOWN', 320, 330, 5, '#ffffff', 'center');
       return;
@@ -163,7 +217,8 @@ async function main() {
     text(`${gameName(g, view.dv.getUint32(L.HDR_SEED, true))} IS OVER`, 320, 28, 4, '#ffcf6a', 'center');
     text('MARSHMALLOWS', 320, 60, 5, '#ffffff', 'center');
     const mine = list.findIndex((x) => x.p === slot);
-    const rows = mine >= 7 ? [...list.slice(0, 6), list[mine]] : list.slice(0, 7);
+    const most = opened.length ? 6 : 7; // a row less when there's news under them
+    const rows = mine >= most ? [...list.slice(0, most - 1), list[mine]] : list.slice(0, most);
     rows.forEach((x, k) => {
       const y = 104 + k * 30;
       const you = x.p === slot;
@@ -174,10 +229,57 @@ async function main() {
       if (x.m > 12) text(`+${x.m - 12}`, 290 + 12 * 18 + 4, y, 3, '#c9b89a');
       if (x.got) text(`+${x.got}`, 560, y, 4, '#7fdf7f', 'right');
     });
+    // what this game's end opened for you
+    const fit = (s) => (s.length * 12 <= 620 ? 3 : 2);
+    if (opened.length) {
+      const news = `NEW: ${opened.map((id) => ACHIEVEMENTS.find((a) => a.id === id).name).join(', ')}`;
+      text(news, 320, 286, fit(news), '#7fdf7f', 'center');
+      const looks = opened.flatMap(opens);
+      const s = `${looks.join(', ')} ${looks.length > 1 ? 'ARE' : 'IS'} YOURS: B OR H TO WEAR IT`;
+      if (looks.length) text(s, 320, 308, fit(s), '#c9e8a0', 'center');
+    }
     const left = Math.max(0, Math.ceil((view.dv.getUint32(L.FP_AT, true) - view.tick) / 125));
     const next = `NEXT: ${gameName(nextGame(), view.dv.getUint32(L.FP_NEXT, true))}${left ? `  IN ${left}` : ''}`;
     text(next, 320, 340, next.length * 20 <= 620 ? 5 : 4, '#ffffff', 'center');
   }
+  // your look, as B and H left it, and the next one to earn
+  function lookCard(t) {
+    const { ball, hat } = unpackLook(look);
+    text('YOUR LOOK', 320, 26, 5, '#ffcf6a', 'center');
+    drawLook(g2, 170, 250, 62, Math.max(0, get(L.CL_SLOT)), look, t);
+    text('BALL', 330, 100, 3, '#8ea0b8');
+    text(BALLS[ball].name, 330, 120, 5, '#ffffff');
+    text('B FOR ANOTHER', 330, 150, 3, '#c9b89a');
+    text('HAT', 330, 200, 3, '#8ea0b8');
+    text(HATS[hat].name, 330, 220, 5, '#ffffff');
+    text('H FOR ANOTHER', 330, 250, 3, '#c9b89a');
+    text('EVERYONE IN THE ROOM SEES IT', 320, 324, 3, '#8ea0b8', 'center');
+    const shut = [...BALLS, ...HATS].find((x) => !isOpen(x, got));
+    if (shut) {
+      const s = `EARN ${lookName(shut)}: ${ACHIEVEMENTS.find((a) => a.id === shut.unlock).about}`;
+      text(s, 320, 352, s.length * 12 <= 620 ? 3 : 2, '#7fdf7f', 'center');
+    }
+  }
+  // the achievements, a page at a time: earned lit, the rest with how far along, and the look each opens
+  function listCard() {
+    const n = Object.keys(tally.got).length;
+    text(`ACHIEVEMENTS  ${n} OF ${ACHIEVEMENTS.length}`, 320, 16, 5, '#ffcf6a', 'center');
+    ACHIEVEMENTS.slice(listPage * PER_PAGE, (listPage + 1) * PER_PAGE).forEach((a, k) => {
+      const y = 58 + k * 48, have = !!tally.got[a.id];
+      g2.fillStyle = have ? '#ffcf6a' : '#3a3f4f';
+      g2.fillRect(30, y + 2, 16, 16);
+      text(a.name, 58, y, 4, have ? '#ffffff' : '#8ea0b8');
+      const [x, of] = a.have?.(tally) ?? [0, 0];
+      const far = !have && of ? `  ${Math.min(x, of)}/${of}` : '';
+      const about = a.about + far;
+      text(about, 58, y + 24, about.length * 12 <= 560 ? 3 : 2, have ? '#c9b89a' : '#7f8aa0');
+      const o = opens(a.id);
+      if (o.length) text(o.join(', '), 610, y + 4, 2, have ? '#7fdf7f' : '#5f8a60', 'right');
+    });
+    text(listPage + 1 < LIST_PAGES ? 'L FOR MORE' : 'L TO PUT IT AWAY', 320, 360, 3, '#8ea0b8', 'center');
+  }
+  const LIST_PAGES = Math.ceil(ACHIEVEMENTS.length / PER_PAGE);
+
   // the playlist goes by position: entry (games played) % length is next
   const nextGame = () => L.PLAYLIST[view.dv.getUint16(L.FP_COUNT + 2, true) % L.PLAYLIST.length];
   // a game as the TV names it: the arena by the mode its seed forces
@@ -192,6 +294,7 @@ async function main() {
     const st = get(L.CL_STATE);
     const g = view.dv.getUint32(L.FP_GAME, true);
     const held = view.dv.getUint32(L.FP_STAGE, true) === 1;
+    if (held) tallyUp();
     if (st >= 1 && g !== game && !mounting) mountGame(g);
     drive();
     // where the scene goes next
@@ -216,7 +319,7 @@ async function main() {
     }
     // the room, the game (or a card) on the TV
     if (frontend && game === g) frontend.frame(now, tvTex[game]);
-    const kind = scene === 'couch' ? 'title' : scene === 'tuning' ? 'tuning' : 'standings';
+    const kind = now - listAt < LIST_MS ? 'list' : now - lookAt < LOOK_MS ? 'look' : scene === 'couch' ? 'title' : scene === 'tuning' ? 'tuning' : 'standings';
     if (cardMix > 0.01 || scene === 'couch' || scene === 'tuning') { drawCard(kind, now); room.updateCard(); card = kind; }
     show(roomCanvas);
     const focal = H * 1.05;
@@ -237,7 +340,10 @@ async function main() {
       const g = view.dv.getUint32(L.FP_GAME, true);
       const slot = get(L.CL_SLOT);
       return { slot, clState: get(L.CL_STATE), error: host.error, theme: room.theme.id, game: g, gameName: gameName(g, view.dv.getUint32(L.HDR_SEED, true)), state: view.hole().state, scene, zoom, games: gamesSeen,
-        mallows: slot >= 0 ? view.dv.getUint16(L.FP_MALLOWS + 2 * slot, true) : 0, card, me: frontend?.state?.().me ?? null };
+        mallows: slot >= 0 ? view.dv.getUint16(L.FP_MALLOWS + 2 * slot, true) : 0, card, me: frontend?.state?.().me ?? null,
+        look, achievements: Object.keys(tally.got), opened,
+        // the room's looks as the relay last sent them (this slot's own included, once it has gone round)
+        relayLooks: [...Array(L.NPLAYER).keys()].filter((p) => host.u32[(L.CL_LOOKS >> 2) + p]).map((p) => [p, host.u32[(L.CL_LOOKS >> 2) + p]]) };
     },
     // a PNG of what's on the screen: the room, or the game
     capture: async () => {

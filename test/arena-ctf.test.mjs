@@ -146,7 +146,7 @@ function flag(g, k) {
     left: g.dv.getUint16(a + AC.CF_LEFT, true), stand: [f(AC.CF_STAND), f(AC.CF_STAND + 4), f(AC.CF_STAND + 8)] };
 }
 const setLeft = (g, k, n) => g.dv.setUint16(L.AO + AC.CF_FLAG + k * AC.CF_FSIZE + AC.CF_LEFT, n, true);
-// Blood Gulch's stands: on each room's floor (21), red's x 382.8-401.2, blue's
+// Box Canyon's stands: on each room's floor (21), red's x 382.8-401.2, blue's
 // 622.8-641.2, z 503.8-520.2; each roof's top 25.8 right over its stand.
 const STAND = [[392, 21, 512], [632, 21, 512]];
 const FLOOR = 21, ROOF = 25.8;
@@ -605,13 +605,13 @@ async function bots(n, ticks) {
   return { take: seen[AC.CF_MX_TAKE], cap: seen[AC.CF_MX_CAP], ret: seen[AC.CF_MX_RETURN], home: seen[AC.CF_MX_HOME], drop: seen[AC.CF_MX_DROP] };
 }
 
-test('CTF with 8 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; flags taken in 20,000 ticks', async (t) => {
+test('CTF with 8 AI fighters on Box Canyon: no trap on the debug build, the same hash on every tick on 1 and 4 threads; flags taken in 20,000 ticks', async (t) => {
   const s = await bots(8, 20000);
   t.diagnostic(JSON.stringify(s));
   assert.ok(s.take >= 1, `${s.take} taken`);
 });
 
-test('CTF with 16 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; flags taken and captured in 20,000 ticks', async (t) => {
+test('CTF with 16 AI fighters on Box Canyon: no trap on the debug build, the same hash on every tick on 1 and 4 threads; flags taken and captured in 20,000 ticks', async (t) => {
   const s = await bots(16, 20000);
   t.diagnostic(JSON.stringify(s));
   assert.ok(s.take >= 1 && s.cap >= 1, `${s.take} taken, ${s.cap} captured`);

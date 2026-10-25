@@ -5,9 +5,10 @@ bumper balls, the arena and Party's minigames. It is on the Elo Pros store as
 Fireplace, and this repo is its source (CC0). Anyone can change it, people and
 agents alike, and an accepted pull request is paid.
 
-Three ways in, from no code to the engine:
+Four ways in, from no code to the engine:
 
 - **A theme**: a reskin of the living room, one JSON file. No code.
+- **A ball or a hat**: a new look players can pick, one entry in a list.
 - **A Party minigame**: a new round for Party, and so for Fireplace. A tool
   writes one that already plays; you make it yours.
 - **Anything else**: bots, the renderers, the netcode, fixes. Read CLAUDE.md
@@ -164,6 +165,32 @@ Matrix and online runs need Deno (`sh tools/install-deno.sh`) and Chrome
 A minigame changes the party and Fireplace builds; golf, the arena and bumper
 balls must stay bit-identical (compare the sha256s `npm run build` prints
 before and after).
+
+## A ball or a hat
+
+A look is a ball and a hat a player picks on the couch (B and H), and the
+whole room sees it. It is drawing only: the relay carries it beside the game,
+never in it, so a look can't desync a room either. Each is one entry in
+`client/looks.mjs`:
+
+- a ball: a `key`, a `name` (capitals, as the TV's font has them), one of
+  the patterns (`BEACH`, `STRIPES`, `RIBS`, `SOLID`, `METAL`, `EIGHT`) and
+  its two colours `a` and `b` (0 to 1 each);
+- a hat: a `key`, a `name`, one of the styles (`CAP`, `BEANIE`, `BAND`,
+  `HELMET`, `NONE`, `PUMPKIN`, `CROWN`) and its `color`.
+
+Add it at the end of its list: a look's number is its place in the list, and
+that number is what goes over the network. `unlock: '<achievement id>'` makes
+it earned rather than free (`client/achievements.mjs` has the ids).
+
+```sh
+node tools/serve.mjs     # then /client/party-render-demo.html?scene=wardrobe: every ball and hat, rolling
+node --test test/looks.test.mjs
+```
+
+A new pattern or hat style is code: a case in the ball's or the head's
+shader, in both `client/bumper-render.mjs` and `client/party-render.mjs`
+(`lookBall`, `lookHat`), and the test checks both have it.
 
 ## Anything else
 

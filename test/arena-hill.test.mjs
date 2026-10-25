@@ -42,7 +42,7 @@ const scores = (g) => [u32(g, L.AH_SCORE), u32(g, L.AH_SCORE + 4)];
 const sides = (g, slots) => slots.map((p) => team(g, p));
 const points = (g, slots) => slots.map((p) => g.v.fighter(p).points);
 const MAP = compileMap();
-const FEET = [19.69, 25.8, 23.4, 21, 25.8, 23.4]; // where each of Blood Gulch's hills stands (test/map.test.mjs)
+const FEET = [19.69, 25.8, 23.4, 21, 25.8, 23.4]; // where each of Box Canyon's hills stands (test/map.test.mjs)
 
 function put(g, p, x, z, y = g.v.height(x, z)) {
   g.dv.setFloat32(rec(p) + L.P_PX, x, true);

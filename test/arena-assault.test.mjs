@@ -69,7 +69,7 @@ const fpos = (g, p) => g.v.fighter(p).pos;
 const near = (a, b, e = 1e-4) => a.every((x, i) => Math.abs(x - b[i]) < e);
 const steps = (g, n) => { for (let i = 0; i < n; i++) g.step(); };
 
-// Blood Gulch's stands (the plates): on each room's floor (21), red's x
+// Box Canyon's stands (the plates): on each room's floor (21), red's x
 // 382.8-401.2, blue's 622.8-641.2, z 503.8-520.2; each roof's top 25.8 right
 // over its stand. The middle: (512, 19.69, 512).
 const STAND = [[392, 21, 512], [632, 21, 512]];
@@ -951,7 +951,7 @@ async function bots(n, ticks, seed) {
   return { ...seen, kills };
 }
 
-test('Assault with 8 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; the bomb carried, planted and gone off for both sides in 20,000 ticks', async (t) => {
+test('Assault with 8 AI fighters on Box Canyon: no trap on the debug build, the same hash on every tick on 1 and 4 threads; the bomb carried, planted and gone off for both sides in 20,000 ticks', async (t) => {
   const s = await bots(8, 20000, 7);
   t.diagnostic(JSON.stringify(s));
   assert.ok(s.take.every((k) => k >= 3) && s.drop.every((k) => k >= 2), 'it changes hands');
@@ -961,7 +961,7 @@ test('Assault with 8 AI fighters on Blood Gulch: no trap on the debug build, the
 // A big room on the release build: the nearest few of a side go for a free
 // bomb and the rest wait out front, so it gets out of the middle (with every
 // attacker on it, it changed hands in the crowd and nobody ever planted).
-test('Assault with 64 AI fighters on Blood Gulch: the bomb planted and gone off for both sides in 30,000 ticks', async (t) => {
+test('Assault with 64 AI fighters on Box Canyon: the bomb planted and gone off for both sides in 30,000 ticks', async (t) => {
   const seen = { plant: [0, 0], boom: [0, 0] };
   let count = 0;
   await playArena({ bytes: arenaBytes(), seed: forcedSeed(L.M_ASSAULT, 11), bots: 64, ticks: 30000, leaveAt: 1000,
@@ -977,7 +977,7 @@ test('Assault with 64 AI fighters on Blood Gulch: the bomb planted and gone off 
   assert.ok(seen.plant.every((k) => k >= 1) && seen.boom.every((k) => k >= 1), 'both sides plant it and score');
 });
 
-test('Assault with 16 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; the bomb planted and gone off for both sides in 20,000 ticks', async (t) => {
+test('Assault with 16 AI fighters on Box Canyon: no trap on the debug build, the same hash on every tick on 1 and 4 threads; the bomb planted and gone off for both sides in 20,000 ticks', async (t) => {
   const s = await bots(16, 20000, 7);
   t.diagnostic(JSON.stringify(s));
   assert.ok(s.take.every((k) => k >= 3) && s.drop.every((k) => k >= 2), 'it changes hands');

@@ -919,6 +919,63 @@ fn glyphBit(ch: u32, px: vec2i) -> bool {
   return ((font[ch - 32u] >> u32(14 - (px.y * 3 + px.x))) & 1u) == 1u;
 }
 
+// A look's ball and hat (client/looks.mjs PATTERN and STYLE), drawn in the
+// ball's own turning frame m and the head's facing f; colours linear.
+fn unrgb(v: f32) -> vec3f {
+  let k = u32(v + 0.5);
+  return vec3f(f32((k >> 16u) & 255u), f32((k >> 8u) & 255u), f32(k & 255u)) / 255.0;
+}
+fn lookBall(pattern: u32, m: vec3f, a: vec3f, b: vec3f) -> vec3f {
+  let lon = atan2(m.z, m.x) / 6.2832 + 0.5;
+  var o = a;
+  switch pattern {
+    case 0u: { // beach: six panels, a, white and b, white at the poles
+      let seg = u32(floor(lon * 6.0)) % 3u;
+      o = select(select(b, vec3f(0.85), seg == 1u), a, seg == 0u);
+      if (abs(m.y) > 0.9) { o = vec3f(0.85); }
+    }
+    case 1u: { // five bands round it
+      o = select(a, b, (u32(floor((m.y * 0.5 + 0.5) * 5.0)) & 1u) == 1u);
+    }
+    case 2u: { // eight ribs from pole to pole
+      o = mix(b, a, smoothstep(0.15, 0.55, abs(sin(lon * 6.2832 * 4.0))));
+    }
+    case 5u: { // the eight ball: a white spot on top at rest, an 8 on it
+      if (m.y > 0.8) {
+        o = b;
+        let q = vec2i(floor((vec2f(m.x, m.z) / 0.45 + vec2f(0.75, 1.0)) * vec2f(2.0, 2.5)));
+        if (glyphBit(56u, q)) { o = vec3f(0.02); }
+      }
+    }
+    default: {}
+  }
+  return o;
+}
+fn lookHat(style: u32, n: vec3f, f: vec3f, side: vec3f, c: vec3f, skin: vec3f) -> vec3f {
+  let a = atan2(dot(n, side), dot(n, f)) / 6.2832 + 0.5; // round the head, 0..1
+  var o = skin;
+  switch style {
+    case 0u: { if (n.y > 0.45 || (n.y > 0.3 && dot(n, f) > 0.25)) { o = c; } } // a cap
+    case 2u: { if (n.y > 0.12) { o = select(c, c * 0.7, n.y < 0.3); } } // a beanie, its brim turned up
+    case 3u: { if (n.y > 0.28 && n.y < 0.5) { o = c; } } // a headband
+    case 4u: { // a helmet, open at the face, a stripe over the top
+      if (n.y > -0.1 && !(dot(n, f) > 0.5 && n.y < 0.45)) { o = select(c, c * 0.3, abs(dot(n, side)) < 0.1 && n.y > 0.35); }
+    }
+    case 5u: { // a crown: points all round, a red stone at the front
+      let zig = abs(fract(a * 5.0) * 2.0 - 1.0);
+      if (n.y > 0.3 && n.y < 0.5 + 0.32 * zig) { o = c; }
+      if (dot(n, normalize(f + vec3f(0.0, 0.7, 0.0))) > 0.985) { o = vec3f(0.85, 0.04, 0.06); }
+    }
+    case 6u: { // a pumpkin for a head: ribs, a stalk and a lit grin
+      o = c * (0.75 + 0.25 * abs(sin(a * 6.2832 * 4.0)));
+      if (n.y > 0.92) { o = vec3f(0.12, 0.3, 0.06); }
+      if (dot(n, f) > 0.7 && n.y < -0.12 && n.y > -0.4 && abs(dot(n, side)) < 0.45) { o = vec3f(1.6, 0.9, 0.25); }
+    }
+    default: {}
+  }
+  return o;
+}
+
 // glossy, as the balls are: the sun's highlight and the sky in it, more at a grazing angle
 fn gloss(c: vec3f, n: vec3f, power: f32, k: f32) -> vec3f {
   let v = -u.fwd.xyz;
@@ -943,32 +1000,46 @@ struct FOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
   let ink = 1.0 - 0.6 * smoothstep(0.86, 0.97, rr);
   let surf = s.ctr + n * s.info.y;
   switch s.kind {
-    case 0u: { // a ball: beach-ball panels turning as it rolls, white at the poles
+    case 0u: { // a ball: beach-ball panels turning as it rolls, white at the poles; or a look's (alpha 2 + its pattern, the seed its second colour)
       let flat = vec3f(s.vel.x, 0.0, s.vel.z);
       var m = n;
       if (dot(flat, flat) > 1e-4) {
         let dir = normalize(flat);
         m = turn(n, vec3f(dir.z, 0.0, -dir.x), -s.info.w);
       }
-      let seg = u32(floor((atan2(m.z, m.x) / 6.2832 + 0.5) * 6.0)) % 3u;
-      let other = lin(slotColor(s.info.z + 0.5));
-      var alb = select(select(other, vec3f(0.85), seg == 1u), c, seg == 0u);
-      if (abs(m.y) > 0.9) { alb = vec3f(0.85); }
+      let look = u32(s.color.a + 0.5);
+      var alb: vec3f;
+      var shine = 1.0;
+      if (look <= 1u) {
+        let seg = u32(floor((atan2(m.z, m.x) / 6.2832 + 0.5) * 6.0)) % 3u;
+        let other = lin(slotColor(s.info.z + 0.5));
+        alb = select(select(other, vec3f(0.85), seg == 1u), c, seg == 0u);
+        if (abs(m.y) > 0.9) { alb = vec3f(0.85); }
+      } else {
+        alb = lookBall(look - 2u, m, c, lin(unrgb(s.info.z)));
+        if (look == 6u) { shine = 2.0; } // metal
+      }
       let sh = shadowAt(surf, n);
       let ao = mix(0.55, 1.0, smoothstep(-0.9, 0.2, n.y));
-      c = gloss(shade(alb, n, sh, ao), n, 60.0, 0.5 * (0.35 + 0.65 * sh)) * ink;
+      c = gloss(shade(alb, n, sh, ao), n, 60.0, 0.5 * shine * (0.35 + 0.65 * sh)) * ink;
     }
     case 1u: { // a rider's body, in its colour
       c = gloss(shade(c * 0.8, n, shadowAt(surf, n), 1.0), n, 20.0, 0.2) * ink;
     }
-    case 8u: { // a rider's head: skin, a cap in its colour, two eyes looking where the ball faces
+    case 8u: { // a rider's head: skin, a cap in its colour, two eyes looking where the ball faces; or a look's hat (alpha 2 + its style)
       let f = normalize(vec3f(s.vel.x, 0.0, s.vel.z) + vec3f(1e-5, 0.0, 0.0));
       let side = vec3f(-f.z, 0.0, f.x);
       var alb = lin(vec3f(1.0, 0.8, 0.66));
-      if (n.y > 0.45 || (n.y > 0.3 && dot(n, f) > 0.25)) { alb = c; }
+      let hat = u32(s.color.a + 0.5);
+      if (hat <= 1u) {
+        if (n.y > 0.45 || (n.y > 0.3 && dot(n, f) > 0.25)) { alb = c; }
+      } else {
+        alb = lookHat(hat - 2u, n, f, side, c, alb);
+      }
       for (var k = -1; k <= 1; k += 2) {
         let eye = normalize(f * 0.86 + side * 0.4 * f32(k) + vec3f(0.0, 0.1, 0.0));
         let dd = dot(n, eye);
+        if (hat == 8u) { if (dd > 0.96) { alb = vec3f(1.6, 0.9, 0.25); } continue; } // a pumpkin's eyes, lit from inside
         if (dd > 0.955) { alb = vec3f(0.95); }
         if (dd > 0.985) { alb = vec3f(0.02); }
       }

@@ -389,6 +389,7 @@ function steer(p, last) {
 
 export default {
   id: L.MG_PADS, key: 'pads', name: 'MUSICAL PADS',
+  seatColors: true, // a pad lights in the seat's colour, so balls keep theirs here (a look's hat still shows)
   hint: 'WHEN THE MUSIC STOPS GET ON A PAD  ONE BALL A PAD  THE REST ARE OUT',
   env: 'night',
 

@@ -5,7 +5,8 @@
 // controls. Passes when the referee checked interval hashes from every
 // session and none differed, the room moved from one game to the next with
 // everyone in it (given time: bumper balls' two rounds come first, then
-// party), and Chrome kept up. Screenshots go to traces/.
+// party), Chrome kept up, and each Chrome page's look (client/looks.mjs) went
+// round the relay to every page. Screenshots go to traces/.
 //   node net/run-fireplace.mjs [--bots 15] [--chrome 1] [--seconds 240] [--impair delay=60,jitter=10,loss=0.05] [--shots 1] [--res 1280x800]
 //                              [--port 4433: the relay's, its native door the next]
 import { spawn, execFileSync } from 'node:child_process';
@@ -13,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node
 import { createRequire } from 'node:module';
 import { serve } from '../tools/serve.mjs';
 import * as L from '../src/layout.mjs';
+import { BALLS, HATS, packLook } from '../client/looks.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
@@ -48,6 +50,7 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--autoplay-policy=no-user-gesture-required'],
 });
 const pages = [];
+const lookOf = (k) => packLook(1 + (k % (BALLS.length - 1)), 1 + (k % (HATS.length - 1)));
 // software WebGPU here, so the page draws at golf's 320 x 200 unless asked for more (--res 1280x800)
 const q = new URLSearchParams({ bot: '1', present: '0', url: `https://127.0.0.1:${port}/`, hash, impair, net: opt('net', '0'), skill: '0.9', res: opt('res', '320x200') });
 const report = { bots: nbots, chrome, seconds, impair: impair || 'none', screenshots: [], errors: [] };
@@ -58,7 +61,8 @@ try {
     const page = await browser.newPage({ viewport: { width: Math.max(640, Number(opt('res', '320x200').split('x')[0])), height: Math.max(400, Number(opt('res', '320x200').split('x')[1])) } });
     page.on('console', (m) => { if (m.type() === 'error') { report.errors.push(m.text()); process.stderr.write(`[chrome ${k}] ${m.text()}\n`); } });
     page.on('pageerror', (e) => { report.errors.push(e.message); process.stderr.write(`[chrome ${k}] ${e.message}\n`); });
-    await page.goto(`http://127.0.0.1:${webPort}/client/fireplace.html?${q}`);
+    // each page in a look of its own, so the relay's table shows whose went round
+    await page.goto(`http://127.0.0.1:${webPort}/client/fireplace.html?${q}&look=${lookOf(k)}`);
     pages.push(page);
   }
   let snapAt = 0;
@@ -75,7 +79,7 @@ try {
   }
   process.stderr.write('\n');
   const end = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.state())));
-  report.chromeState = end.map((s) => ({ slot: s.slot, game: s.gameName, games: s.games, mallows: s.mallows, behind: s.clState !== 2 }));
+  report.chromeState = end.map((s) => ({ slot: s.slot, game: s.gameName, games: s.games, mallows: s.mallows, behind: s.clState !== 2, look: s.look, relayLooks: s.relayLooks }));
   report.chromeHashes = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.hashes.length)));
 } finally {
   await browser.close();
@@ -100,6 +104,8 @@ const gate = {
   switched: seconds < 220 || (report.botHost?.games?.length ?? 0) >= 2 || (report.chromeState || []).some((s) => s.games >= 2),
   reachedParty: seconds < 220 || (report.botHost?.games || []).some((g) => g.game === L.G_PARTY),
   chromeKeptUp: (report.chromeState || []).every((s) => !s.behind),
+  // every page's table holds every page's look at its slot, and nothing for the bots, who wear none
+  looksWentRound: !!report.chromeState && report.chromeState.every((s) => JSON.stringify(s.relayLooks) === JSON.stringify(report.chromeState.map((x) => [x.slot, x.look]).sort((a, b) => a[0] - b[0]))),
   noErrors: report.errors.length === 0,
 };
 report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };

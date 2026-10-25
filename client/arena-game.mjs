@@ -19,6 +19,7 @@ import { readClock } from './clock.mjs';
 import { NetGraph } from './netgraph.mjs';
 import { Fighter } from './arena-bot.mjs';
 import { predict, corrector, capturePng, listeners } from './host.mjs';
+import { tintsOf } from './looks.mjs';
 
 const TURN = 16384;
 const ARMS = L.ARMS;
@@ -27,8 +28,8 @@ const COLOR = { // per weapon: tracer colour, viewmodel body
   [L.W_SHOTGUN]: [1, 0.8, 0.4], [L.W_ROCKET]: [1, 0.6, 0.2], [L.W_PLASMA]: [0.4, 0.8, 1], [L.W_NEEDLER]: [1, 0.4, 0.9], [L.W_SWORD]: [0.5, 0.9, 1],
 };
 const SHORT = { [L.W_AR]: 'AR', [L.W_BR]: 'BR', [L.W_MAGNUM]: 'MAGNUM', [L.W_SNIPER]: 'SNIPER', [L.W_SHOTGUN]: 'SHOTGUN', [L.W_ROCKET]: 'ROCKET',
-  [L.W_PLASMA]: 'PLASMA', [L.W_NEEDLER]: 'NEEDLER', [L.W_SWORD]: 'SWORD', [L.KILL_GREN]: 'FRAG', [L.KILL_MELEE]: 'MELEE', [L.KILL_BEHIND]: 'ASSASSINATION',
-  [L.KILL_SUPER]: 'SUPERCOMBINE', [L.KILL_FALL]: 'FALL' };
+  [L.W_PLASMA]: 'PLASMA', [L.W_NEEDLER]: 'SEEKER', [L.W_SWORD]: 'SWORD', [L.KILL_GREN]: 'FRAG', [L.KILL_MELEE]: 'MELEE', [L.KILL_BEHIND]: 'ASSASSINATION',
+  [L.KILL_SUPER]: 'OVERLOAD', [L.KILL_FALL]: 'FALL' };
 const CROSS = { [L.W_AR]: 0, [L.W_BR]: 1, [L.W_MAGNUM]: 1, [L.W_SNIPER]: 1, [L.W_SHOTGUN]: 2, [L.W_ROCKET]: 3, [L.W_PLASMA]: 4, [L.W_NEEDLER]: 4, [L.W_SWORD]: 5 };
 const RUNGS = L.LADDER.length;
 // How a fighter stands under the match's mode, higher is better: the sim's $a_key, for the board while play goes on.
@@ -44,8 +45,8 @@ function standing(m, o, teamWin = 0) {
 // rects), the HUD's bars (12), the score bar (5) and CTF's two waypoints (4),
 // 112 of MAX_RECT. They go after every other rect, so a cut drops dots, not bars.
 const BLIPS = 32;
-const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'OVERKILL', 'KILLTACULAR', 'KILLTROCITY', 'KILLAMANJARO'];
-const SPREES = { 5: 'KILLING SPREE', 10: 'KILLING FRENZY', 15: 'RUNNING RIOT', 20: 'RAMPAGE' };
+const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'HIGH FIVE', 'SIX PACK', 'LUCKY SEVEN'];
+const SPREES = { 5: 'WARMING UP', 10: 'ON FIRE', 15: 'BLAZING', 20: 'INFERNO' };
 
 // A waypoint's height on screen clear of those placed before it ({ x, y,
 // half: its text's half width in 4 px cells }): its label two rows over its
@@ -230,7 +231,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
           lastKill = now;
           spree++;
           sound.kill();
-          const m = SPREES[spree] || MEDALS[Math.min(multi, MEDALS.length - 1)] || (f.size === L.KILL_BEHIND ? 'ASSASSINATION' : f.size === L.KILL_SUPER ? 'NEEDLER SUPERCOMBINE' : '');
+          const m = SPREES[spree] || MEDALS[Math.min(multi, MEDALS.length - 1)] || (f.size === L.KILL_BEHIND ? 'ASSASSINATION' : f.size === L.KILL_SUPER ? 'OVERLOAD' : '');
           if (m) medal = { text: m, until: now + 2500 };
           banner = { text: `YOU ${infected ? 'INFECTED' : 'KILLED'} P${f.shot + 1}`, until: now + 1800, color: C.GREEN };
         }
@@ -532,7 +533,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     // automatics keep asking while the trigger is held
     // (a carrier's trigger swings, a press at a time)
     if (!BOT && !WATCH) set(L.CL_AUTO, trigger && locked && !(pme || me)?.carry && ARMS[(pme || me)?.weapon]?.auto ? 1 : 0);
-    // a new life or a new match: look down the gulch
+    // a new life or a new match: look down the canyon
     if (me?.live && h.hole !== matchSeen) { matchSeen = h.hole; if (!BOT) { yaw = me.pos[0] < 512 ? 0 : TURN / 2; pitch = 512; aim(); } }
     const f = tgt || pme || me;
     if (dealt && me?.live && !me.dead) {
@@ -651,6 +652,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       cam, yaw: camYaw, pitch: camPitch, zoom, time: now / 1000, dt, dtPred, proj: pme ? L.PROJ + L.PRED_D : L.PROJ, slot: tgt ? watched : slot < 0 ? 999 : slot,
       solid, glow, beams, rects, tracker, text, graph, marker, hurt, scope: zoom >= 4, sides: md.teamed ? 2 : ((1 << md.mode) & L.TEAM_MODES) !== 0 ? 1 : 0, zone: out.zone,
       crosshair: FIXED ? 7 : (f?.carry ? 5 : CROSS[f?.weapon] ?? 0) + (playing && !f.dead && onTarget(f, cam) ? 8 : 0), gap: spread / 30 + kick * 3,
+      tints: tintsOf(host),
     };
     renderer.frame(u8, last, target);
   }

@@ -28,7 +28,7 @@ const R = Number(AC.TR_R), H = Number(AC.TR_H), CAP = AC.TR_CAP;
 const NOBODY_RGB = [0.85, 0.85, 0.82]; // light grey: it reads on the sand and the grass
 export const LETTER = 'ABCDEFGH';
 // m a fighter's cost to a territory goes up for each more of its side
-// dealt it than it needs: with 8 a side on Blood Gulch's six (60 to 130 m
+// dealt it than it needs: with 8 a side on Box Canyon's six (60 to 130 m
 // apart), every territory gets someone before any gets two
 const SPREAD = 60;
 

@@ -7,16 +7,16 @@ not measured yet, it says so.
 ## Where it is
 
 40 games, each gated online: golf, bumper balls, the arena's twelve modes
-(Fiesta, Infection, gun game, Juggernaut, and red against blue: Team Slayer,
-Capture the Flag, Oddball, King of the Hill, Headhunter, Territories, VIP,
-Assault) and Party's 26 minigames. Fireplace plays them in turn.
+(Grab Bag, Zombies, gun game, Juggernaut, and red against blue: Team
+Deathmatch, Capture the Flag, Keep Away, King of the Hill, Skull Hunt,
+Territories, VIP, Assault) and Party's 26 minigames. Fireplace plays them in turn.
 
 What a page downloads, gzipped, everything it imports included:
 
 | Page | Files | Gzipped |
 | --- | --- | --- |
 | `client/party.html` | 54 | 275 KB (wasm 29 KB) |
-| `client/fireplace.html` | 72 | 436 KB (wasm 85 KB, 68 KB of it Blood Gulch's height map) |
+| `client/fireplace.html` | 72 | 436 KB (wasm 85 KB, 68 KB of it Box Canyon's height map) |
 | `client/bumper.html` | 38 | 114 KB |
 | `client/arena.html` | 44 | 190 KB (the team modes: 6 files and 31 KB of it) |
 
@@ -133,14 +133,16 @@ crediting who made what (every theme is one). Next, in order:
    stays data. Then the wall shows the viewer's own Elo Pros achievements: a
    plaque drawn in the 3x5 font like the TV's cards, from
    `/api/face/{wallet}` once the page knows a wallet (below).
-2. Skins, as Gates does them: an `EloItem` collection for Fireplace (one
-   deploy, the operator's), catalog rows in scry-forge's
-   `data/items/catalogs.json` with `title: "fireplace"`, and the relay
-   reading `/api/items/of/{wallet}?title=fireplace` and sending each player's
-   look beside the sim (never in it: the hashed world is the same with or
-   without them). A skin is a ball's stripes and a rider's cap, a few floats
-   per player in party's and bumper's renderers; a theme is free, a skin is
-   owned.
+2. Skins. Built: looks (`client/looks.mjs`), a ball and a hat each player
+   picks, which the relay carries beside the sim to everyone in the room
+   (hello flag 4), ten balls and seven hats, four of them earned with the
+   page's achievements (`client/achievements.mjs`). Next, owned ones as Gates
+   does them: an `EloItem` collection for Fireplace (one deploy, the
+   operator's), catalog rows in scry-forge's `data/items/catalogs.json` with
+   `title: "fireplace"`, and the relay reading
+   `/api/items/of/{wallet}?title=fireplace` once a slot has a wallet (below)
+   and refusing an owned look a slot doesn't hold. A theme is free, a look is
+   free or earned, an item is owned.
 3. The playlist as a list (`GAMESETS`, `!pick` and `fireplace.mjs` reading N
    games), so a whole new game joins Fireplace as one entry once the kits
    below exist.
@@ -163,8 +165,11 @@ The wrapper, ours first:
 
 1. List Party and Fireplace as free titles with `play_url` on these pages
    (the listing rules ask for the source to be public). Fireplace has its
-   row (on the coming-soon shelf, in alpha, until people play it) and its
-   board lane, `fireplace-pr`, in scry-forge since 2026-10-25; `elo.json`
+   row and its board lane, `fireplace-pr`, in scry-forge since 2026-10-25.
+   Its page says coming soon, with no play link: the play link comes back
+   once nothing a player sees is named after Halo or Quake (the modes, guns,
+   medals and map shown are renamed; the repo's own name is left) and the
+   room pool is on the game box (scry-forge's NOW row 23). `elo.json`
    lands on the row once its steward signs it (`sign_manifest.py --game
    fireplace --seq 1`, scry-forge's `docs/store/GAME-REPO.md`).
 2. Sign-in: the page calls `Elo.signIn({nonce})` with a nonce from the relay's
@@ -178,7 +183,12 @@ The wrapper, ours first:
    `servers.json`), so playtime and friends' join links work.
 5. Results: the relay's referee steps the room itself, so its standings and
    interval hashes are the room's truth, not any client's: the "replay"
-   evidence tier of `docs/store/ACHIEVEMENTS.md`.
+   evidence tier of `docs/store/ACHIEVEMENTS.md`. The page's achievements are
+   already tests over those standings as the world holds them
+   (`client/achievements.mjs` `readResult`, `record`), so the relay can run the
+   same ones for each signed-in slot and publish them per wallet, the shape
+   Gates' shards serve (`/achievements.json`), and they follow the player
+   off one browser.
 
 Then, in scry-forge: an endpoint to submit a result, leaderboards for any
 title, and a key-value store per wallet for what lasts (party points,

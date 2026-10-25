@@ -46,7 +46,7 @@ const sides = (g, slots) => slots.map((p) => team(g, p));
 const points = (g, slots) => slots.map((p) => g.v.fighter(p).points);
 const auxes = (g, slots) => slots.map((p) => g.v.fighter(p).aux);
 const MAP = compileMap();
-const FEET = [19.69, 25.8, 23.4, 21, 25.8, 23.4]; // where each of Blood Gulch's hill points stands (test/map.test.mjs)
+const FEET = [19.69, 25.8, 23.4, 21, 25.8, 23.4]; // where each of Box Canyon's hill points stands (test/map.test.mjs)
 const CAP = AC.TR_CAP;
 
 function put(g, p, x, z, y = g.v.height(x, z)) {

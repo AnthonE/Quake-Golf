@@ -45,7 +45,7 @@ const sides = (g, slots) => slots.map((p) => team(g, p));
 const points = (g, slots) => slots.map((p) => g.dv.getUint16(L.MODE_REC + p * L.MR_SIZE + L.MR_POINTS, true));
 const setPoints = (g, p, n) => g.dv.setUint16(L.MODE_REC + p * L.MR_SIZE + L.MR_POINTS, n, true);
 const MAP = compileMap();
-const FEET = [19.69, 25.8, 23.4, 21, 25.8, 23.4]; // where each of Blood Gulch's hills stands (test/map.test.mjs)
+const FEET = [19.69, 25.8, 23.4, 21, 25.8, 23.4]; // where each of Box Canyon's hills stands (test/map.test.mjs)
 const steps = (g, n, recs) => { for (let i = 0; i < n; i++) g.step(recs); };
 
 function put(g, p, x, z, y = g.v.height(x, z)) {

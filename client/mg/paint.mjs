@@ -218,6 +218,7 @@ function worth(st, g, p, x, z) {
 
 export default {
   id: L.MG_PAINT, key: 'paint', name: 'PAINT PARTY',
+  seatColors: true, // the floor is painted in the seat's colour, so balls keep theirs here (a look's hat still shows)
   hint: 'ROLL TO PAINT THE FLOOR  BURST PAINT BOMBS  THE MOST FLOOR WINS',
   env: 'day',
 

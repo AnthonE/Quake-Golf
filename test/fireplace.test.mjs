@@ -10,6 +10,7 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { prefixed } from '../tools/asm.mjs';
 import * as L from '../src/layout.mjs';
+import { emptyTally, record, readResult } from '../client/achievements.mjs';
 
 const game = (v) => v.dv.getUint32(L.FP_GAME, true);
 const u16 = (v, a) => v.dv.getUint16(a, true);
@@ -60,7 +61,7 @@ async function playlist() {
             players: [...Array(L.NPLAYER)].map((_, p) => ({
               live: (v.u8[rec(p, L.P_FL)] & L.PF_LIVE) !== 0, place: v.u8[L.FP_LAST + p], got: v.u8[L.FP_GOT + p],
               pts: u16(v, rec(p, L.PG_PTS)), wins: u16(v, rec(p, L.B_WINS)), rounds: u16(v, rec(p, L.B_ROUNDS)), modePlace: v.u8[L.MODE_REC + p * L.MR_SIZE + L.MR_PLACE],
-            })) });
+            })), results: [0, 3, 9].map((p) => readResult(v, p, 0)) });
         }
         lastStage = stage;
       } });
@@ -264,5 +265,22 @@ test("a keyframe from any game joins a world sitting in another's: the terrain a
       b.x.step();
       assert.equal(b.x.hash_region(), after.get(s), `tick ${s} after a keyframe at ${t} in ${L.GAMES[k.game]}`);
     }
+  }
+});
+
+test("the page's achievements count each game a slot was in once, from the result as it is held", async () => {
+  const { holds } = await playlist();
+  for (const k of [0, 1, 2]) {
+    const rs = holds.map((h) => h.results[k]);
+    const p = [0, 3, 9][k];
+    let t = emptyTally();
+    // a page sees each held end on every frame of the hold: twice here
+    for (const r of rs) t = record(record(t, r).tally, r).tally;
+    const inIt = holds.filter((h) => h.players[p].place > 0);
+    assert.equal(t.games, inIt.length, `slot ${p}'s games`);
+    assert.equal(t.mallows, inIt.reduce((n, h) => n + h.players[p].got, 0), `slot ${p}'s marshmallows`);
+    assert.equal(t.wins, inIt.filter((h) => h.players[p].place === 1).length);
+    for (const r of rs) assert.equal(r.field, holds.find((h) => h.results[k] === r).players.filter((x) => x.place > 0).length);
+    if (inIt.length) assert.ok(t.got.chair, 'a game played opens PULL UP A CHAIR');
   }
 });

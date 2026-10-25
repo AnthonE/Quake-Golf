@@ -42,7 +42,7 @@ test('the door says what went wrong and what to type', async () => {
   const t = r.t;
   assert.match(r.act(0, 'wait 1; bogus; wait 1'), /error/);
   assert.equal(r.t, t + 125, 'the first bad command stops the rest');
-  assert.match(r.act(0, 'help'), /QUAKE GOLF[\s\S]*Commands/);
+  assert.match(r.act(0, 'help'), /^GOLF\.[\s\S]*Commands/);
 });
 
 test('a time command moves the world; look and aim do not', async () => {
@@ -106,7 +106,7 @@ test('the HTTP door: look, act, JSON', async () => {
       p.stdout.on('data', (c) => { out += c; const m = out.match(/http:\/\/127\.0\.0\.1:\d+\//); if (m) ok(m[0]); });
       p.on('exit', (code) => no(new Error(`door exited ${code}`)));
     });
-    assert.match(await (await fetch(url)).text(), /QUAKE GOLF[\s\S]*POST \/<slot>/);
+    assert.match(await (await fetch(url)).text(), /^GOLF\.[\s\S]*POST \/<slot>/);
     assert.match(await (await fetch(`${url}0`)).text(), /hole 1 · countdown/);
     assert.match(await (await fetch(`${url}0`, { method: 'POST', body: 'wait 3.1; face cup' })).text(), /hole 1 · play/);
     const s = await (await fetch(`${url}0.json`)).json();

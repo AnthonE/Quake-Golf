@@ -9,7 +9,7 @@
 // side scores a point for each territory it holds; a fighter's MR_POINTS is
 // its whole seconds on territories its side held. TR_TARGET points win; the
 // most at the clock wins. Spawns aren't barred.
-export const TR_TARGET = 300; // points: holding half of Blood Gulch's six, 200 s
+export const TR_TARGET = 300; // points: holding half of Box Canyon's six, 200 s
 export const TR_CAP = 625; // ticks of more of you on it to take a neutral territory: 5 s (twice that to turn one of theirs)
 export const TR_POINT = 250; // ticks of play between points: 2 s
 export const TR_SEC = 125; // ticks a second, for a fighter's seconds on its side's territories
