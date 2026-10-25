@@ -424,21 +424,26 @@ function plan(view, me, bot, tick) {
   }
   const Hn = hoopAt(st, best.h, tp + tau / TICK + 10);
   const hvx = (Hn.x - H.x) / (10 * TICK), hvz = (Hn.z - H.z) / (10 * TICK);
-  const H0 = hoopAt(st, best.h, tp);
-  mind.last = { tp, s: (x0 - H0.x) * H0.nx + (z0 - H0.z) * H0.nz };
+  const H0 = hoopAt(st, best.h, tp), H1 = hoopAt(st, best.h, tp + 1);
+  // the plane now, and how fast the ball closes on it (the hoop drifts too)
+  const s0 = (x0 - H0.x) * H0.nx + (z0 - H0.z) * H0.nz;
+  const close = -((vx - (H1.x - H0.x) / TICK) * H0.nx + (vz - (H1.z - H0.z) / TICK) * H0.nz) * (s0 >= 0 ? 1 : -1);
+  mind.last = { tp, s: s0 };
   const ex = x0 - H.x, ez = z0 - H.z;
   const s = ex * H.nx + ez * H.nz, w = ez * H.nx - ex * H.nz;
   const sg = s >= 0 ? 1 : -1, as = Math.abs(s), aw = Math.abs(w);
-  // onto its centre line, square to its face, on the side it's on: a point a
-  // look ahead (more the faster it rolls) along the line from level with it,
-  // or, too near the plane for how far off the line it is, a point back out
-  // to start from; held off while a gold one is up out of a hop's reach
+  // onto its centre line, square to its face, on its own side: a point a look
+  // ahead (more the faster it rolls) along the line from level with it,
+  // straight on through once it's inside the ring's width; too near the
+  // plane for how far off the line it is, a point back out to start from;
+  // held off while a gold one is up out of a hop's reach
+  const lift = H.bot > 0.55;
   const hold = H.bot > HOP_TOP + 0.5;
   const look = 1.5 + 0.45 * sp;
   const need = Math.max(0, aw - 0.4 * H.r) * 1.2;
   let along;
   if (hold) along = Math.max(as, 5);
-  else if (as >= need) along = Math.max(-6, as - look);
+  else if (aw < 0.8 * H.r || as >= need) along = Math.max(-6, as - look);
   else along = Math.max(as + 1, need * 0.7 + 1);
   let ax = H.x + H.nx * sg * along, az = H.z + H.nz * sg * along;
   // round the hub: a ball whose way crosses it goes round its edge
@@ -448,11 +453,10 @@ function plan(view, me, bot, tick) {
     const k = hub / Math.max(0.5, md);
     ax = cx + mx * k; az = cx + mz * k;
   }
-  // the hop: a raised ring (or a gold one up) needs its centre up there as it crosses
+  // the hop: its centre up in the ring as it crosses
   let hop = false;
-  const approach = -(vx * H.nx + vz * H.nz) * sg; // speed toward its plane
-  if (ground && !hold && H.bot > 0.55 && as < 7 && aw < H.r + 0.5 && approach > 2) {
-    const t2 = as / approach;
+  if (ground && lift && !hold && Math.abs(s0) < 7 && aw < H.r + 0.5 && close > 2) {
+    const t2 = Math.abs(s0) / close;
     const want = Math.min(1 + HOP_TOP, Math.max(H.bot + 1 + 0.3, H.y - PLAT_Y - 0.3)) - (y0 - PLAT_Y);
     // the time a hop takes its centre up by want: the rising root, or its top
     const disc = HOP_V * HOP_V - 2 * G * (want - 1);
