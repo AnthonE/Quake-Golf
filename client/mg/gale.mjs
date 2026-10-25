@@ -267,8 +267,10 @@ function build(c) {
     if (H.kind === MC.GF_HZ_FAN) {
       const [fx, fy, fz] = fanPos(H);
       cyl(fx, (fy + SEA) / 2, fz, 0.22, (fy - SEA) / 2, [0.5, 0.52, 0.56], LOOK.METAL);
-      cyl(fx, fy, fz, 1.75, 0.35, [0.3, 0.32, 0.36], LOOK.METAL, 0, 0, 1, Math.PI / 2);
-      box(fx, fy + 1.75, fz, 0.3, 0.12, 0.3, [0.3, 0.32, 0.36], LOOK.METAL);
+      // a dark back plate in a striped rim, the blades in front of it (drawn as they turn)
+      cyl(fx, fy, fz - H.dir * 0.3, 1.7, 0.1, [0.16, 0.17, 0.2], LOOK.METAL, 0, 0, 1, Math.PI / 2);
+      cyl(fx, fy, fz - H.dir * 0.42, 1.95, 0.08, [1, 0.78, 0.1], LOOK.HAZARD, 0.4, 0, 1, Math.PI / 2);
+      box(fx, fy + 1.97, fz - H.dir * 0.42, 0.3, 0.12, 0.25, [0.3, 0.32, 0.36], LOOK.METAL);
     } else if (H.kind === MC.GF_HZ_MILL) {
       const P = H.piece, hy = H.y + H.w, wz = Math.max(P.w + 0.9, 3);
       for (const s of [1, -1]) {
@@ -506,6 +508,7 @@ function think(view, me, bot) {
 export default {
   id: L.MG_GALE, key: 'gale', name: 'GALE FORCE',
   hint: 'RACE THE WIND  FANS GUST WHEN THEIR LIGHT FLASHES  RIDE THE UPDRAFT',
+  rules: 'FIRST HOME WINS  FALL AND YOU GO BACK TO THE LAST DECK',
   env: 'day',
 
   draw(view, ctx, out) {
@@ -525,23 +528,24 @@ export default {
         const a = playing ? fanA(H, tp) : 0, warn = playing && fanWarn(H, tp);
         const [fx, fy, fz] = fanPos(H);
         H.spin = (H.spin + (a > 0 ? 24 : warn ? 6 : 1.2) * ms / 1000) % (2 * Math.PI);
-        for (const k of [0, 1]) sc.box(fx, fy, fz, 0.07, 1.45, 0.24, Math.PI / 2, 0.95, 0.95, 0.97, LOOK.PLASTIC, 0, 0, 1, H.j * 7 + k, H.spin + k * Math.PI / 2);
-        sc.sphere(fx, fy, fz, 0.32, 0.9, 0.2, 0.15, LOOK.PLASTIC);
+        for (const k of [0, 1]) sc.box(fx, fy, fz, 0.06, 1.5, 0.3, Math.PI / 2, 0.96, 0.96, 0.98, LOOK.PLASTIC, 0, 0, 1, H.j * 7 + k, H.spin + k * Math.PI / 2);
+        sc.sphere(fx, fy, fz + H.dir * 0.1, 0.34, 0.9, 0.2, 0.15, LOOK.PLASTIC);
         // its light: red while it blows, amber flashing for the second before, a dim green when still
         const blink = Math.floor(now / 110) & 1;
-        if (a > 0) sc.sphere(fx, fy + 2.05, fz, 0.32, 1, 0.2, 0.12, LOOK.GLOW, 2.2);
-        else if (warn) sc.sphere(fx, fy + 2.05, fz, 0.32, 1, 0.72, 0.1, LOOK.GLOW, blink ? 2.4 : 0.3);
-        else sc.sphere(fx, fy + 2.05, fz, 0.28, 0.3, 0.85, 0.35, LOOK.GLOW, 0.35);
+        const lz = fz - H.dir * 0.42;
+        if (a > 0) sc.sphere(fx, fy + 2.35, lz, 0.36, 1, 0.2, 0.12, LOOK.GLOW, 2.2);
+        else if (warn) sc.sphere(fx, fy + 2.35, lz, 0.36, 1, 0.72, 0.1, LOOK.GLOW, blink ? 2.4 : 0.3);
+        else sc.sphere(fx, fy + 2.35, lz, 0.3, 0.3, 0.85, 0.35, LOOK.GLOW, 0.35);
         // its zone on the floor, and the wind across it
         const wp = H.w - 1;
         if (a > 0 || warn) sc.box(H.x, H.y + 0.03, H.z, H.l, 0.02, wp - 0.05, 0, ...(a > 0 ? [0.7, 0.92, 1] : [1, 0.75, 0.2]), LOOK.GLOW, a > 0 ? 0.7 : blink ? 0.9 : 0.3, 0, a > 0 ? 0.3 : 0.4);
         if (a > 0 && seen) {
           const span = 2 * wp + 4;
-          for (let i = 0; i < 8; i++) {
+          for (let i = 0; i < 10; i++) {
             const u = (secs * (1.1 + 0.35 * (a / MC.GF_FAN_A1)) + i * 0.381) % 1;
             const sx = H.x - H.l + 0.4 + ((i * 0.618) % 1) * (2 * H.l - 0.8), sy = H.y + 0.35 + ((i * 0.37) % 1) * 3.2;
             const z0 = fz + H.dir * (0.6 + u * span);
-            out.beams.push({ a: [sx, sy, z0], b: [sx, sy, z0 + H.dir * 2.6], width: 0.07 + 0.05 * (a / MC.GF_FAN_A1), color: [0.88, 0.96, 1, 0.6 * (1 - u)] });
+            out.beams.push({ a: [sx, sy, z0], b: [sx, sy, z0 + H.dir * 3.2], width: 0.13 + 0.09 * (a / MC.GF_FAN_A1), color: [0.9, 0.97, 1, 0.8 * (1 - u)] });
           }
         }
       } else if (H.kind === MC.GF_HZ_TUNNEL) {
