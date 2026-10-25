@@ -6,6 +6,7 @@
 // every session and none differed, balls were knocked out, a round was won,
 // and Chrome kept up. Screenshots go to traces/.
 //   node net/run-bumper.mjs [--bots 15] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05] [--shots 1] [--res 1280x800]
+//                          [--port 4433: the relay's, its native door the next]
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -18,7 +19,7 @@ const chrome = Number(opt('chrome', 1));
 const seconds = Number(opt('seconds', 60));
 const impair = opt('impair', '');
 const shots = opt('shots', '1') !== '0';
-const port = 4433;
+const port = Number(opt('port', 4433));
 const DENO = existsSync('.tools/deno') ? '.tools/deno' : 'deno';
 const LOCAL_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
@@ -28,12 +29,12 @@ const hash = readFileSync('certs/hash.txt', 'utf8').trim();
 mkdirSync('traces', { recursive: true });
 const summaryPath = 'traces/bumper.relay.json';
 rmSync(summaryPath, { force: true });
-const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--seed', '7',
+const relay = spawn(DENO, ['run', '--unstable-net', '-A', '--v8-flags=--single-threaded-gc', 'net/relay.ts', '--port', String(port), '--native-port', String(port + 1), '--seed', '7',
   '--wasm', 'build/bumper/game.wasm', '--duration', String(seconds + 40), '--summary', summaryPath, '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
 await new Promise((ok) => setTimeout(ok, 1500));
 const botsPath = 'traces/bumper.bots.json';
 rmSync(botsPath, { force: true });
-const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--bumper', '--relay', '127.0.0.1:4434', '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
+const bots = nbots ? spawn(process.execPath, ['net/bot-host.mjs', '--bumper', '--relay', `127.0.0.1:${port + 1}`, '--bots', String(nbots), '--seconds', String(seconds + 10), '--quiet', '--out', botsPath],
   { stdio: ['ignore', 'inherit', 'inherit'] }) : null;
 const botsDone = bots ? new Promise((ok) => bots.once('exit', ok)) : null;
 
