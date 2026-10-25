@@ -93,7 +93,7 @@ test('readers: the map\'s objectives from MAP_OBJ, a stand\'s height, a forced s
   assert.equal(modeName(7), null);
 });
 
-test('the kit: a module for every team mode, news routed by its MX codes, the stubs inert', () => {
+test('the kit: a module for every team mode, news routed by its MX codes', () => {
   for (const a of L.AM) {
     const k = AMC[a.mode];
     assert.equal(k.mode, a.mode);
@@ -127,7 +127,7 @@ test('Team Slayer\'s module: the lead in words, its HUD lines and news, a hunt f
     const said = [], shown = [];
     slayer.news({ size: L.TS_MX_LEAD, owner: 3, shot: 2 }, { slot: 5, me: { slot: 5 }, team: (p) => (p === 5 ? team : -1), C, feed: (t, c) => said.push([t, c]), banner: (t, c) => shown.push([t, c]) });
     assert.deepEqual(said, [['BLUE TAKES THE LEAD', C.CYAN]]);
-    assert.equal(shown[0][0], team ? 'YOUR SIDE TAKES THE LEAD' : 'YOUR SIDE LOST THE LEAD');
+    assert.deepEqual(shown, [[team ? 'YOUR SIDE TAKES THE LEAD' : 'BLUE TAKES THE LEAD', C.CYAN]]);
   }
   // the hunt: the nearest live enemy's feet, past nearer allies; none in a room of allies
   const g = await world(5);

@@ -10,7 +10,10 @@
 //     kill feed's KILL_CARRY.
 //   hud(view, ctx): its own lines, rows 2 to 4 at the top left (rows 0 and 1
 //     there are the frontend's: your side and kills; the clock is row 0's
-//     middle, the score bar rows 4 and 5's middle, banners the middle band).
+//     middle, the score bar rows 4 and 5's middle, banners the middle band),
+//     each within cols 1 to 26: the shields and health take rows 1 to 3 from
+//     col 27 (x 108 of 320), and the score bar's text is centred on row 4
+//     (from col 30 at its widest with a target of 100).
 //     ctx { put(x, y, s, c), centre(y, s, c), right(y, s, c) (text cells, 80
 //     across), rect(x0, y0, x1, y1, r, g, b, a) (320 x 200 units, under the
 //     text), rows, C, slot (the fighter shown), me (its fighter(), from the
@@ -18,14 +21,20 @@
 //     nobody), now (ms), t (s into play) }.
 //   news(f, ctx): a news FX (kind FX_MODE, f.size this mode's MX code, MX_AM +
 //     8k .. + 7) as the confirmed world's ring has it: { tick, kind, owner
-//     (255: nobody), shot, pos, size }. ctx { slot, me, name(p) ('YOU' or
-//     'P12'), team(p) (0 / 1, -1 for 255), feed(text, color), banner(text,
-//     color, ms), glow({ pos, size, color: [r, g, b, a], kind (3 a blast, 5 a
-//     spark, 6 a ring), life (ms), grow }), sound, dist (m from the camera),
-//     C, now, view }.
+//     (255 for nobody, where its MX code says so), shot, pos, size }. ctx {
+//     slot, me, name(p) ('YOU' or 'P12'), team(p) (slot p's side, 0 / 1;
+//     owner 255 is both nobody and slot 255, so a module knows from f.size
+//     whether its news has a doer), feed(text, color), banner(text, color,
+//     ms), glow({ pos, size, color: [r, g, b, a], kind (3 a blast, 5 a spark,
+//     6 a ring), life (ms), grow }), sound, dist (m from the camera), C, now,
+//     view }.
 //   draw(view, ctx, out): this frame's world objects. ctx { dt (s past the
-//     confirmed tick, to now), now (ms), t (s into play), slot, me (fighter(),
-//     confirmed), pme (the prediction's, or null), cam [x, y, z], view, pview }.
+//     confirmed tick, to now), now (ms), t (s into play), slot (yours, -1 for
+//     a spectator), shown (the fighter the camera's in: yours, or the one a
+//     spectator watches; -1 for none: draw nothing over its head, and its
+//     side is the one the waypoints speak to, as the HUD's), me (fighter()
+//     of slot, confirmed), pme (the prediction's, or null), cam [x, y, z],
+//     view, pview }.
 //     out { solid: [] (sprites, upright, one depth at the middle: { pos (the
 //     middle), size (half its width, m), aspect (height / width), color:
 //     [r, g, b, a], kind, minpx (px at least) }; kind 7 a flag on its pole

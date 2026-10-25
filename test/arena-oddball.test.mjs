@@ -560,9 +560,10 @@ test('Oddball\'s client module: the skull as AO has it; drawn where it lies, ove
 
   const g = await room(4); // 0 and 2 red, 1 and 3 blue
   const v = g.v;
-  const draw = (slot) => {
+  // (a spectator: slot -1, shown the fighter it watches)
+  const draw = (slot, shown = slot) => {
     const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
-    ob.draw(v, { dt: 0, now: 0, t: 1, slot, me: v.fighter(slot), pme: null, cam: [0, 0, 0], view: v, pview: v }, out);
+    ob.draw(v, { dt: 0, now: 0, t: 1, slot, shown, me: slot >= 0 ? v.fighter(slot) : null, pme: null, cam: [0, 0, 0], view: v, pview: v }, out);
     return out;
   };
   const hud = (slot) => {
@@ -589,6 +590,10 @@ test('Oddball\'s client module: the skull as AO has it; drawn where it lies, ove
   assert.deepEqual(draw(3).markers.map((m) => [m.label, m.color]), [['GUARD', SIDE_C[1]]]);
   out = draw(1);
   assert.deepEqual([out.solid, out.markers], [[], []]);
+  // a spectator: watching the carrier, nothing over the head the camera's in; watching red 0, red's KILL
+  out = draw(-1, 1);
+  assert.deepEqual([out.solid, out.markers], [[], []]);
+  assert.deepEqual(draw(-1, 0).markers.map((m) => [m.label, m.color]), [['KILL', SIDE_C[1]]]);
   assert.deepEqual(hud(0)[0], [2, 'BLUE HAS THE SKULL  P2', SIDE_C[1]]);
   assert.deepEqual(hud(1).slice(0, 2), [[2, 'YOU HAVE THE SKULL', C.YELLOW], [3, 'STAY ALIVE', C.YELLOW]]);
   // goals: red hunts it, shooting on the way; blue's defender stays by it, its attacker goes for the enemy nearest it

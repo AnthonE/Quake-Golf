@@ -62,22 +62,21 @@ export default {
   hud(view, ctx) {
     const h = hillOf(view);
     if (!h) return;
-    const hd = view.hole();
-    const head = `HILL: ${WHO[h.hold]}`;
-    ctx.put(1, 2, head, WHO_C[h.hold]);
-    // the last hill of a match never moves (the clock ends it first)
-    if (hd.state === L.H_PLAY && h.moves < hd.until) ctx.put(1 + head.length + 2, 2, `MOVES IN ${clock(Math.max(0, h.moves - hd.tick))}`, C.GREY);
+    // (26 cells a line: the shield bar starts at the 28th, so the clock has a row of its own)
+    const hd = view.hole(), md = view.mode();
+    ctx.put(1, 2, `HILL: ${WHO[h.hold]}`, WHO_C[h.hold]);
+    // when it moves; the last hill of a match never does (the clock ends it first), so the target in its place
+    if (hd.state === L.H_PLAY && h.moves < hd.until) ctx.put(1, 3, `MOVES IN ${clock(Math.max(0, h.moves - hd.tick))}`, C.GREY);
+    else if (md.target) ctx.put(1, 3, `FIRST TO ${md.target} SECONDS`, C.GREY);
     // on it yourself: how it stands for your side; else who's on it
     if (ctx.me?.live && !ctx.me.dead && ctx.team >= 0 && onHill(h, ctx.me.pos)) {
       const how = h.hold === ctx.team + 1 ? 'YOU ARE HOLDING IT' : h.hold === 3 ? 'CONTESTED: CLEAR THEM OFF' : h.hold ? 'OUTNUMBERED' : 'YOU ARE ON IT';
-      ctx.put(1, 3, how, h.hold === 3 ? C.YELLOW : SIDE_C[ctx.team]);
+      ctx.put(1, 4, how, h.hold === 3 ? C.YELLOW : SIDE_C[ctx.team]);
     } else if (h.on[0] + h.on[1]) {
-      ctx.put(1, 3, 'ON IT', C.GREY);
-      ctx.put(7, 3, `${SIDE[0]} ${h.on[0]}`, SIDE_C[0]);
-      ctx.put(8 + `${SIDE[0]} ${h.on[0]}`.length, 3, `${SIDE[1]} ${h.on[1]}`, SIDE_C[1]);
+      ctx.put(1, 4, 'ON IT', C.GREY);
+      ctx.put(7, 4, `${SIDE[0]} ${h.on[0]}`, SIDE_C[0]);
+      ctx.put(8 + `${SIDE[0]} ${h.on[0]}`.length, 4, `${SIDE[1]} ${h.on[1]}`, SIDE_C[1]);
     }
-    const md = view.mode();
-    if (md.target) ctx.put(1, 4, `FIRST TO ${md.target} SECONDS`, C.GREY);
   },
   news(f, ctx) {
     const h = hillOf(ctx.view);
@@ -116,8 +115,10 @@ export default {
     if (far > 0) out.beams.push({ a: [x, y + 2, z], b: [x, y + 30, z], width: 0.3, color: [...rgb, 0.3 * far] });
     // the waypoint, rising with the distance so its distance line stays clear
     // of the disc far off (3 m up to 30 m away, 8 m from 80), and not over
-    // your head while you're on it
-    const me = ctx.me?.live && !ctx.me.dead ? ctx.me : null;
+    // the head of the fighter shown (yours, a spectator's watched one) while
+    // it's on it
+    const eye = ctx.shown >= 0 ? view.fighter(ctx.shown) : null;
+    const me = eye?.live && !eye.dead ? eye : null;
     const up = Math.min(8, Math.max(3, d / 10));
     if (!me || !onHill(h, me.pos)) out.markers.push({ pos: [x, y + up, z], label: me && me.team >= 0 && h.hold === me.team + 1 ? 'HOLD' : 'HILL', color: WHO_C[h.hold], kind: 'hill' });
   },

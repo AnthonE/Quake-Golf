@@ -117,10 +117,12 @@ export default {
   },
   draw(view, ctx, out) {
     const s = skullOf(view);
-    const team = ctx.me && view.mode().teamed ? ctx.me.team : -1;
+    // the fighter shown (a spectator's watched one): its side's GUARD or KILL, nothing over its own head
+    const eye = ctx.shown >= 0 ? view.fighter(ctx.shown) : null;
+    const team = eye?.live && view.mode().teamed ? eye.team : -1;
     let pos;
     if (s.carrier >= 0) {
-      if (s.carrier === ctx.slot) return;
+      if (s.carrier === ctx.shown) return;
       // over its carrier's head, where the renderer draws the carrier (the confirmed world run on by dt)
       const c = view.fighter(s.carrier);
       pos = [0, 1, 2].map((k) => c.pos[k] + c.vel[k] * ctx.dt + (k === 1 ? 2.25 : 0));

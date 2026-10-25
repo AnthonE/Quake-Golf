@@ -43,9 +43,11 @@ export default {
     const side = f.shot - 1;
     if (side !== 0 && side !== 1) return;
     ctx.feed(`${SIDE[side]} TAKES THE LEAD`, SIDE_C[side]);
-    // your side (news ctx's team is a function of the slot), none for a spectator
+    // your side (news ctx's team is a function of the slot), none for a spectator. A
+    // kill moves one side's score by one, so the lead only ever changes from level:
+    // the other side never had it to lose
     const me = ctx.me ? ctx.team(ctx.slot) : -1;
-    if (me >= 0) ctx.banner(me === side ? 'YOUR SIDE TAKES THE LEAD' : 'YOUR SIDE LOST THE LEAD', me === side ? SIDE_C[side] : ctx.C.GREY, 2000);
+    if (me >= 0) ctx.banner(me === side ? 'YOUR SIDE TAKES THE LEAD' : `${SIDE[side]} TAKES THE LEAD`, SIDE_C[side], 2000);
   },
   draw() {},
   cols: [],
