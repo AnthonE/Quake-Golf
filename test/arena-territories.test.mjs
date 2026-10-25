@@ -511,24 +511,26 @@ test('Territories\' client module: each territory a disc in its holder\'s colour
   assert.deepEqual([rim(4).length, rim(5).length > 6], [0, true], 'none round E, 164 m off the camera');
   assert.ok(rim(3).length >= 6 && rim(3).length < 12, `the cave's walls drop some of its rim (${rim(3).length})`);
   assert.deepEqual(out.beams.length, N, 'a pillar each, far off');
-  // red's 2, off them all, facing +x: DEFEND on A (blue outnumbers red there), none on B, TAKE on the nearest
-  // of the rest in their holder's colour, three at most: D (54 m, just off the right edge), F (88 m, behind)
+  // red's 2, off them all, facing +x: DEFEND on A (blue outnumbers red there, near the left edge), none on B, TAKE
+  // on the nearest of the rest in their holder's colour, three at most: D (54 m, off the right edge); F (88 m,
+  // behind on the left, where A is) left out; C (103 m, ahead)
   const marks = (o) => o.markers.map((m) => [m.label, m.color]);
-  assert.deepEqual(marks(out), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE], ['TAKE F', C.CYAN]]);
+  assert.deepEqual(marks(out), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE], ['TAKE C', C.WHITE]]);
   assert.ok(out.markers.every((m) => m.kind === 'hill'));
   // turned round to face -x (B, red's own, ahead): A, E and F off the one edge, C and D off the other, one each
   g.dv.setUint32(rec(2) + L.P_IN, arenaWord({ yaw: 8192 }), true);
   assert.deepEqual(marks(draw(2)), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE]]);
   g.dv.setUint32(rec(2) + L.P_IN, 0, true);
-  // the thinning: the nearest first, none within 0.2 rad of one kept, one off each edge, three at most
+  // the thinning: the nearest first, none within 0.2 rad across of one kept, one off the screen counted at its edge, three at most
   const mk = (d, a) => ({ d, m: { pos: [d * Math.cos(a), 0, d * Math.sin(a)], label: `${d}` } });
   const kept = (want, yaw = 0) => thin(want, [0, 0, 0], yaw).map((m) => m.label);
   assert.deepEqual(kept([mk(20, 0.1), mk(10, 0), mk(30, 0.5), mk(50, -2.5), mk(40, -2), mk(60, 0.3)]), ['10', '30', '40']);
   assert.deepEqual(kept([mk(20, 0.19), mk(10, 0), mk(60, 0.4)]), ['10', '60']);
   assert.deepEqual(kept([mk(10, 1), mk(20, 1.5), mk(30, -1), mk(40, -3)]), ['10', '30']);
+  assert.deepEqual(kept([mk(10, 0.6), mk(20, 1.2), mk(30, -0.6)]), ['10', '30'], 'one just inside the edge and one off it');
   assert.deepEqual(kept([mk(10, 1), mk(20, 1.5), mk(30, -1), mk(40, -3)], 1.2), ['10', '20', '30'], 'facing between the first two, both on the screen');
   // red's 0 on C: none over its own head; blue's 1 on A; a spectator as the one it watches, and none watching nobody
-  assert.deepEqual(marks(draw(0)), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE], ['TAKE F', C.CYAN]]);
+  assert.deepEqual(marks(draw(0)), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE], ['TAKE E', C.CYAN]]);
   assert.deepEqual(marks(draw(1)), [['TAKE D', C.WHITE], ['TAKE B', C.RED], ['TAKE C', C.WHITE]]);
   assert.deepEqual([marks(draw(-1, 0, undefined, 1)), draw(-1, 0, undefined, -1).markers, draw(-1, 0, undefined, -1).zone.length], [marks(draw(1)), [], N]);
   const m = draw(2, 0, [512 + 120, 30, 512]).markers[0];

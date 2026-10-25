@@ -103,19 +103,19 @@ function rimOf(view, t) {
 
 // The waypoints worth drawing, at most MARKS: those to defend, then the
 // nearest to take, leaving out one that would land on a nearer one's label:
-// within NEAR radians of it as the camera at cam, facing yaw, sees them, or
-// both off the screen's same edge (the HUD pulls those in to one spot).
+// within NEAR radians across of it as the camera at cam, facing yaw, sees
+// them, one off the screen counted at its edge (the HUD pulls it in there, so
+// two off one edge, or one off it and one just inside, land together).
 // want: [{ d (to sort by), m (the marker) }].
-const MARKS = 3, NEAR = 0.2, EDGE = 0.68; // the screen's half width is 0.68 rad (focal 0.62 of its width)
+const MARKS = 3, NEAR = 0.2, EDGE = 0.65; // a waypoint pulled in to the edge is 0.65 rad off the middle (focal 0.62 of the width)
 export function thin(want, cam, yaw) {
   const kept = [];
   for (const { m } of want.sort((a, b) => a.d - b.d)) {
     if (kept.length >= MARKS) break;
     let a = Math.atan2(m.pos[2] - cam[2], m.pos[0] - cam[0]) - yaw;
-    a = Math.atan2(Math.sin(a), Math.cos(a));
-    const off = Math.abs(a) > EDGE ? Math.sign(a) : 0;
-    if (kept.some((k) => Math.abs(Math.atan2(Math.sin(a - k.a), Math.cos(a - k.a))) < NEAR || (off && off === k.off))) continue;
-    kept.push({ m, a, off });
+    a = Math.max(-EDGE, Math.min(EDGE, Math.atan2(Math.sin(a), Math.cos(a))));
+    if (kept.some((k) => Math.abs(a - k.a) < NEAR)) continue;
+    kept.push({ m, a });
   }
   return kept.map((k) => k.m);
 }
