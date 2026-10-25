@@ -13,11 +13,11 @@
 // take, plant, blast, defuse and drop; the board's BOMBS and DEFUSES are
 // MR_POINTS and MR_AUX.
 // The brain: its carrier goes round by a flank and on to their plate
-// zigzagging, and holds on it till it's planted; attackers take the bomb,
-// shield their carrier and clear the plate ahead of it, hunt theirs, and
-// guard a bomb planted on their plate; defenders (every third of a side)
-// hold their own plate, go for an enemy carrier once it's near it, and
-// defuse.
+// zigzagging, and holds on it till it's planted; attackers take the bomb
+// (the nearest few) or wait for it out front, shield their carrier and clear
+// the plate ahead of it, hunt theirs, and guard a bomb planted on their
+// plate; defenders (every third of a side, five at most) hold their own
+// plate, go for an enemy carrier once it's near it, and defuse.
 import * as L from '../../src/layout.mjs';
 import * as AC from '../../src/am/consts.mjs';
 import { C } from '../font.mjs';
@@ -35,16 +35,37 @@ const PLATE_R = Number(AC.AS_PLATE_R);
 // and zigzagging too, its escorts standing in the way of the shots and
 // clearing the plate as it comes: 19 plants among eight, both sides
 // scoring in 5 runs of 10; 8 among sixteen, both sides in 1 of 6.
+// In rooms of 64 and 256 (30,000 ticks, two seeds each), every attacker
+// running for a free bomb and the rest of the field firing at whoever had
+// it, it changed hands in the middle about once a second and nobody ever
+// planted: carriers lived 1.5 s on average, shot mostly from 50 to 100 m
+// off. Now only the three of a side nearest it run for it, the rest of each
+// side's attackers wait for it out front at a run that doesn't shoot (as
+// CTF's attackers cross the field), and only the five nearest an enemy
+// carrier hunt it: over 30,000 ticks 3 plants in each run of 64 and 5 and 4
+// in the two of 256, both sides scoring in all four; whole matches of 64
+// (seeds 6, 11) and 128 (11) end at 3 bombs before the clock. Eight plant 15
+// times in 10 runs (seeds 7 to 16), both sides in 4; sixteen 13 in 6 (7 to
+// 12), both sides in 1. A defender 30 m off gets onto a planted bomb and
+// defuses it with 12 ticks to spare (AS_FUSE less AS_DEFUSE leaves 3 s to
+// get there), so most bombs go off.
 const CLOSE = 30; // from its plate: a defender leaves it for an enemy carrier this near it
 const DASH = 40; // from a bomb planted on its plate: an attacker goes to defuse it too (farther, it can't get there in AS_FUSE)
 const FLANK = 45; // a carrier's flank off the line between the bases
 const ZIG = 8, ZIG_T = 40, ZIG_IN = 25; // its zigzag: m to each side, ticks a leg, m from the plate where it stops
 const SHIELD = 4, SHIELD_SEE = 50; // an escort's place toward the enemy nearest its carrier, for enemies this near it
 const CLEAR = 25; // the carrier this near their plate: its escorts go onto the plate first
+// The few of a side nearest a free bomb run for it and the rest of its
+// attackers wait out front, STAGE m from the middle toward their plate, at a
+// run that doesn't stop to shoot, so a carrier breaking out runs into its
+// own side; the HUNTERS of a side nearest an enemy carrier hunt it, the rest
+// wait out front; a side keeps at most DEFENDERS at home. (In eight, every
+// attacker is one of the nearest; the brain asks only every 8 ticks.)
+const TAKERS = 3, HUNTERS = 5, DEFENDERS = 5, STAGE = 30;
 
 // The bomb as AO holds it: state (AC.AS_*), where it is (feet), the middle,
 // both plates (red's, blue's), its carrier (-1 unless carried), by (carrier,
-// dropper or planter, 255 for a planter gone), the side that has it, the
+// dropper or planter), gone (its planter has left), the side that has it, the
 // plate it's planted on (-1), ticks left (dropped: to go back; planted: to go
 // off), its plant's and defuse's counts. In the countdown AO is clear: the
 // middle and the plates are the map's, where $stand puts them.
@@ -55,7 +76,7 @@ export function bombOf(view) {
   const plates = [0, 1].map((k) => at(AC.AS_PLATE + 12 * k, map.flags[k]));
   const state = view.u8[L.AO + AC.AS_STATE], by = view.u8[L.AO + AC.AS_BY], side = view.u8[L.AO + AC.AS_SIDE];
   return {
-    state, spot, plates, pos: state === AC.AS_HOME ? spot : [f(AC.AS_POS), f(AC.AS_POS + 4), f(AC.AS_POS + 8)],
+    state, spot, plates, gone: view.u8[L.AO + AC.AS_GONE] === 1, pos: state === AC.AS_HOME ? spot : [f(AC.AS_POS), f(AC.AS_POS + 4), f(AC.AS_POS + 8)],
     carrier: state === AC.AS_CARRIED ? by : -1, by, side, at: state === AC.AS_PLANTED ? 1 - side : -1,
     left: d.getUint16(L.AO + AC.AS_LEFT, true), arming: d.getUint16(L.AO + AC.AS_ARMING, true), defusing: d.getUint16(L.AO + AC.AS_DEFUSING, true),
   };
@@ -71,6 +92,13 @@ const clock = (ticks) => { const s = Math.ceil(ticks / 125); return `${Math.floo
 const secs = (ticks) => Math.ceil(ticks / 125);
 // Where an escort goes: a point near p, offset by rank round it (escorts spread out).
 const beside = (p, rank, r) => { const a = rank * 2.4; return [p[0] + Math.cos(a) * r, p[1], p[2] + Math.sin(a) * r]; };
+
+// Whether b is within BEHIND of a's direction as seen from the eye.
+const BEHIND = Math.cos((8 * Math.PI) / 180);
+function behind(eye, a, b) {
+  const u = a.map((v, i) => v - eye[i]), w = b.map((v, i) => v - eye[i]);
+  return u[0] * w[0] + u[1] * w[1] + u[2] * w[2] > BEHIND * Math.hypot(...u) * Math.hypot(...w);
+}
 
 // The bomb's state in words, for the HUD's line: HOME, P5 HAS IT (YOU HAVE IT), DROPPED 0:12, PLANTED 0:04.
 function says(b, slot) {
@@ -102,6 +130,18 @@ function others(view, me, ally) {
     out.push([q, feet(view, q), ally(me, q)]);
   }
   return out;
+}
+
+// Whether fewer than n of me's side alive are nearer `pos` across than me
+// (the nearest n go).
+function among(view, me, pos, n, ally) {
+  const d = across(me.pos, pos);
+  let k = 0;
+  for (let q = 0; q < L.NPLAYER; q++) {
+    if (q === me.slot || (view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE || !ally(me.slot, q)) continue;
+    if (across(feet(view, q), pos) < d && ++k >= n) return false;
+  }
+  return true;
 }
 
 // The carrier's way to their plate: first to a flank, FLANK m off the line
@@ -172,8 +212,10 @@ export default {
         ctx.glow({ pos: at, size: 2.5, color: [...SIDE_RGB[side], 0.9], kind: 6, life: 600, grow: true });
         break;
       case AC.AS_MX_BOOM:
-        ctx.feed(f.owner === 255 ? `THE BOMB WENT OFF IN ${SIDE[1 - side]} BASE` : `${who} BLEW UP ${SIDE[1 - side]} BASE`, col);
-        if (you) ctx.banner('YOU SCORED', ctx.C.YELLOW, 3000);
+      case AC.AS_MX_LONE:
+        // (its planter gone, the news is nobody's: 255 can be a slot)
+        ctx.feed(f.size === AC.AS_MX_LONE ? `THE BOMB WENT OFF IN ${SIDE[1 - side]} BASE` : `${who} BLEW UP ${SIDE[1 - side]} BASE`, col);
+        if (you && f.size === AC.AS_MX_BOOM) ctx.banner('YOU SCORED', ctx.C.YELLOW, 3000);
         else if (ours) ctx.banner('YOUR SIDE SCORES', col, 3000);
         else if (mine >= 0) ctx.banner(`${SIDE[side]} SCORES`, col, 3000);
         ctx.sound?.blast?.(ctx.dist ?? 0, Number(AC.AS_BLAST_R));
@@ -248,9 +290,11 @@ export default {
       else out.markers.push({ pos: up(pos, 1.6), label: `GUARD ${secs(b.left)}`, color: SIDE_C[team] });
     } else if (b.carrier < 0) out.markers.push({ pos: up(pos, 1.6), label: 'TAKE', color: C.YELLOW });
     else if (b.side === team) {
-      // your side has it: ESCORT it (unless it's the one shown), and the plate it's headed for
+      // your side has it: ESCORT it (unless it's the one shown), and the plate
+      // it's headed for, unless that's right behind ESCORT as seen from here
+      // (following it there, the two labels would print over each other)
       if (pos) out.markers.push({ pos: up(pos, 1.6), label: 'ESCORT', color: SIDE_C[team] });
-      plate(1 - team, 'PLANT', b.carrier === ctx.shown ? C.YELLOW : SIDE_C[1 - team]);
+      if (!pos || !behind(ctx.cam, up(pos, 1.6), up(b.plates[1 - team], 2.9))) plate(1 - team, 'PLANT', b.carrier === ctx.shown ? C.YELLOW : SIDE_C[1 - team]);
     } else {
       if (pos) out.markers.push({ pos: up(pos, 1.6), label: 'KILL', color: SIDE_C[1 - team] });
       plate(team, 'DEFEND', SIDE_C[team]);
@@ -260,18 +304,20 @@ export default {
   cols: [{ head: 'BOMBS', get: (o) => String(o.points) }, { head: 'DEFUSES', get: (o) => String(o.aux) }],
 
   // The carrier: out by a flank, then on to their plate zigzagging, and on
-  // it; attackers: run for a free bomb; for their own carrier, between it
-  // and the enemies nearest it, and once it's near their plate, onto the
-  // plate to clear it; an enemy carrier, hunted, fighting what they meet on
-  // the way. Defenders: hold their plate, go for an enemy carrier near it,
-  // defuse. A bomb planted on your plate: everyone near enough runs onto it;
-  // on theirs, the attackers near it guard it. The rest wait in the middle.
+  // it; attackers: the three nearest a free bomb run for it, the rest wait
+  // out front; for their own carrier, between it and the enemies nearest it,
+  // and once it's near their plate, onto the plate to clear it; an enemy
+  // carrier, hunted by the five nearest, fighting what they meet on the way,
+  // the rest out front. Defenders (at most DEFENDERS): hold their plate, go
+  // for an enemy carrier near it, defuse. A bomb planted on your plate:
+  // everyone near enough runs onto it; on theirs, the attackers near it
+  // guard it. The rest wait in the middle.
   goal(view, me, ctx) {
     const team = me.team;
     if (team !== 0 && team !== 1) return null;
     const b = bombOf(view), mine = b.plates[team], theirs = b.plates[1 - team];
     if (me.carry && b.carrier === me.slot) return run(view, me, b, theirs, ctx.t);
-    const defend = ctx.role === 'defend';
+    const defend = ctx.role === 'defend' && ctx.rank < 3 * DEFENDERS;
     if (b.state === AC.AS_PLANTED) {
       if (b.at === team) return defend || across(me.pos, b.pos) < DASH ? { pos: b.pos, r: 0.8, hurry: 1, hold: true } : { pos: b.spot, r: 6, hurry: 0.3, hold: true };
       if (defend) return { pos: mine, r: 4, hurry: 0, hold: true };
@@ -282,17 +328,23 @@ export default {
       if (enemy) { const c = feet(view, b.carrier); if (across(c, mine) < CLOSE) return { pos: c, r: 2, hurry: 0.5, hold: false }; }
       return { pos: mine, r: 4, hurry: 0, hold: true };
     }
-    if (b.carrier < 0) return { pos: b.pos, r: 1, hurry: 1, hold: false };
+    // out front: STAGE m from the middle toward their plate, spread out, not shooting
+    const front = () => {
+      const k = STAGE / (across(b.spot, theirs) || 1), fx = b.spot[0] + (theirs[0] - b.spot[0]) * k, fz = b.spot[2] + (theirs[2] - b.spot[2]) * k;
+      return { pos: beside([fx, view.stand(fx, fz), fz], ctx.rank, 4 + (ctx.rank % 5) * 2), r: 4, hurry: 1, hold: true };
+    };
+    if (b.carrier < 0) return among(view, me, b.pos, TAKERS, ctx.ally) ? { pos: b.pos, r: 1, hurry: 1, hold: false } : front();
     const c = feet(view, b.carrier);
     // (under 0.5 it fights whoever it sees first: its escorts, as often as not)
-    if (enemy) return { pos: c, r: 2, hurry: 0.3, hold: false };
-    if (across(c, theirs) < CLEAR) return { pos: beside(theirs, ctx.rank, 3), r: 4, hurry: across(me.pos, theirs) > 30 ? 0.6 : 0.1, hold: true };
+    if (enemy) return among(view, me, c, HUNTERS, ctx.ally) ? { pos: c, r: 2, hurry: 0.3, hold: false } : front();
+    const clear = { pos: beside(theirs, ctx.rank, 3 + (ctx.rank % 4) * 1.5), r: 4, hurry: across(me.pos, theirs) > 30 ? 0.6 : 0.1, hold: true };
+    if (across(c, theirs) < CLEAR) return clear;
     // a shield: SHIELD m from it toward the enemy nearest it (every other
     // escort the next nearest), not stopping to shoot, where a bullet meant
     // for it stops on a teammate; none near, beside it
     const foes = others(view, me.slot, ctx.ally).filter((o) => !o[2] && across(o[1], c) < SHIELD_SEE).map((o) => o[1]).sort((a, z) => across(a, c) - across(z, c));
     if (foes.length) {
-      const f = foes[Math.min(foes.length - 1, ctx.rank % 2)], d = across(f, c) || 1, k = Math.min(SHIELD, d / 2) / d;
+      const f = foes[ctx.rank % Math.min(foes.length, 6)], d = across(f, c) || 1, k = Math.min(SHIELD + (Math.floor(ctx.rank / 6) % 3) * 2, d / 2) / d;
       return { pos: [c[0] + (f[0] - c[0]) * k, c[1], c[2] + (f[2] - c[2]) * k], r: 1, hurry: 0.9, hold: false };
     }
     return { pos: beside(c, ctx.rank, 3), r: 3, hurry: 0.9, hold: false };
@@ -301,6 +353,6 @@ export default {
   state(view) {
     const b = bombOf(view);
     return { score: view.mode().score, target: view.mode().target,
-      bomb: { state: b.state, carrier: b.carrier, by: b.by, side: b.side, at: b.at, left: b.left, arming: b.arming, defusing: b.defusing } };
+      bomb: { state: b.state, carrier: b.carrier, by: b.by, gone: b.gone, side: b.side, at: b.at, left: b.left, arming: b.arming, defusing: b.defusing } };
   },
 };

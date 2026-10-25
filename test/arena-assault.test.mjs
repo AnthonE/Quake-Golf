@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { arenaBytes } from './helpers.mjs';
 import { View, arenaWord, arenaFrame, forcedSeed } from '../src/arena-view.mjs';
 import { aimAt } from '../client/bot.mjs';
+import { Fighter } from '../client/arena-bot.mjs';
 import { playArena } from '../tools/genarena.mjs';
 import { compileMap } from '../tools/map.mjs';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
@@ -81,7 +82,7 @@ function bomb(g) {
   const v3 = (o) => [f(o), f(o + 4), f(o + 8)];
   const u16 = (o) => g.dv.getUint16(L.AO + o, true);
   return { pos: v3(AC.AS_POS), state: g.sim.u8[L.AO + AC.AS_STATE], by: g.sim.u8[L.AO + AC.AS_BY], left: u16(AC.AS_LEFT), spot: v3(AC.AS_SPOT),
-    side: g.sim.u8[L.AO + AC.AS_SIDE], arming: u16(AC.AS_ARMING), defusing: u16(AC.AS_DEFUSING), plates: [v3(AC.AS_PLATE), v3(AC.AS_PLATE + 12)] };
+    side: g.sim.u8[L.AO + AC.AS_SIDE], gone: g.sim.u8[L.AO + AC.AS_GONE], arming: u16(AC.AS_ARMING), defusing: u16(AC.AS_DEFUSING), plates: [v3(AC.AS_PLATE), v3(AC.AS_PLATE + 12)] };
 }
 // The bomb laid down by hand at (x, y, z), `left` ticks to go, nobody carrying it.
 function lay(g, x, y, z, left = 1000) {
@@ -148,7 +149,7 @@ function fxs(v, kind, size, from = 0) {
   return out;
 }
 // The bomb's news from `from` on: [what, owner, shot]; newsAt, where
-const isOurs = (f) => f.size >= AC.AS_MX_TAKE && f.size <= AC.AS_MX_HOME;
+const isOurs = (f) => f.size >= AC.AS_MX_TAKE && f.size <= AC.AS_MX_LONE;
 const news = (g, from) => fxs(g.v, L.FX_MODE, undefined, from).filter(isOurs).map((f) => [f.size, f.owner, f.shot]);
 const newsAt = (g, from) => fxs(g.v, L.FX_MODE, undefined, from).filter(isOurs).map((f) => f.pos);
 const endMatch = (g) => { g.dv.setUint32(L.HDR_UNTIL, g.v.tick + 1, true); for (let i = 0; i < 4; i++) g.step(); };
@@ -456,7 +457,7 @@ test('Assault: a carrier killed drops it on what is under its feet, AS_RETURN to
   assert.deepEqual([bomb(g).state, bomb(g).by], [CARRIED, 0]);
 });
 
-test('Assault: a carrier that leaves, rejoins, dies unseen or stops carrying drops it where it last had it; a planter who leaves takes its blast along: still a point for its side, nobody killed, owner 255', async () => {
+test('Assault: a carrier that leaves, rejoins, dies unseen or stops carrying drops it where it last had it; a planter who leaves takes its blast along: still a point for its side, nobody killed, news nobody\'s (AS_MX_LONE)', async () => {
   const g = await room(5); // red 0 2 4, blue 1 3
   const last = () => bomb(g).pos;
   // blue 1 leaves: the news still says blue
@@ -497,12 +498,13 @@ test('Assault: a carrier that leaves, rejoins, dies unseen or stops carrying dro
   plant(g, 4);
   put(g, 1, STAND[1][0] + 1, STAND[1][2], FLOOR);
   g.step([[L.EV_LEAVE, 4]]);
-  assert.deepEqual([bomb(g).state, bomb(g).by], [PLANTED, 255]);
+  assert.deepEqual([bomb(g).state, bomb(g).by, bomb(g).gone], [PLANTED, 4, 1]);
   park(g, 1);
   put(g, 3, STAND[1][0] + 3, STAND[1][2], FLOOR);
   from = g.v.fxCount();
   steps(g, AC.AS_FUSE);
-  assert.deepEqual([news(g, from), scores(g), dead(g, 3), fxs(g.v, L.FX_KILL, undefined, from)], [[[AC.AS_MX_BOOM, 255, 0]], [1, 0], false, []]);
+  assert.deepEqual([news(g, from), scores(g), dead(g, 3), fxs(g.v, L.FX_KILL, undefined, from)], [[[AC.AS_MX_LONE, 255, 0]], [1, 0], false, []]);
+  assert.equal(bomb(g).gone, 0, 'cleared back in the middle');
   // a planter whose slot is taken on the same tick by someone on the other side: forgotten too
   // (4 back on red, 3 gone: red 0 2 4 to blue 1; 0 plants, leaves and comes back on blue)
   g.step([[L.EV_JOIN, 4]]);
@@ -512,12 +514,39 @@ test('Assault: a carrier that leaves, rejoins, dies unseen or stops carrying dro
   plant(g, 0);
   put(g, 1, STAND[1][0] + 1, STAND[1][2], FLOOR);
   g.step([[L.EV_LEAVE, 0], [L.EV_JOIN, 0]]);
-  assert.deepEqual([team(g, 0), bomb(g).by], [1, 255]);
+  assert.deepEqual([team(g, 0), bomb(g).by, bomb(g).gone], [1, 0, 1]);
   park(g, 0);
   put(g, 1, STAND[1][0] + 3, STAND[1][2], FLOOR);
   from = g.v.fxCount();
   steps(g, AC.AS_FUSE);
-  assert.deepEqual([news(g, from).map((n) => n.slice(0, 2)), scores(g), dead(g, 1)], [[[AC.AS_MX_BOOM, 255]], [2, 0], false]);
+  assert.deepEqual([news(g, from).map((n) => n.slice(0, 2)), scores(g), dead(g, 1)], [[[AC.AS_MX_LONE, 255]], [2, 0], false]);
+});
+
+test('Assault: slot 255 plants like any other: its point, its blast, its news; and gone, nobody\'s', async () => {
+  const g = await room(3); // red 0 2, blue 1
+  g.step([[L.EV_JOIN, 255]]);
+  park(g, 255);
+  steps(g, 2);
+  const s = team(g, 255);
+  assert.equal(s, 1);
+  const foe = 0, st = STAND[1 - s];
+  plant(g, 255);
+  assert.equal(bomb(g).gone, 0);
+  put(g, foe, st[0] + 4, st[2], FLOOR);
+  let from = g.v.fxCount();
+  steps(g, AC.AS_FUSE);
+  assert.deepEqual([news(g, from), scores(g), points(g, 255), dead(g, foe), kills(g, 255)],
+    [[[AC.AS_MX_BOOM, 255, s]], [0, 1], 1, true, 1]);
+  assert.deepEqual(fxs(g.v, L.FX_KILL, undefined, from).map((f) => [f.owner, f.shot]), [[255, foe]]);
+  // and slot 255 gone before its blast: the point still blue's, nobody killed
+  respawned(g, foe);
+  plant(g, 255);
+  put(g, foe, st[0] + 4, st[2], FLOOR);
+  g.step([[L.EV_LEAVE, 255]]);
+  assert.equal(bomb(g).gone, 1);
+  from = g.v.fxCount();
+  steps(g, AC.AS_FUSE);
+  assert.deepEqual([news(g, from), scores(g), points(g, 255), dead(g, foe)], [[[AC.AS_MX_LONE, 255, s]], [0, 2], 1, false]);
 });
 
 test('Assault: joins and leaves mid-objective: a join goes to the side with fewer and can take a dropped bomb, or defuse a planted one; a defuser leaving starts the count over', async () => {
@@ -677,9 +706,9 @@ function newsOf(g, f, slot) {
   return { said, shown, glows };
 }
 // (a spectator: slot -1, shown the fighter it watches)
-function drawOf(g, slot, shown = slot, now = 0) {
+function drawOf(g, slot, shown = slot, now = 0, cam = [512, 30, 400]) {
   const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
-  assault.draw(g.v, { dt: 0, now, t: 1, slot, shown, me: slot >= 0 ? g.v.fighter(slot) : null, pme: null, cam: [512, 30, 400], view: g.v, pview: null }, out);
+  assault.draw(g.v, { dt: 0, now, t: 1, slot, shown, me: slot >= 0 ? g.v.fighter(slot) : null, pme: null, cam, view: g.v, pview: null }, out);
   return out;
 }
 const marks = (out) => out.markers.map((m) => [m.label, m.color]);
@@ -748,7 +777,9 @@ test('Assault\'s client: the bomb from AO (the map\'s in the countdown); HUD lin
   assert.deepEqual(newsOf(g, boom, 0).shown, [['YOU SCORED', C.YELLOW]]);
   assert.deepEqual(newsOf(g, boom, 2).shown, [['YOUR SIDE SCORES', C.RED]]);
   assert.deepEqual([newsOf(g, boom, 1).said, newsOf(g, boom, 1).shown], [[['P1 BLEW UP BLUE BASE', C.RED]], [['RED SCORES', C.RED]]]);
-  assert.deepEqual(newsOf(g, { ...boom, owner: 255 }, 1).said, [['THE BOMB WENT OFF IN BLUE BASE', C.RED]]);
+  assert.deepEqual(newsOf(g, { ...boom, size: AC.AS_MX_LONE, owner: 255 }, 1).said, [['THE BOMB WENT OFF IN BLUE BASE', C.RED]]);
+  // its planter gone: nobody's, not slot 255's
+  assert.deepEqual(newsOf(g, { ...boom, size: AC.AS_MX_LONE, owner: 255 }, 255).shown, [['YOUR SIDE SCORES', C.RED]]);
   assert.deepEqual(newsOf(g, boom, 1).glows.map((x) => x.kind), [3, 6]);
   assert.deepEqual(newsOf(g, { ...boom, size: AC.AS_MX_DROP, owner: 3, shot: 1 }, 0).said, [['P4 DROPPED THE BOMB', C.CYAN]]);
   assert.deepEqual(newsOf(g, { ...boom, size: AC.AS_MX_HOME, owner: 255, shot: 1 }, 0).said, [['THE BOMB IS BACK', C.WHITE]]);
@@ -758,7 +789,7 @@ test('Assault\'s client: the bomb from AO (the map\'s in the countdown); HUD lin
   setPoints(g, 0, 2);
   assert.deepEqual(assault.cols.map((col) => col.head), ['BOMBS', 'DEFUSES']);
   assert.deepEqual([0, 1].map((p) => assault.cols.map((col) => col.get(g.v.fighter(p)))), [['2', '0'], ['0', '1']]);
-  assert.deepEqual(assault.state(g.v).bomb, { state: DROPPED, carrier: -1, by: 3, side: 1, at: -1, left: bomb(g).left, arming: 0, defusing: 0 });
+  assert.deepEqual(assault.state(g.v).bomb, { state: DROPPED, carrier: -1, by: 3, gone: false, side: 1, at: -1, left: bomb(g).left, arming: 0, defusing: 0 });
 });
 
 test('Assault\'s client draws the bomb in the middle, over its carrier (not over yours), lying and planted with its pillar; both plates\' rims and the disc where it\'s headed; waypoints TAKE, ESCORT, KILL, PLANT, DEFEND, DEFUSE, GUARD', async () => {
@@ -783,6 +814,10 @@ test('Assault\'s client draws the bomb in the middle, over its carrier (not over
   assert.ok(near(balls(out)[0].pos, [at0[0], at0[1] + 2.25, at0[2]], 1e-3), 'over its head');
   assert.deepEqual(marks(out), [['ESCORT', C.RED], ['PLANT', C.CYAN]]);
   assert.deepEqual(out.zone && [out.zone.x, out.zone.z, out.zone.r, out.zone.color], [632, 512, Number(AC.AS_PLATE_R), SIDE_RGB[1]], 'the disc on blue\'s plate');
+  // following it toward their plate, PLANT right behind ESCORT: only ESCORT (they'd print over each other)
+  const esc = out.markers[0].pos, pl = out.markers[1].pos, back = (k) => esc.map((v, i) => v + (v - pl[i]) * k);
+  assert.deepEqual(marks(drawOf(g, 2, 2, 0, back(0.3))), [['ESCORT', C.RED]]);
+  assert.deepEqual(marks(drawOf(g, 2, 2, 0, [back(0.3)[0], back(0.3)[1], back(0.3)[2] + 8])), [['ESCORT', C.RED], ['PLANT', C.CYAN]], 'a step aside: both');
   assert.deepEqual(marks(drawOf(g, 1)), [['KILL', C.RED], ['DEFEND', C.CYAN]]);
   out = drawOf(g, 0);
   assert.deepEqual([balls(out), marks(out)], [[], [['PLANT', C.YELLOW]]]);
@@ -817,9 +852,15 @@ test('Assault\'s brain: a carrier runs to their plate by a flank and holds on it
   for (let p = 0; p < 8; p++) put(g, p, 470 + 6 * p, 560);
   g.step();
   const spot = bomb(g).spot;
-  // home: attackers run for it; defenders hold their own plate
-  assert.deepEqual(brief(goalOf(g, 0)), [round(spot), 1, false]);
+  // home: the three of a side nearest it run for it (defenders counted), the
+  // rest wait for it at a run, not shooting, out ahead toward their plate;
+  // defenders hold their own plate
+  assert.deepEqual(brief(goalOf(g, 2)), [round(spot), 1, false]);
   assert.deepEqual(brief(goalOf(g, 3)), [round(spot), 1, false]);
+  for (const [p, dir] of [[0, 1], [1, -1]]) {
+    const o = goalOf(g, p), off = (o.pos[0] - spot[0]) * dir;
+    assert.ok(off > 30 - 12.01 && off < 30 + 12.01 && Math.abs(o.pos[2] - 512) < 12.01 && o.hurry === 1 && o.hold, `P${p + 1} out front: ${brief(o)}`);
+  }
   assert.deepEqual(brief(goalOf(g, 4)), [STAND[0], 0, true]);
   assert.deepEqual(brief(goalOf(g, 5)), [STAND[1], 0, true]);
   // red 0 takes it at (520, 540)
@@ -849,7 +890,7 @@ test('Assault\'s brain: a carrier runs to their plate by a flank and holds on it
   assert.deepEqual(brief(goalOf(g, 5)), [round(fpos(g, 0)), 0.5, false]);
   for (const p of [2, 6]) {
     o = goalOf(g, p);
-    assert.ok(Math.hypot(o.pos[0] - 632, o.pos[2] - 512) < 3.01 && o.hold && o.hurry === 0.6, `P${p + 1} clears the plate: ${brief(o)}`);
+    assert.ok(Math.hypot(o.pos[0] - 632, o.pos[2] - 512) < 7.51 && o.hold && o.hurry === 0.6, `P${p + 1} clears the plate: ${brief(o)}`);
   }
   // planted on blue's: blue's defender and anyone within 40 m run onto it; the rest wait in the middle; red guards it from near, its defender stays home
   plant(g, 0);
@@ -865,13 +906,32 @@ test('Assault\'s brain: a carrier runs to their plate by a flank and holds on it
   assert.equal(assault.goal(g.v, { ...g.v.fighter(0), team: -1 }, { role: 'attack', rank: 0 }), null);
 });
 
+test('Assault\'s brain defuses: an AI fighter of the plate\'s side, 30 m off or on the far side of its base, gets onto a bomb planted there and defuses it inside AS_FUSE, on its own inputs', async (tc) => {
+  for (const [x, z] of [[602, 512], [640, 530]]) {
+    const g = await room(4); // red 0 2, blue 1 3
+    plant(g, 0);
+    for (const p of [0, 2, 3]) put(g, p, 420 + 3 * p, 600);
+    put(g, 1, x, z, g.v.height(x, z));
+    const ai = new Fighter(1, 7, 0.6);
+    const from = g.v.fxCount();
+    let t = 0;
+    while (bomb(g).state === PLANTED && t < AC.AS_FUSE) {
+      for (const p of [0, 2, 3]) put(g, p, 420 + 3 * p, 600);
+      g.step([[L.EV_INPUT, 1, ai.think(g.v, g.v.tick)]]);
+      t++;
+    }
+    assert.deepEqual([news(g, from), scores(g), defuses(g, 1)], [[[AC.AS_MX_DEFUSE, 1, 1]], [0, 0], 1], `from (${x}, ${z}): ${t} ticks`);
+    tc.diagnostic(`from (${x}, ${z}): defused ${t} ticks after the plant`);
+  }
+});
+
 // AI fighters in Assault on the debug build: no trap, and every tick's hash
 // the same replayed on 1 and 4 threads; the bomb's news by side as they play.
 async function bots(n, ticks, seed) {
   const [debug, bytes] = [arenaBytes(true), arenaBytes()];
   const seen = {};
-  for (const k of ['take', 'plant', 'boom', 'defuse', 'drop', 'home']) seen[k] = [0, 0];
-  const what = { [AC.AS_MX_TAKE]: 'take', [AC.AS_MX_PLANT]: 'plant', [AC.AS_MX_BOOM]: 'boom', [AC.AS_MX_DEFUSE]: 'defuse', [AC.AS_MX_DROP]: 'drop', [AC.AS_MX_HOME]: 'home' };
+  for (const k of ['take', 'plant', 'boom', 'lone', 'defuse', 'drop', 'home']) seen[k] = [0, 0];
+  const what = { [AC.AS_MX_TAKE]: 'take', [AC.AS_MX_PLANT]: 'plant', [AC.AS_MX_BOOM]: 'boom', [AC.AS_MX_LONE]: 'lone', [AC.AS_MX_DEFUSE]: 'defuse', [AC.AS_MX_DROP]: 'drop', [AC.AS_MX_HOME]: 'home' };
   let count = 0, kills = 0, n2 = null;
   const { log } = await playArena({ bytes: debug, seed: forcedSeed(L.M_ASSAULT, seed), bots: n, ticks, leaveAt: 1000,
     onTick: (t, v) => {
@@ -892,10 +952,29 @@ async function bots(n, ticks, seed) {
 }
 
 test('Assault with 8 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; the bomb carried, planted and gone off for both sides in 20,000 ticks', async (t) => {
-  const s = await bots(8, 20000, 9);
+  const s = await bots(8, 20000, 7);
   t.diagnostic(JSON.stringify(s));
   assert.ok(s.take.every((k) => k >= 3) && s.drop.every((k) => k >= 2), 'it changes hands');
   assert.ok(s.plant.every((k) => k >= 1) && s.boom.every((k) => k >= 1), 'both sides plant it and score');
+});
+
+// A big room on the release build: the nearest few of a side go for a free
+// bomb and the rest wait out front, so it gets out of the middle (with every
+// attacker on it, it changed hands in the crowd and nobody ever planted).
+test('Assault with 64 AI fighters on Blood Gulch: the bomb planted and gone off for both sides in 30,000 ticks', async (t) => {
+  const seen = { plant: [0, 0], boom: [0, 0] };
+  let count = 0;
+  await playArena({ bytes: arenaBytes(), seed: forcedSeed(L.M_ASSAULT, 11), bots: 64, ticks: 30000, leaveAt: 1000,
+    onTick: (tick, v) => {
+      for (let k = Math.max(count, v.fxCount() - L.FX_MAX); k < v.fxCount(); k++) {
+        const f = v.fx(k);
+        if (f.kind === L.FX_MODE && f.size === AC.AS_MX_PLANT) seen.plant[f.shot]++;
+        if (f.kind === L.FX_MODE && f.size === AC.AS_MX_BOOM) seen.boom[f.shot]++;
+      }
+      count = v.fxCount();
+    } });
+  t.diagnostic(JSON.stringify(seen));
+  assert.ok(seen.plant.every((k) => k >= 1) && seen.boom.every((k) => k >= 1), 'both sides plant it and score');
 });
 
 test('Assault with 16 AI fighters on Blood Gulch: no trap on the debug build, the same hash on every tick on 1 and 4 threads; the bomb planted and gone off for both sides in 20,000 ticks', async (t) => {

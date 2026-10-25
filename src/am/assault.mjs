@@ -22,10 +22,11 @@ export const AS_BLAST_H = '3';
 // The bomb, in AO (byte offsets from it), all zero until play starts:
 export const AS_POS = 0; // f32 x, y, z: where it is (its carrier's feet while carried; planted, its plate's stand)
 export const AS_STATE = 12; // u8 AS_HOME, AS_CARRIED, AS_DROPPED or AS_PLANTED
-export const AS_BY = 13; // u8 its carrier; dropped, who dropped it; planted, its planter (255 once that one has left)
+export const AS_BY = 13; // u8 its carrier; dropped, who dropped it; planted, its planter
 export const AS_LEFT = 14; // u16 dropped: ticks before it goes back; planted: before it goes off (on the tick that takes this to 0)
 export const AS_SPOT = 16; // f32 x, y, z: the middle, MAP_BALL at its feet height
 export const AS_SIDE = 28; // u8 the side that took it (0 red, 1 blue): carrying it, or that planted it
+export const AS_GONE = 29; // u8 planted: 1 once its planter has left (a slot can't say it: 255 is a fighter)
 export const AS_ARMING = 30; // u16 its carrier's ticks in a row on their plate
 export const AS_DEFUSING = 32; // u16 planted: ticks in a row with one of the plate's side on it
 export const AS_PLATE = 36; // f32 x, y, z x 2: red's plate then blue's, MAP_FLAGS' stands at their feet height
@@ -38,7 +39,8 @@ export const AS_PLANTED = 3; // on the plate of the side AS_SIDE isn't
 // happens: owner who did it (255 nobody), shot a side (0 red, 1 blue).
 export const AS_MX_TAKE = 72; // owner took it: shot its side
 export const AS_MX_PLANT = 73; // owner planted it at the other side's plate: shot its side
-export const AS_MX_BOOM = 74; // it went off: owner who planted it (255 if gone), shot the side scoring
+export const AS_MX_BOOM = 74; // it went off: owner who planted it, shot the side scoring
 export const AS_MX_DEFUSE = 75; // owner defused it: shot its side, the plate's
 export const AS_MX_DROP = 76; // owner, its carrier, died or left: shot the side that had it
 export const AS_MX_HOME = 77; // it lay AS_RETURN and went back to the middle: owner 255, shot the side that had it
+export const AS_MX_LONE = 78; // it went off, its planter gone (AS_GONE): owner 255, shot the side scoring

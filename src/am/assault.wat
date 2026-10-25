@@ -98,18 +98,17 @@
                 (then (call $as_take (local.get $p)) (br $took)))))))))
   (i32.const 0))
 
-;; A planted bomb's tick (side planted it): its planter forgotten if it has
-;; left (its slot empty, or someone's on the other side); the defuse count, a
+;; A planted bomb's tick (side planted it): its planter marked gone if it has
+;; left (its slot empty, or someone's on the other side; once gone, gone even
+;; if one of its side takes the slot again); the defuse count, a
 ;; tick on with one of the plate's side alive on it (and on its last, the
 ;; defuse) or from 0 again with none; then, still planted, its fuse.
 (func $as_burn (param $side i32)
   (local $by i32) (local $p i32) (local $who i32) (local $n i32)
   (local.set $by (i32.load8_u (i32.const @(AO + AS_BY))))
-  (if (i32.ne (local.get $by) (i32.const 255))
-    (then
-      (if (i32.or (i32.eqz (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $by) (i32.const 6))) (i32.const @PF_LIVE)))
-                  (i32.ne (call $a_team (local.get $by)) (local.get $side)))
-        (then (i32.store8 (i32.const @(AO + AS_BY)) (i32.const 255))))))
+  (if (i32.or (i32.eqz (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $by) (i32.const 6))) (i32.const @PF_LIVE)))
+              (i32.ne (call $a_team (local.get $by)) (local.get $side)))
+    (then (i32.store8 (i32.const @(AO + AS_GONE)) (i32.const 1))))
   (local.set $who (i32.const -1))
   (block $found
     (!for $p (i32.const 0) (i32.const @NPLAYER)
@@ -135,7 +134,8 @@
 ;; It goes off (side planted it): a point for the side and for its planter,
 ;; news, then the blast: the other side's fighters alive within AS_BLAST_R
 ;; across and AS_BLAST_H up or down of it killed by its planter, in slot
-;; order (none if its planter has left); then back to the middle.
+;; order (none if its planter has left, AS_GONE: any slot, 255 too, can
+;; plant); then back to the middle.
 (func $as_boom (param $side i32)
   (local $by i32) (local $q i32) (local $r i32) (local $x f32) (local $y f32) (local $z f32)
   (local.set $by (i32.load8_u (i32.const @(AO + AS_BY))))
@@ -143,9 +143,10 @@
   (local.set $y (f32.load (i32.const @(AO + AS_POS + 4))))
   (local.set $z (f32.load (i32.const @(AO + AS_POS + 8))))
   (call $a_score (local.get $side) (i32.const 1))
-  (call $as_news (i32.const @AS_MX_BOOM) (local.get $by) (local.get $side))
-  (if (i32.ne (local.get $by) (i32.const 255))
-    (then
+  (if (i32.load8_u (i32.const @(AO + AS_GONE)))
+    (then (call $as_news (i32.const @AS_MX_LONE) (i32.const 255) (local.get $side)))
+    (else
+      (call $as_news (i32.const @AS_MX_BOOM) (local.get $by) (local.get $side))
       (local.set $r (i32.shl (local.get $by) (i32.const 3)))
       (i32.store16 offset=@(MODE_REC + MR_POINTS) (local.get $r) (i32.add (i32.load16_u offset=@(MODE_REC + MR_POINTS) (local.get $r)) (i32.const 1)))
       (!for $q (i32.const 0) (i32.const @NPLAYER)
@@ -191,6 +192,7 @@
   (i32.store16 (i32.const @(AO + AS_LEFT)) (i32.const @AS_FUSE))
   (i32.store16 (i32.const @(AO + AS_ARMING)) (i32.const 0))
   (i32.store16 (i32.const @(AO + AS_DEFUSING)) (i32.const 0))
+  (i32.store8 (i32.const @(AO + AS_GONE)) (i32.const 0))
   (call $as_news (i32.const @AS_MX_PLANT) (local.get $c) (local.get $side)))
 
 ;; The bomb put down at (x, y, z), on what it would land on falling from
@@ -211,7 +213,8 @@
   (i32.store8 (i32.const @(AO + AS_STATE)) (i32.const @AS_HOME))
   (i32.store16 (i32.const @(AO + AS_LEFT)) (i32.const 0))
   (i32.store16 (i32.const @(AO + AS_ARMING)) (i32.const 0))
-  (i32.store16 (i32.const @(AO + AS_DEFUSING)) (i32.const 0)))
+  (i32.store16 (i32.const @(AO + AS_DEFUSING)) (i32.const 0))
+  (i32.store8 (i32.const @(AO + AS_GONE)) (i32.const 0)))
 
 ;; News for the feed, at the bomb.
 (func $as_news (param $what i32) (param $owner i32) (param $shot i32)
