@@ -375,6 +375,7 @@ export const AB_MELEE = 1;
 export const AB_GREN = 2;
 export const AB_SLOT = 4;
 export const AB_USE = 8;
+export const AB_HELD = 16; // a carrier's trigger counter moved last tick: a trigger held down doesn't swing
 export const PF_DEAD = 8;
 export const J_TGT = 27; // u8 a needle's target
 export const J_HOME = 29; // u8 1 when it has one
@@ -611,7 +612,7 @@ export const MX_TEAMWIN = 8; // a team mode's match is over: shot AH_TEAMWIN (1 
 export const MX_AM = 16;
 
 // The arena's kit of team modes: mode AM[k].mode is src/am/<key>.wat, its
-// hooks $<prefix>_start, _tick and _kill called through (!am) while it is on.
+// hooks $<prefix>_start, _tick, _kill and _bar called through (!am) while it is on.
 export const AM = [
   { mode: M_SLAYER, key: 'slayer', prefix: 'ts' },
   { mode: M_CTF, key: 'ctf', prefix: 'cf' },
