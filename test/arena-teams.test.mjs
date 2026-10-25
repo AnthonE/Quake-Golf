@@ -338,11 +338,15 @@ test('carrying: no shot, no frag, no reload, no pickup; a click or a melee swing
   for (let i = 0; i < L.SWAP_TICKS; i++) g.step();
   setCarry(g, p, true);
   g.dv.setUint8(rec(p) + L.A_MAG, 20);
-  // trigger presses at an enemy 15 m off: swings at the air, no shots, the magazine as it was
+  // trigger presses at an enemy 15 m off, a click every other tick: swings at the air, no shots, the magazine as it was
   put(g, p, 500, 510); put(g, q, 515, 510);
   let from = g.v.fxCount();
   const shots0 = g.v.fighter(p).shots;
-  fire(g, p, q, { max: 3 * L.COOL_TICKS + 1 });
+  for (let i = 0, shot = g.v.fighter(p).fired; i < 3 * L.COOL_TICKS + 2; i++) {
+    if (i % 2 === 0) shot = (shot + 1) & 3;
+    for (const s of [p, q]) put(g, s, g.v.fighter(s).pos[0], g.v.fighter(s).pos[2]);
+    g.step([[L.EV_INPUT, p, at(g, p, q, 1.0, { shot })]]);
+  }
   let f = g.v.fighter(p);
   assert.deepEqual([fxs(g.v, L.FX_SHOT, undefined, from).length, fxs(g.v, L.FX_TRACER, undefined, from).length], [0, 0], 'no shot');
   assert.deepEqual(fxs(g.v, L.FX_MELEE, undefined, from).map((x) => x.size), [2, 2, 2, 2], 'a swing every cooldown, the carrier\'s');
@@ -473,6 +477,36 @@ test('Team Slayer: the target is TS_PER a fighter on the larger side, at least T
   // the next match starts from zero
   untilPlay(s);
   assert.deepEqual([scores(s), u32(s, L.AH_TEAMWIN), u32(s, L.AH_TARGET)], [[0, 0], 0, L.TS_MIN]);
+});
+
+test('a pickup drops any press still waiting, and a trigger held across it never swings; a click after a still tick, or Q, does', async () => {
+  const g = await room(L.M_CTF, 2, 7);
+  const [r, b] = [0, 1].map((k) => [0, 1].find((p) => team(g, p) === k));
+  const swings = (from) => { const out = []; for (let k = from; k < g.v.fxCount(); k++) { const f = g.v.fx(k); if (f.kind === L.FX_MELEE && f.owner === r) out.push(f.size); } return out; };
+  // red walks onto blue's flag (on its stand, the room's floor) with the trigger held: a new counter every tick
+  put(g, r, 629, 512, 21); put(g, b, 400, 512, 21);
+  let shot = g.v.fighter(r).fired;
+  const from = g.v.fxCount();
+  let took = -1;
+  for (let i = 0; i < 60; i++) {
+    shot = (shot + 1) & 3;
+    g.step([[L.EV_INPUT, r, arenaWord({ yaw: 0, pitch: 512, move: 1, shot })]]);
+    if (took < 0 && carry(g, r)) took = i;
+  }
+  assert.ok(took >= 0, 'took the flag');
+  assert.deepEqual(swings(from), [], 'no swing while the trigger stays held');
+  // let go for a tick, then one click: a swing
+  const w = still(g, r);
+  g.step([[L.EV_INPUT, r, arenaWord({ yaw: 0, pitch: 512, ...w })]]);
+  const at1 = g.v.fxCount();
+  g.step([[L.EV_INPUT, r, arenaWord({ yaw: 0, pitch: 512, ...w, shot: (w.shot + 1) & 3 })]]);
+  assert.deepEqual(swings(at1), [2], 'a click after a still tick swings');
+  // Q after the cooldown swings too
+  for (let i = 0; i < L.COOL_TICKS; i++) g.step([[L.EV_INPUT, r, arenaWord({ yaw: 0, pitch: 512, ...still(g, r) })]]);
+  const at2 = g.v.fxCount();
+  const q = still(g, r);
+  g.step([[L.EV_INPUT, r, arenaWord({ yaw: 0, pitch: 512, ...q, melee: q.melee ^ 1 })]]);
+  assert.deepEqual(swings(at2), [2], 'Q swings');
 });
 
 test('Team Slayer with eight AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads', async () => {

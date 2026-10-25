@@ -37,10 +37,19 @@
            (call $a_near (local.get $p) (f32.load (i32.const @(AO + HL_X))) (f32.load (i32.const @(AO + HL_Y))) (f32.load (i32.const @(AO + HL_Z)))
                          (f32.load (i32.const @(AO + HL_R))) (f32.const @HL_H))))
 
-;; Play begins: the first hill, drawn.
+;; Play begins: the first hill, drawn; everyone the countdown spawned where
+;; the hill now bars (its own roof's spawns, say) comes in again elsewhere on
+;; its half, in slot order, so no side starts the match holding it.
 (func $hl_start
+  (local $p i32) (local $pb i32)
   (call $hl_put (i32.rem_u (call $rand) (i32.load (i32.const @MAP_NHILL))))
-  (i32.store (i32.const @AH_TARGET) (i32.const @HL_TARGET)))
+  (i32.store (i32.const @AH_TARGET) (i32.const @HL_TARGET))
+  (!for $p (i32.const 0) (i32.const @NPLAYER)
+    (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+    (if (call $a_alive (local.get $p))
+      (then
+        (if (call $hl_bar (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (!at f32 @(PLAYERS + P_PZ) (local.get $pb)))
+          (then (call $a_spawn (local.get $p))))))))
 
 ;; A tick of play: the hill moves on when its time is up (not on the clock's
 ;; last tick: the match is over), a new hill the news hasn't named a holder

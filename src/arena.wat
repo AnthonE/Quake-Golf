@@ -265,6 +265,7 @@
   (local $pb i32) (local $k i32) (local $i i32) (local $q i32) (local $qb i32) (local $in i32)
   (local $best i32) (local $bestd f32) (local $md f32) (local $sx f32) (local $sz f32) (local $dx f32) (local $dz f32) (local $h f32)
   (local $g0 i32) (local $g1 i32) (local $mode i32) (local $zed i32) (local $fl i32) (local $team i32) (local $side i32) (local $n i32) (local $j i32)
+  (local $strict i32)
   (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
   (local.set $mode (i32.load (i32.const @AH_MODE)))
   (local.set $team (i32.and (i32.shl (i32.const 1) (local.get $mode)) (i32.const @TEAMED)))
@@ -278,9 +279,17 @@
   (if (local.get $team)
     (then
       (local.set $side (call $a_team (local.get $p)))
-      (local.set $n (i32.const 0))
-      (!for $j (i32.const 0) (i32.load (i32.const @MAP_NSPAWN))
-        (if (call $a_spawn_ok (local.get $j) (local.get $side)) (then (!inc $n))))
+      ;; where the mode lets it; if it bars the whole half (a map whose every spawn
+      ;; on one side stands by a hill), anywhere on the half
+      (local.set $strict (i32.const 2))
+      (block $some
+        (loop $again
+          (local.set $strict (i32.sub (local.get $strict) (i32.const 1)))
+          (local.set $n (i32.const 0))
+          (!for $j (i32.const 0) (i32.load (i32.const @MAP_NSPAWN))
+            (if (call $a_spawn_ok (local.get $j) (local.get $side) (local.get $strict)) (then (!inc $n))))
+          (br_if $some (local.get $n))
+          (br_if $again (local.get $strict))))
       ;; tools/map.mjs sees each half has one; a map that somehow hasn't draws from all
       (if (i32.eqz (local.get $n)) (then (local.set $side (i32.const -1)) (local.set $n (i32.load (i32.const @MAP_NSPAWN)))))))
   (!for $k (i32.const 0) (i32.const 4)
@@ -290,7 +299,7 @@
         ;; the i-th of the side's own, in order
         (block $found
           (!for $j (i32.const 0) (i32.load (i32.const @MAP_NSPAWN))
-            (if (call $a_spawn_ok (local.get $j) (local.get $side))
+            (if (call $a_spawn_ok (local.get $j) (local.get $side) (local.get $strict))
               (then
                 (br_if $found (i32.eqz (local.get $i)))
                 (local.set $i (i32.sub (local.get $i) (i32.const 1)))))))
@@ -421,7 +430,7 @@
 (func $a_shoot (param $p i32) (param $d i32) (param $in i32) (param $s f32) (param $c f32)
   (local $pb i32) (local $act i32) (local $slot i32) (local $w i32) (local $re i32) (local $rl i32) (local $cool i32)
   (local $ctr i32) (local $mag i32) (local $res i32) (local $take i32) (local $state i32) (local $u i32) (local $bit i32)
-  (local $carry i32) (local $go i32)
+  (local $carry i32) (local $go i32) (local $moved i32)
   (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
   (call $a_frame (local.get $pb) (local.get $d) (local.get $in))
   (local.set $carry (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_CARRY)))
@@ -474,9 +483,14 @@
   (local.set $bit (i32.and (i32.shr_u (local.get $in) (i32.const @AW_MELEE)) (i32.const 1)))
   (local.set $go (i32.ne (local.get $bit) (i32.and (local.get $act) (i32.const @AB_MELEE))))
   (if (local.get $go) (then (local.set $act (i32.xor (local.get $act) (i32.const @AB_MELEE)))))
+  ;; a carrier's trigger swings at a new press after a tick without one, so a
+  ;; held automatic (its counter moving every tick) doesn't swing (AB_HELD:
+  ;; the counter moved last tick)
   (if (local.get $carry)
     (then
-      (local.set $go (i32.or (local.get $go) (i32.ne (local.get $ctr) (!at u8 @(PLAYERS + P_FIRED) (local.get $pb)))))
+      (local.set $moved (i32.ne (local.get $ctr) (!at u8 @(PLAYERS + P_FIRED) (local.get $pb))))
+      (local.set $go (i32.or (local.get $go) (i32.and (local.get $moved) (i32.eqz (i32.and (local.get $act) (i32.const @AB_HELD))))))
+      (local.set $act (select (i32.or (local.get $act) (i32.const @AB_HELD)) (i32.and (local.get $act) (i32.const @(255 ^ AB_HELD))) (local.get $moved)))
       (!put u8 @(PLAYERS + P_FIRED) (local.get $pb) (local.get $ctr))))
   (if (i32.and (local.get $go) (i32.eqz (local.get $cool)))
     (then
@@ -1527,7 +1541,7 @@
 ;; AH_SCORE; $arena ends a match when a side reaches AH_TARGET, when the mode
 ;; says so, or at the clock, and sets AH_TEAMWIN. Each mode is the kit's: its
 ;; objective in src/am/<key>.wat (its state in AO, its constants in .mjs),
-;; three hooks called through (!am) while it is on, all on the confirmed
+;; four hooks called through (!am) while it is on, all on the confirmed
 ;; world, serial, in slot order where they loop:
 ;;   $<prefix>_start: play begins (after the core's own start): lay the
 ;;     objective out in AO, set AH_TARGET.
@@ -1562,16 +1576,25 @@
   (select (i32.const 1) (select (i32.const 2) (i32.const 0) (i32.gt_u (local.get $b) (local.get $r))) (i32.gt_u (local.get $r) (local.get $b))))
 
 ;; Slot p takes up (on 1) or puts down (0) a flag or the skull: PF_CARRY on
-;; the confirmed record. Taking one up stops a burst or a reload under way.
+;; the confirmed record. Taking one up stops a burst or a reload under way,
+;; and drops any press still waiting (the trigger's counter and the melee bit
+;; as the word last had them), so only a press made after the pickup swings;
+;; AB_HELD set, so a trigger still held from before it doesn't swing either.
 (func $a_carry (param $p i32) (param $on i32)
-  (local $pb i32)
+  (local $pb i32) (local $in i32)
   (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
   (!put u8 @(PLAYERS + P_FL) (local.get $pb)
     (i32.or (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(255 ^ PF_CARRY))) (select (i32.const @PF_CARRY) (i32.const 0) (local.get $on))))
   (if (local.get $on)
     (then
+      (local.set $in (!at i32 @(PLAYERS + P_IN) (local.get $pb)))
       (!put u8 @(PLAYERS + A_BURST) (local.get $pb) (i32.const 0))
-      (!put u8 @(PLAYERS + A_RELOAD) (local.get $pb) (i32.const 0)))))
+      (!put u8 @(PLAYERS + A_RELOAD) (local.get $pb) (i32.const 0))
+      (!put u8 @(PLAYERS + P_FIRED) (local.get $pb) (i32.and (i32.shr_u (local.get $in) (i32.const @AW_SHOT)) (i32.const 3)))
+      (!put u8 @(PLAYERS + A_ACT) (local.get $pb)
+        (i32.or (i32.or (i32.and (!at u8 @(PLAYERS + A_ACT) (local.get $pb)) (i32.const @(255 ^ AB_MELEE)))
+                        (i32.and (i32.shr_u (local.get $in) (i32.const @AW_MELEE)) (i32.const @AB_MELEE)))
+                (i32.const @AB_HELD))))))
 
 ;; 1 if slot p is in the fight: in the room and not dead.
 (func $a_alive (param $p i32) (result i32)
@@ -1607,12 +1630,13 @@
   (local.set $a (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 4))))
   (call $a_half (f32.load (local.get $a)) (f32.load offset=8 (local.get $a))))
 
-;; 1 if spawn point i is on side's half and the mode on now lets a fighter
-;; come in there (its bar hook: King of the Hill keeps its hill clear).
-(func $a_spawn_ok (param $i i32) (param $side i32) (result i32)
+;; 1 if spawn point i is on side's half and (strict) the mode on now lets a
+;; fighter come in there (its bar hook: King of the Hill keeps its hill clear).
+(func $a_spawn_ok (param $i i32) (param $side i32) (param $strict i32) (result i32)
   (local $a i32)
   (local.set $a (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 4))))
   (if (i32.ne (call $a_spawn_half (local.get $i)) (local.get $side)) (then (return (i32.const 0))))
+  (if (i32.eqz (local.get $strict)) (then (return (i32.const 1))))
   (i32.eqz (!am i32 bar (f32.load (local.get $a)) (f32.load offset=4 (local.get $a)) (f32.load offset=8 (local.get $a)))))
 
 #include "am/slayer.wat"

@@ -4,7 +4,7 @@
 ;; never below 0. The core ends the match at AH_TARGET or the clock and says
 ;; who won; the scores are AH_SCORE and each fighter's kills its A_KILLS, so
 ;; it keeps nothing in AO. The kit's worked example (arena.wat's modes
-;; section): three hooks, on the confirmed world, serial.
+;; section): four hooks, on the confirmed world, serial.
 
 ;; Play begins: the target, TS_PER for each fighter on the larger side (as
 ;; the core counted them this tick, AH_TEAMN), at least TS_MIN.

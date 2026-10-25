@@ -418,6 +418,21 @@ test('King of the Hill: nobody spawns on the hill, or within HL_BAR of its edge 
   assert.ok(seen.has(3) || seen.has(4), 'the roof\'s spawns used again once the hill has moved on');
 });
 
+test('King of the Hill: as play starts nobody stands where the first hill bars, whatever hill comes up: the countdown\'s spawns on it come in again elsewhere on their half', async () => {
+  const firsts = new Set();
+  for (const seed of [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13]) {
+    const g = await room(L.M_HILL, 16, seed);
+    const h = hill(g);
+    firsts.add(h.at);
+    for (let p = 0; p < 16; p++) {
+      const f = g.v.fighter(p);
+      const near = Math.hypot(f.pos[0] - h.pos[0], f.pos[2] - h.pos[2]) < h.r + Number(L.HL_BAR) && Math.abs(f.pos[1] - h.pos[1]) < Number(L.HL_BAR_H);
+      assert.ok(!near, `seed ${seed}: P${p} (${team(g, p) ? 'blue' : 'red'}) by hill ${h.at} as play starts`);
+    }
+  }
+  assert.ok(firsts.has(1) || firsts.has(4), `a roof hill came up first (${[...firsts]})`);
+});
+
 test('King of the Hill: joins and leaves mid-hill: a holder who leaves gives it up on its tick, its side\'s count kept; a rejoin starts from 0 points, on the side with fewer; a death leaves it', async () => {
   const g = await room(L.M_HILL, 5); // 0, 2, 4 red; 1, 3 blue
   away(g, [0, 1, 2, 3, 4]);
