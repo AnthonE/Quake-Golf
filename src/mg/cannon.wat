@@ -145,13 +145,13 @@
                               (local.get $b)))
     (local.set $sout (f32.max (local.get $sout) (local.get $st)))
     (local.set $te (i32.add (local.get $tt) (i32.trunc_sat_f32_u (f32.div (f32.sub (local.get $sout) (local.get $st)) (local.get $vdt))))))
-  (!chk (local.get $mx) 120 (local.get $k))
-  (!chk (local.get $mz) 120 (local.get $k))
-  (!chk (local.get $ux) 121 (local.get $k))
-  (!chk (local.get $uz) 121 (local.get $k))
-  (!chk (local.get $st) 122 (local.get $k))
-  (!chk (local.get $sout) 122 (local.get $k))
-  (!chk (local.get $ft) 123 (local.get $k))
+  (!chk (local.get $mx) 240 (local.get $k))
+  (!chk (local.get $mz) 240 (local.get $k))
+  (!chk (local.get $ux) 241 (local.get $k))
+  (!chk (local.get $uz) 241 (local.get $k))
+  (!chk (local.get $st) 242 (local.get $k))
+  (!chk (local.get $sout) 242 (local.get $k))
+  (!chk (local.get $ft) 243 (local.get $k))
   (local.set $fl (i32.or (i32.ne (local.get $lob) (i32.const 0)) (select (i32.const 2) (i32.const 0) (local.get $first))))
   (i32.store offset=@(PG_BIG + CN_SHOTS) (local.get $a) (local.get $tf))
   (i32.store offset=@(PG_BIG + CN_SHOTS + 24) (local.get $a) (local.get $tt))
@@ -231,7 +231,7 @@
 (func $cn_setup (param $n i32)
   (local $rad f32) (local $nc i32)
   (local.set $rad (f32.min (!madd (f32.sqrt (f32.convert_i32_u (local.get $n))) (f32.const @CN_RK) (f32.const @CN_R0)) (f32.const @CN_RMAX)))
-  (!chk (local.get $rad) 124 (local.get $n))
+  (!chk (local.get $rad) 244 (local.get $n))
   (i32.store (i32.const @PG_KIND) (i32.const @PK_OUT))
   (i32.store (i32.const @PG_LEN) (i32.const @CN_LEN))
   (f32.store (i32.const @PG_SIZE) (local.get $rad))
@@ -308,11 +308,12 @@
 ;; Every cannonball out on bank d's tick meets ball p as a sphere moving on
 ;; its line, which no ball moves: the ball is put back out of it across the
 ;; floor (never into it), sent off it at what it came in at times CN_E and at
-;; least CN_KICK, CN_SHOVE more along the cannonball's path, and up at CN_POP.
-;; A ball going out is past it. Each shot's lane is tried first, from the
-;; muzzle: across it (perp) and along it (al).
+;; least CN_KICK, CN_SHOVE more along the cannonball's path, and up at CN_POP;
+;; the shot and the tick go in its PG_M (over's). A ball going out is past
+;; it. Each shot's lane is tried first, from the muzzle: across it (perp) and
+;; along it (al).
 (func $cn_push (param $p i32) (param $d i32)
-  (local $pb i32) (local $fl i32) (local $tp i32) (local $b i32) (local $k i32) (local $k1 i32) (local $a i32)
+  (local $pb i32) (local $fl i32) (local $tp i32) (local $b i32) (local $k i32) (local $k1 i32) (local $a i32) (local $hit i32)
   (local $px f32) (local $py f32) (local $pz f32) (local $vx f32) (local $vy f32) (local $vz f32) (local $r f32) (local $by f32)
   (local $ux f32) (local $uz f32) (local $wx f32) (local $wz f32) (local $al f32) (local $pe f32) (local $rc f32) (local $rr f32)
   (local $ak f32) (local $yk f32) (local $sp f32) (local $vky f32) (local $dx f32) (local $dy f32) (local $h f32) (local $hn f32)
@@ -393,23 +394,25 @@
                       (local.set $vy (f32.max (!madd (local.get $dv) (local.get $ey) (local.get $vy)) (f32.const @CN_POP)))
                       (local.set $vz (!madd (local.get $dv) (local.get $ez) (!madd (local.get $uz) (f32.const @CN_SHOVE) (local.get $vz))))
                       (local.set $fl (i32.and (local.get $fl) (i32.const @(255 ^ PF_GROUND))))
+                      (local.set $hit (i32.or (i32.add (local.get $k) (i32.const 1)) (i32.shl (local.get $tp) (i32.const 16))))
                       (if (f32.ge (local.get $dv) (f32.const 2))
                         (then (call $fx (local.get $d) (i32.const @CN_FX_HIT) (local.get $p) (local.get $k)
                                         (!madd (local.get $nx) (local.get $rc) (local.get $kx)) (local.get $yk)
                                         (!madd (local.get $nz) (local.get $rc) (local.get $kz)) (local.get $dv))))))))))))
       (!inc $k)
       (br $next)))
-  (!chk (local.get $px) 125 (local.get $p))
-  (!chk (local.get $pz) 125 (local.get $p))
-  (!chk (local.get $vx) 126 (local.get $p))
-  (!chk (local.get $vy) 126 (local.get $p))
-  (!chk (local.get $vz) 126 (local.get $p))
+  (!chk (local.get $px) 245 (local.get $p))
+  (!chk (local.get $pz) 245 (local.get $p))
+  (!chk (local.get $vx) 246 (local.get $p))
+  (!chk (local.get $vy) 246 (local.get $p))
+  (!chk (local.get $vz) 246 (local.get $p))
   (!put f32 @(PLAYERS + P_PX) (local.get $pb) (local.get $px))
   (!put f32 @(PLAYERS + P_PZ) (local.get $pb) (local.get $pz))
   (!put f32 @(PLAYERS + P_VX) (local.get $pb) (local.get $vx))
   (!put f32 @(PLAYERS + P_VY) (local.get $pb) (local.get $vy))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz))
-  (!put u8 @(PLAYERS + P_FL) (local.get $pb) (local.get $fl)))
+  (!put u8 @(PLAYERS + P_FL) (local.get $pb) (local.get $fl))
+  (if (local.get $hit) (then (!put i32 @(PLAYERS + PG_M) (local.get $pb) (local.get $hit)))))
 
 ;; The confirmed world's calls, as FX: every cannon firing this tick (at its
 ;; muzzle), every lob touching down, a volley's stripes showing (its first
@@ -455,25 +458,40 @@
     (then (call $fx (i32.const 0) (i32.const @CN_FX_CALL) (i32.const 255) (i32.const 0x8002)
                     (f32.load (i32.const @PG_CX)) (f32.const @PLAT_Y) (f32.load (i32.const @PG_CX)) (f32.const 0)))))
 
-;; Two or more still on, every one of them falling, and all since the same
-;; tick (one cannonball took them all at once): over now, and they share the
-;; win rather than all sharing last. One that went off before the rest goes
-;; out first, in its place. Each ball's first tick falling is noted here (CN_FELL).
+;; Two or more still on and every one of them falling, all at once: over now,
+;; and they share the win, rather than the last of them to drop taking it
+;; alone. All at once is all since one tick (a tile taken from under them
+;; together), or each last hit by one cannonball (its PG_M) no more than
+;; CN_SHARE ticks before it began to fall: one shot that took them all. One
+;; that went off before the rest goes out first, in its place. Each ball's
+;; first tick falling is noted here (CN_FELL).
 (func $cn_over (result i32)
-  (local $p i32) (local $fl i32) (local $t i32) (local $at i32)
+  (local $p i32) (local $pb i32) (local $fl i32) (local $t i32) (local $at i32) (local $by i32) (local $m i32) (local $fell i32)
+  (local $same i32)
   (local.set $t (i32.add (call $p_t (i32.const 0)) (i32.const 1)))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
     (if (i32.and (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL))) (i32.eqz (!ld u16 @(PG_S + CN_FELL) (local.get $p))))
       (then (!st u16 @(PG_S + CN_FELL) (local.get $p) (local.get $t)))))
   (if (i32.lt_u (i32.load (i32.const @BH_LEFT)) (i32.const 2)) (then (return (i32.const 0))))
+  ;; 1: all since one tick so far; 2: all off one shot so far
+  (local.set $same (i32.const 3))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
-    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
+    (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+    (local.set $fl (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))))
     (if (i32.eq (local.get $fl) (i32.const @PF_LIVE)) (then (return (i32.const 0))))
     (if (i32.eq (local.get $fl) (i32.const @(PF_LIVE | PF_FALL)))
       (then
-        (if (i32.eqz (local.get $at)) (then (local.set $at (!ld u16 @(PG_S + CN_FELL) (local.get $p)))))
-        (if (i32.ne (!ld u16 @(PG_S + CN_FELL) (local.get $p)) (local.get $at)) (then (return (i32.const 0)))))))
-  (i32.const 1))
+        (local.set $fell (!ld u16 @(PG_S + CN_FELL) (local.get $p)))
+        (local.set $m (!at i32 @(PLAYERS + PG_M) (local.get $pb)))
+        (if (i32.eqz (local.get $at))
+          (then
+            (local.set $at (local.get $fell))
+            (local.set $by (i32.and (local.get $m) (i32.const 0xffff)))))
+        (if (i32.ne (local.get $fell) (local.get $at)) (then (local.set $same (i32.and (local.get $same) (i32.const 2)))))
+        (if (i32.or (i32.or (i32.eqz (local.get $by)) (i32.ne (i32.and (local.get $m) (i32.const 0xffff)) (local.get $by)))
+                    (i32.gt_s (i32.sub (i32.sub (local.get $fell) (i32.const 1)) (i32.shr_u (local.get $m) (i32.const 16))) (i32.const @CN_SHARE)))
+          (then (local.set $same (i32.and (local.get $same) (i32.const 1))))))))
+  (i32.ne (local.get $same) (i32.const 0)))
 
 (func $cn_out (param $p i32))

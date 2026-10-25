@@ -104,6 +104,10 @@ export const CN_SHOTS = 9216;
 export const CN_REC = 64;
 export const CN_NMAX = 1024;
 export const CN_FELL = 0; // in PG_S: u16 per slot, the tick into play it started going out, plus 1 (0 not yet: over's)
+// A ball's PG_M: u16 the last shot that hit it plus 1 (0 none), u16 the tick
+// into play it did. The last balls on, all falling, share the win if one shot
+// hit each no more than CN_SHARE ticks before it began to fall.
+export const CN_SHARE = 375; // 3 s
 // Its header, byte offsets in PG_H.
 export const CN_RAD = 0; // f32 the platform's radius at the start
 export const CN_NC = 4; // u32 cannons

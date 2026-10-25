@@ -13,7 +13,7 @@ import { playParty } from '../tools/genparty.mjs';
 import { Partier } from '../client/party-bot.mjs';
 import * as L from '../src/layout.mjs';
 import * as MC from '../src/mg/cannon.mjs'; // CN_*: the minigame's own constants
-import cannon, { rimAt, cellOf, dropOf, holds, stage, span, shotAt, volleyAt } from '../client/mg/cannon.mjs';
+import cannon, { rimAt, cellOf, dropOf, holds, stage, span, shotAt, volleyAt, hopClears } from '../client/mg/cannon.mjs';
 
 const C = L.B_CX;
 const S = Math.fround(MC.CN_S);
@@ -429,6 +429,42 @@ test('the last balls on all knocked off at once share the win, rather than all s
   assert.equal(g2.v.party().winner, 1);
 });
 
+test('the last balls on, all off one cannonball, share the win though they go over the edge ticks apart; off two shots, or one long before, the last on wins', async () => {
+  // a real one: a big shot down the lane takes both (one glancing, one head on) off the far rim
+  const g = await room(3, { quiet: true });
+  const r = g.v.party().size, t = g.v.party().t;
+  put(g, 0, C, C - 12);
+  g.dv.setUint8(rec(0) + L.P_FL, L.PF_LIVE | L.PF_DEAD);
+  lay(g, 0, { x: C - r - 4, z: C, tf: t + 2, v: 20, rc: 2.4 });
+  put(g, 1, C + r - 7, C + 1.8);
+  put(g, 2, C + r - 3, C - 1.2);
+  const fell = [0, 0];
+  for (let k = 0; k < 600 && g.v.party().state === L.H_PLAY; k++) {
+    g.step();
+    for (const q of [1, 2]) if (!fell[q - 1] && g.v.partier(q).falling) fell[q - 1] = g.v.tick;
+  }
+  for (const q of [1, 2]) assert.equal(g.dv.getUint32(rec(q) + L.PG_M, true) & 0xffff, 1, `P${q + 1} hit by shot 0`);
+  assert.ok(fell[0] && fell[1] && fell[0] !== fell[1], `fell on ticks ${fell}`);
+  assert.equal(g.v.party().state, L.H_OVER);
+  assert.equal(g.v.party().winner, 255, 'shared');
+  assert.deepEqual([1, 2].map((q) => g.v.partier(q).place), [1, 1]);
+  // by hand, [shot, hit tick from now] for each, dropped 40 ticks apart: one shot; two; one, but long before
+  for (const [m1, m2, shared] of [[[5, 0], [5, 30], true], [[5, 0], [6, 0], false], [[5, 0], [5, -MC.CN_SHARE - 80], false]]) {
+    const h = await room(2, { quiet: true, seed: 12 });
+    at(h, 1000);
+    const r2 = h.v.party().size, tp = 1000;
+    const hit = (p, [k, dt]) => h.dv.setUint32(rec(p) + L.PG_M, (k + 1) | ((tp + dt) << 16), true);
+    hit(0, m1); hit(1, m2);
+    put(h, 0, C + r2 + 3, C, { y: PLAT_Y - 0.5, ground: false });
+    for (let k = 0; k < 40; k++) h.step();
+    put(h, 1, C - r2 - 3, C, { y: PLAT_Y - 0.5, ground: false });
+    for (let k = 0; k < 400 && h.v.party().state === L.H_PLAY; k++) h.step();
+    assert.equal(h.v.party().state, L.H_OVER);
+    assert.deepEqual([0, 1].map((q) => h.v.partier(q).place), shared ? [1, 1] : [2, 1], `${m1} ${m2}`);
+    assert.equal(h.v.party().winner, shared ? 255 : 1);
+  }
+});
+
 test('the prediction matches the confirmed ball bit for bit: through a cannonball head on and glancing, a lob coming down on it, the crumbling rim, and the real volleys', async () => {
   // one ball a room (a ball alone plays till it falls): nobody to bump it, which the prediction leaves to the confirmed world
   // A: rolling across two lanes as shots come down them
@@ -590,6 +626,27 @@ test('the client module: draws the countdown and the round, frames the disc, wri
   put(g2, 0, now.x + 8, C);
   cannon.hud(g2.v, { ...hctx, me: g2.v.partier(0) });
   assert.ok(lines.some((l) => l[1].startsWith('CANNONBALL')), lines.map((l) => l[1]).join(' | '));
+  // and says hop only where a hop clears it: 1.25 m, not 1.5 m (CN_HOP's peak clears about 1.38 dead on)
+  assert.ok(Math.abs(hopClears(f(MC.CN_HOP)) - 1.328) < 0.01);
+  for (const [rc, says] of [[1.25, 'HOP IT OR MOVE'], [1.5, 'MOVE!']]) {
+    g2.dv.setFloat32(SH0 + 20, rc, true);
+    stage(g2.v, true);
+    lines.length = 0;
+    cannon.hud(g2.v, { ...hctx, me: g2.v.partier(0) });
+    const l = lines.find((x) => x[1].startsWith('CANNONBALL'));
+    assert.ok(l && l[1].includes(says), `${rc} m: ${l?.[1]}`);
+  }
+  // the feed: out within a few seconds of a cannonball's hit, it says so; else (or bumped out by a ball) the usual
+  const pm = rec(1) + L.PG_M, st = g2.v.party().start;
+  const sink = { kind: L.FX_SINK, owner: 1, shot: 255, tick: (st + 2000) >>> 0 };
+  const nm = (p) => `P${p + 1}`;
+  g2.dv.setUint32(pm, 0, true);
+  assert.equal(cannon.sink(sink, nm, g2.v), null);
+  g2.dv.setUint32(pm, 4 | (1800 << 16), true);
+  assert.equal(cannon.sink(sink, nm, g2.v), 'P2 CANNONBALLED');
+  assert.equal(cannon.sink({ ...sink, shot: 0 }, nm, g2.v), null);
+  g2.dv.setUint32(pm, 4 | (1000 << 16), true);
+  assert.equal(cannon.sink(sink, nm, g2.v), null);
   // the volley on now
   const vo = volleyAt(stage(g.v), 0);
   assert.equal(vo.vol, 0);

@@ -69,7 +69,9 @@ export function cellAt(x, z, cx) {
 
 // The round's stage on the view's bank: its radius, centre, cannons, tiles
 // and the schedule's shots (flat arrays by record), read once a round (and
-// again while the countdown may lay it out again, or when asked `again`).
+// again when asked `again`). Setup lays it all from the seed, the round and
+// the radius, so those and the header's counts say when the countdown has
+// laid it out again (for a crowd of another size).
 let memo = null;
 export function stage(view, again = false) {
   const dv = view.dv, o = view.bank || 0;
@@ -77,12 +79,12 @@ export function stage(view, again = false) {
   const seed = dv.getUint32(L.HDR_SEED + o, true), hole = dv.getUint32(L.HDR_HOLE + o, true), state = dv.getUint32(L.HDR_STATE + o, true);
   const ns = Math.min(dv.getUint32(L.PG_H + MC.CN_NS + o, true), MC.CN_NMAX);
   const fixed = state === L.H_PLAY || state === L.H_OVER;
-  const m = memo;
-  if (!again && m && m.fixed && fixed && m.r0 === r0 && m.cx === cx && m.seed === seed && m.hole === hole && m.ns === ns) return m;
   const nc = Math.min(dv.getUint32(L.PG_H + MC.CN_NC + o, true), MC.CN_NCMAX), rot = dv.getUint32(L.PG_H + MC.CN_ROT + o, true);
+  const m = memo;
+  if (!again && m && m.r0 === r0 && m.cx === cx && m.seed === seed && m.hole === hole && m.ns === ns && m.nc === nc && m.rot === rot) return m;
   const ring = dv.getFloat32(L.PG_H + MC.CN_RC + o, true);
   const s = {
-    r0, cx, seed, hole, ns, nc, ring, fixed, tiles: [], cannons: [],
+    r0, cx, seed, hole, ns, nc, rot, ring, fixed, tiles: [], cannons: [],
     tf: new Int32Array(ns), tt: new Int32Array(ns), te: new Int32Array(ns), can: new Uint8Array(ns), fl: new Uint8Array(ns), vol: new Uint16Array(ns),
     mx: new Float64Array(ns), mz: new Float64Array(ns), ux: new Float64Array(ns), uz: new Float64Array(ns), st: new Float64Array(ns), sout: new Float64Array(ns),
     v: new Float64Array(ns), rc: new Float64Array(ns), arc: new Float64Array(ns), n: new Uint8Array(ns), b: new Float64Array(ns), ww: new Float64Array(ns),
@@ -296,16 +298,21 @@ const REACT = new Uint8Array(L.NPLAYER).fill(20);
 // what each ball's last think kept of the shots near it: { at (view tick), x, z, list }
 const NEAR = [];
 // The shots near (x, z) (lanes within reach) that ball slot can see, from the
-// view's tick: kept a think (the planner asks 90 times round one spot).
+// view's tick: kept a think (the planner asks 90 times round one spot) for
+// points within NEAR_R of the first. A lane within NEAR_LANE of that one is
+// within NEAR_LANE - NEAR_R of any of them: past what danger() looks for
+// (rc + RB + 0.95) and what goal()'s ring of candidates 11 m out does (rc + RB
+// + 1.6 from 11 m).
+const NEAR_R = 10, NEAR_LANE = 13;
 function nearShots(view, s, slot, x, z) {
   const g = view.party();
   const c = slot >= 0 ? NEAR[slot] : null;
-  if (c && c.at === view.tick && c.bank === view.bank && Math.abs(c.x - x) < 9 && Math.abs(c.z - z) < 9) return c.list;
+  if (c && c.at === view.tick && c.bank === view.bank && (c.x - x) * (c.x - x) + (c.z - z) * (c.z - z) < NEAR_R * NEAR_R) return c.list;
   const t = g.t, seen = t - (slot >= 0 ? REACT[slot] : 20);
   const list = [];
   for (const k of shown(s, seen, t)) {
     const pe = (x - s.mx[k]) * s.uz[k] - (z - s.mz[k]) * s.ux[k];
-    if (Math.abs(pe) < s.rc[k] + RB + 12) list.push(k);
+    if (Math.abs(pe) < s.rc[k] + RB + NEAR_LANE) list.push(k);
   }
   if (slot >= 0) NEAR[slot] = { at: view.tick, bank: view.bank, x, z, list };
   return list;
@@ -379,6 +386,12 @@ function crowdOf(view) {
   return grid;
 }
 let lastBoom = -1e9; // ms, the last cannon heard
+// The biggest cannonball a hop clears dead on: its top under the hop's peak
+// (hop^2 / 2g, g 20 m/s^2), less a margin for the hop's timing.
+export const hopClears = (hop) => (hop * hop) / 80 - 0.05;
+// The ticks before going out a cannonball's hit (PG_M) still gets the credit:
+// CN_SHARE to start falling, then the fall itself.
+const BLAST = MC.CN_SHARE + 250;
 const crowdAt = (grid, x, z) => grid.get(Math.floor(x / 3) * 4096 + Math.floor(z / 3)) || 0;
 
 export default {
@@ -453,6 +466,15 @@ export default {
     }
   },
 
+  // a ball out off a cannonball's knock (its PG_M, on the confirmed world)
+  sink(f, name, view) {
+    if (f.shot !== 255) return null;
+    const m = view.dv.getUint32(L.PLAYERS + f.owner * L.PSIZE + L.PG_M, true);
+    if (!(m & 0xffff)) return null;
+    const out = (f.tick - view.party().start) | 0;
+    return out - (m >>> 16) <= BLAST ? `${name(f.owner)} CANNONBALLED` : null;
+  },
+
   // the volleys, the next turn of the round, and whether you're in a lane
   hud(view, ctx) {
     const g = view.party();
@@ -471,6 +493,7 @@ export default {
     const row = Math.max(3, Math.floor((ctx.rows || 40) * 0.18));
     // the soonest cannonball down a lane you're in
     let soon = Infinity, small = false;
+    const clear = hopClears(view.dv.getFloat32(L.PG_HOP + (view.bank || 0), true));
     const [k0, k1] = span(s, tp, tp + MC.CN_TELE);
     for (let k = k0; k < k1; k++) {
       if (s.tf[k] - MC.CN_TELE > tp) continue;
@@ -482,7 +505,7 @@ export default {
       const p = shotAt(s, k, tp, P);
       if (p.phase >= 1 && p.a > al + rr) continue;
       const eta = p.phase < 1 ? (s.tt[k] - tp) * TICK + Math.max(0, al - rr - s.st[k]) / s.v[k] : Math.max(0, al - rr - p.a) / s.v[k];
-      if (eta < soon) { soon = eta; small = s.rc[k] < 1.6; }
+      if (eta < soon) { soon = eta; small = s.rc[k] <= clear; }
     }
     if (soon < 3) ctx.centre(row, `CANNONBALL  ${small ? 'HOP IT OR MOVE' : 'MOVE!'}  ${soon.toFixed(1)}`, soon < 1 ? C.RED : C.ORANGE);
     else {
