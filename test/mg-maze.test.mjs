@@ -153,7 +153,6 @@ test('the maze for 1, 8, 64 and 256: sized for the crowd, every cell on a path t
 });
 
 test('mazes from many seeds and crowds: every one whole, its loops and halls and doors in proportion', async () => {
-  const g = await room(16, { play: false });
   let doors = 0, cells = 0, longest = 0;
   for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
     for (const n of [3, 16, 100]) {
@@ -170,10 +169,9 @@ test('mazes from many seeds and crowds: every one whole, its loops and halls and
   }
   assert.ok(doors / cells > 0.03 && doors / cells < 0.2, `${doors} doors in ${cells} cells`);
   assert.ok(longest > 15, `the longest way ${longest} cells`);
-  assert.ok(g);
 });
 
-test('a hedge stops a ball: thrown at one it bounces back off and never gets into it, along one it slides, at a corner it turns; open edges let it by; over the hedges nothing', async () => {
+test('a hedge stops a ball: thrown at one it bounces back off and never gets into it, along one it stays clear, stuck in one it goes out the nearer side; open edges let it by; over the hedges nothing; the floor is the maze', async () => {
   const g = await room(2, { seed: 11 });
   const M = mazeOf(g.v);
   const mask = maskOf(M, 0);
@@ -240,6 +238,24 @@ test('a ball thrown about every cell of a maze at every speed stays in its paths
     }
   }
   assert.ok(worst > B_RAD - 0.03, `${worst.toFixed(3)} m clear at worst`);
+});
+
+test('bumps on, without bumper\'s kick: two balls that meet trade what they bring, and one at rest is shoved on', async () => {
+  const g = await room(2, { seed: 19 });
+  const M = mazeOf(g.v);
+  // two cells in a row with no hedge between them, well inside
+  const o = findEdge(M, (kind, c, k) => k === 0 && kind === MC.MZ_OPEN);
+  const [x, z] = centreOf(M, o.c);
+  put(g, 0, x + 0.4, z, { vx: 0.5 });
+  put(g, 1, x + 2.5, z, { vx: -0.5 });
+  for (let k = 0; k < 20; k++) g.step();
+  const a = g.v.partier(0), b = g.v.partier(1);
+  assert.ok(Math.abs(a.vel[0]) < 1.5 && Math.abs(b.vel[0]) < 1.5, `no kick: ${a.vel[0].toFixed(2)}, ${b.vel[0].toFixed(2)} m/s`);
+  assert.ok(b.pos[0] - a.pos[0] >= 2 * B_RAD - 0.05, 'apart');
+  put(g, 0, x - 1.5, z, { vx: 8 });
+  put(g, 1, x + 1.2, z);
+  for (let k = 0; k < 15; k++) g.step();
+  assert.ok(g.v.partier(1).vel[0] > 3, `a ram shoves it on: ${g.v.partier(1).vel[0].toFixed(2)} m/s`);
 });
 
 test('the doors: shut or open by the table and the tick; the paths worked again as they move; FX ahead and as they do', async () => {
@@ -330,13 +346,11 @@ test('home: the first onto the pad wins and cuts the clock to MZ_LATE; balls hom
   assert.deepEqual(home.map((x) => [x.owner, x.shot]), [[1, 1]]);
   // two onto it on one tick: both 2nd
   put(g, 0, C - 1, C);
-  const [x3, z3] = centreOf(M, 0);
   put(g, 3, C, C + 1);
   g.step();
   assert.deepEqual([g.v.partier(0).m, g.v.partier(3).m], [MC.MZ_M_FIN | 2, MC.MZ_M_FIN | 2]);
   assert.deepEqual([g.v.partier(0).score, g.v.partier(3).score], [MC.MZ_SFIN - 1, MC.MZ_SFIN - 1]);
   assert.equal(g.v.hole().until, Math.min(until0, t1 + MC.MZ_LATE), 'cut once');
-  assert.ok(x3 < C && z3 < C);
   // a home ball stays out: it doesn't move, and isn't home again
   g.step();
   assert.equal(fxs(g.v, MC.MZ_FX_HOME).length, 3);
@@ -347,10 +361,9 @@ test('home: the first onto the pad wins and cuts the clock to MZ_LATE; balls hom
   g.step();
   assert.equal(g.v.hole().state, L.H_OVER);
   for (const [p, len] of want) assert.equal(g.v.partier(p).score, MC.MZ_SFAR - Math.trunc(f(f(len) * 2)), `P${p + 1}: ${len.toFixed(2)} m`);
-  const places = [...Array(6).keys()].map((p) => g.v.partier(p).place);
-  assert.deepEqual(places.slice(0, 4), [2, 1, 4, 2].map((x, k) => (k === 2 ? places[2] : x)));
-  const order = want.slice().sort((a, b) => a[1] - b[1]);
-  order.forEach(([p], k) => assert.ok(g.v.partier(p).place >= 4 && (k === 0 || g.v.partier(p).place >= g.v.partier(order[k - 1][0]).place)));
+  const place = (p) => g.v.partier(p).place;
+  assert.deepEqual([place(1), place(0), place(3)], [1, 2, 2], 'home by the order they got there');
+  assert.deepEqual(want.slice().sort((a, b) => a[1] - b[1]).map(([p]) => place(p)), [4, 5, 6], 'the rest by their way to the middle');
   assert.equal(g.v.party().winner, 1);
   assert.equal(g.v.partier(1).pts, 10);
   assert.ok([...Array(6).keys()].every((p) => g.v.partier(p).pts >= 1 && g.v.partier(p).pts <= 10));
