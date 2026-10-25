@@ -22,7 +22,7 @@ the TV. What comes next is [docs/roadmap.md](docs/roadmap.md).
 | P1 · Party | bumper balls' ball and a minigame a round, fourteen of them (Thin Ice, Color Call, Sweeper, Red Light, Bomb Rain, The Wall, Musical Pads, King of the Hill, Hot Potato, Coin Rush, Paint Party, Downhill, Fruit Chute, Tag), every stage on a schedule so the prediction is exact through it; a renderer for any stage in bumper balls' look; each minigame's AI rounds equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal | **passed** · [Party](#party) |
 | F1 · Fireplace | every game in one module, each bit for bit its own build; a playlist the room plays through, everyone moved into the next game on one tick, marshmallows for the top three; keyframes from any game restored into another's world; the playlist equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and online with every hash equal across a switch; a page that is a living room, the TV closing in to fill the screen | **passed** · [Fireplace](#fireplace) |
 | B1 · bumper balls | every player a ball on a wheel of Swiss cheese whose holes are the golf cup made big: bump the others in, keep out yourself, the last ball rolling wins; the rim crumbling and the holes widening, power-ups dropping from the sky; rounds of AI balls equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [bumper balls](#bumper-balls) |
-| A3 · Blood Gulch | a map with structures in the game rules, not just the picture: two bases you walk into (doors, a room, stairs to a hatch, a roof, a bridge), a cave through a ridge, teleporters; walls stop bodies, bullets, rockets, frags and blasts; the map built from images and a JSON file at build time; a match of fighters on it equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [Blood Gulch](#blood-gulch-structures-and-maps) |
+| A3 · Box Canyon | a map with structures in the game rules, not just the picture: two bases you walk into (doors, a room, stairs to a hatch, a roof, a bridge), a cave through a ridge, teleporters; walls stop bodies, bullets, rockets, frags and blasts; the map built from images and a JSON file at build time; a match of fighters on it equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads, and 256 online with every hash equal | **passed** · [Box Canyon](#box-canyon-structures-and-maps) |
 | A2 · 256 fighters | one arena room full: Chrome and 255 AI fighters, Fiesta, every session's interval hashes equal to the referee's | **passed** · [results](#256-in-one-room) |
 | A1 · the arena | a deathmatch on the same engine: Chrome and AI fighters in one room over the real relay, every session's interval hashes equal to the referee's, kills, respawns and pickups; a match of fighters equal on every tick in Node, Deno and Chrome on 1, 2 and 4 threads | **passed** · [the arena](#the-arena) |
 | N4 · failover and replays | the room's relay killed mid-match: a standby takes the room over from its own record, all 65 players keep their slots, every hash equal before and after; the room's replay, spanning the takeover, checks out interval by interval in Node and in Chrome | **passed** · [results](#n4-failover-and-replays) |
@@ -41,16 +41,19 @@ the TV. What comes next is [docs/roadmap.md](docs/roadmap.md).
 Not a golfer? The same engine runs a deathmatch: `src/` built with `ARENA`
 set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
 prediction, spectators and replays, up to 256 in a room. A room's first
-match is a Fiesta: ten minutes, everyone spawns with two guns drawn at
+match is a Grab Bag: ten minutes, everyone spawns with two guns drawn at
 random, the most kills at the end wins; the matches after it go round the
 [modes](#modes), free-for-alls and [red against blue](#teams) by turns: Team
-Slayer, Infection, Capture the Flag, gun game, Oddball, Juggernaut, King of
-the Hill. All of them are on
-[Blood Gulch](#blood-gulch-structures-and-maps): a walled box canyon with a
-base at each end you can walk into and up onto, a teleporter behind each, a
+Deathmatch, Zombies, Capture the Flag, gun game, Keep Away, Juggernaut, King
+of the Hill. All of them are on
+[Box Canyon](#box-canyon-structures-and-maps): a canyon walled all round with
+a base at each end you can walk into and up onto, a teleporter behind each, a
 cave through the north ridge, boulders for cover. (Set `FIESTA = 0` in
-`src/layout.mjs` for slayer instead of Fiesta: an assault rifle and a
-magnum, guns on pads about the floor, first to 25.)
+`src/layout.mjs` for a free-for-all instead of Grab Bag: an assault rifle
+and a magnum, guns on pads about the floor, first to 25.) Below, the modes go
+by the code's names (`MODES` in `src/layout.mjs` holds what a player sees):
+Grab Bag is Fiesta, Team Deathmatch is Team Slayer, Zombies is Infection and
+Keep Away is Oddball.
 
 ```sh
 npm ci && sh tools/install-deno.sh   # once
@@ -74,24 +77,24 @@ two frags, under 100 points of shields and 100 of health. Shields take damage fi
 come back five seconds after the last hit; health comes back once they're
 full. A kill gives the killer a frag (up to four). Three seconds after a
 death you're back, at the spawn point farthest from the nearest enemy of
-four drawn. The guns, with a nod to Halo's ([`ARMS` in src/layout.mjs](src/layout.mjs)):
+four drawn. The guns ([`ARMS` in src/layout.mjs](src/layout.mjs)):
 
 | Gun | Fires | Damage | Notes |
 | --- | --- | --- | --- |
 | Assault rifle | auto, 11 rounds/s, 32 a magazine | 8 | spread ±0.9°, 90 m |
-| Battle rifle | 3-round bursts | 9 a round | a head shot kills once the shields are down: four bursts; 2x zoom |
+| Burst rifle | 3-round bursts | 9 a round | a head shot kills once the shields are down: four bursts; 2x zoom |
 | Magnum | semi-auto | 28 | head shot kills once the shields are down: four shots; 2x zoom |
 | Sniper rifle | semi-auto, 4 a magazine | 120 | a head shot always kills, two to the body; 5x scope, 420 m |
 | Shotgun | 15 pellets, spread ±5.7° | 15 each | falls off past 8 m, a fifth by 28 |
 | Rocket launcher | 2 rockets, 36 m/s | 230 splash, 5 m | the whole of it within 1.75 m; half to yourself; rocket jumps |
 | Plasma rifle | auto bolts, 70 m/s, a battery of 100 | 10 | no reload |
-| Needler | auto needles, 34 m/s, home within 12° | 6 | seven stuck at once go off together and kill |
-| Energy sword | a lunge | kills within 5 m | 10 swings |
+| Seeker | auto needles, 34 m/s, home within 12° | 6 | seven stuck at once go off together and kill |
+| Sword | a lunge | kills within 5 m | 10 swings |
 | Frag grenade | thrown (G) | 150 splash | goes off 1.8 s after the throw |
 | Melee (Q) | any gun | 70 | lunges 2.4 m; from behind, it kills |
 
 In slayer, the rocket launcher sits on the middle pad, a sniper rifle on
-each base; shotguns, battle rifles, a sword, a needler and plasma rifles
+each base; shotguns, burst rifles, a sword, a seeker and plasma rifles
 are about the floor. A gun you carry is ammo when you walk over its pad; any other is
 yours with E, in place of the one in your hands. A pad comes back 30 s after
 (60 s for the sniper, the rocket and the sword).
@@ -117,7 +120,7 @@ the fighter, the shot and the pellet rather than the room's PRNG, so the
 prediction layer fires your shots exactly as the confirmed world will:
 your tracers, muzzle flash, recoil, reloads and swaps show on the next
 frame, and hits and kills a round trip later. Projectiles (rockets, bolts,
-needles, frags) are checked where things are now, as in Halo.
+needles, frags) are checked where things are now.
 
 `client/arena.html` is the page: the same net and sim workers, the arena's
 renderer (`client/arena-render.mjs`: golf's ray-marched terrain and splats,
@@ -137,7 +140,7 @@ one-shot head kills; lag compensation (a sniper shot at where a running
 target stood 12 and 25 ticks before lands when the frames say so, and the
 same aim claiming no lag misses); reload and pickup frames (and windows without a frame keeping the lag); the sword, a
 butt to the front and an assassination; rocket splash killing two and a
-rocket jump at half damage; the frag's fuse; a needler supercombine; the
+rocket jump at half damage; the frag's fuse; a seeker's overload; the
 Fiesta's random loadouts (two different guns, full, every gun dealt), its
 clock ending the match whatever the kills and a new one from zero; the
 prediction equal to the confirmed world bit for bit through runs, bursts, a
@@ -180,8 +183,8 @@ free-for-all modes:
 | Mode | Spawns with | Ends | Places |
 | --- | --- | --- | --- |
 | Fiesta | two guns at random, two frags | 10 min | kills, then deaths |
-| Infection | humans: a shotgun and a magnum, full, two frags; zombies: an energy sword that never runs out, no shields, 100 health, 12.5 m/s and a 1.8 m jump (a human's are 10 m/s and 1.2 m), half the damage of any gun but the shotgun | no human left, or 3 min | humans still alive (shared), then time lived as a human, then infections |
-| Gun game | its rung's gun in both hands: assault rifle, battle rifle, magnum, shotgun, plasma rifle, needler, sniper rifle, rocket launcher, energy sword | the first kill with the sword, or 5 min | rung, then kills |
+| Infection | humans: a shotgun and a magnum, full, two frags; zombies: a sword that never runs out, no shields, 100 health, 12.5 m/s and a 1.8 m jump (a human's are 10 m/s and 1.2 m), half the damage of any gun but the shotgun | no human left, or 3 min | humans still alive (shared), then time lived as a human, then infections |
+| Gun game | its rung's gun in both hands: assault rifle, burst rifle, magnum, shotgun, plasma rifle, seeker, sniper rifle, rocket launcher, sword | the first kill with the sword, or 5 min | rung, then kills |
 | Juggernaut | as in Fiesta; the juggernaut the sword, 200 shields and a zombie's legs | 10 points, or 5 min | points, then kills |
 
 Infection draws one zombie for every ten fighters (at least one) from the
@@ -189,7 +192,7 @@ room's PRNG at the countdown's end. A human who dies, to anything, comes
 back a zombie 2 s later, at the spawn point (of four drawn) whose nearest
 human is nearest 25 m off; a join during play is a zombie; if the zombies
 all leave, another is drawn. A zombie has no shields, so a head shot that
-kills through them (the battle rifle's, the magnum's) is only a hit; the
+kills through them (the burst rifle's, the magnum's) is only a hit; the
 sniper's still kills. Neither side hurts its own: the check is in damage,
 melee's choice of target, splash and needles (a bullet still stops on a
 teammate). In gun game a kill moves its killer up a rung, the new gun in
@@ -338,7 +341,7 @@ blue, red as a match starts and a join balancing them; a Fiesta after each
 team mode with its region exactly a Fiesta's (the mode header to `AH_END`,
 `AO`, the records, the pads in Fiesta's build, no side bits); no friendly
 fire from bullets, the butt, an assassination, the sword and its lunge,
-frags, rockets, plasma, needles and the supercombine, the other side still
+frags, rockets, plasma, needles and the overload, the other side still
 hurt; spawns on the fighter's own half and never the middle line; the
 loadout and the pads; carrying (no shot, frag, reload or pickup, a click or
 Q swinging and killing, a press waiting at the pickup dropped and a held
@@ -365,9 +368,9 @@ on it (all the time on the field, the roofs and the cave, 61 to 100% on the
 rocks' 5 x 3 m tops).
 `test/arena-client.test.mjs` (11): the readers (nobody red in a Fiesta), the
 kit's modules and their news, the waypoints landing where the shader's
-projection puts them, routes through Blood Gulch's doors from every spawn
+projection puts them, routes through Box Canyon's doors from every spawn
 to every objective with no leg into a wall, a body's width clear, roles.
-`test/map.test.mjs`: the objectives on Blood Gulch at their heights, the
+`test/map.test.mjs`: the objectives on Box Canyon at their heights, the
 defaults, the halves.
 
 The determinism matrix replays 20,000 ticks of eight AI fighters in each
@@ -408,9 +411,9 @@ node net/run-arena.mjs --mode 5 [--bots 15] [--seconds 90]
 node net/play.mjs --arena --mode 7       # a room of King of the Hill
 ```
 
-### Blood Gulch: structures and maps
+### Box Canyon: structures and maps
 
-![Blood Gulch from beside the blue base, the red one at the far end](docs/a3-blood-gulch.png)
+![Box Canyon from beside the blue base, the red one at the far end](docs/a3-box-canyon.png)
 
 The ground is still a height map, drawn per pixel by stepping a ray across
 it, and a height map can't overhang. So everything that has to (a wall you
@@ -431,10 +434,10 @@ it. They change nothing about the netcode: the map is static, built into the
 wasm, so a room's peers have the same one or the relay turns them away for
 a different build.
 
-Blood Gulch is two bases, 20 m by 18 m with 4 m walls and a door in every
+Box Canyon is two bases, 20 m by 18 m with 4 m walls and a door in every
 side, a room inside, twelve steps up the inside wall to a hatch, a roof with
 a parapet, and a bridge from the roof back over the yard to the slope
-behind (`maps/bloodgulch/map.json` has them as one prefab, placed twice,
+behind (`maps/canyon/map.json` has them as one prefab, placed twice,
 the second turned half round and its trim blue); a teleporter in each yard
 to the far side of the field; a ridge along the north wall with a cave
 through it, its sword pad inside; boulders, rocks, a creek bed. 83 boxes in
@@ -456,10 +459,10 @@ a run; bullets ending on a wall, a rocket going off on it and its blast not
 reaching the fighter behind it, a frag bouncing back off it; the prediction
 equal to the confirmed world bit for bit through a wall, a door, the stairs,
 a jump under the roof and a teleporter. `test/map.test.mjs`: PNGs round
-trip; Blood Gulch's blue base the red one turned about; a broken map says
+trip; Box Canyon's blue base the red one turned about; a broken map says
 what is wrong with it; a map of its own (a 64 m floor, a block, a
 teleporter) built into the arena and played. The determinism matrix: 27
-configurations, 20,000 ticks of eight AI fighters on Blood Gulch, equal on
+configurations, 20,000 ticks of eight AI fighters on Box Canyon, equal on
 every tick. Online, 256 fighters for 40 s: 9,472 interval hashes, all equal,
 1,292 kills. The bots see past boxes and walk round them (when a run stops,
 they sidle and jump a while). The arena's wasm grew from 12 KB to 49 KB
@@ -479,7 +482,7 @@ node net/play.mjs --arena
 - `height.png`: grey, 8 or 16 bits, 2 m a pixel, placed at
   `terrain.origin` (world x, z, multiples of 2; the world is 1024 m a side).
   Metres are `terrain.base + level * terrain.scale` (`1/256` for 16-bit
-  files, as Blood Gulch's; a quarter metre a level for 8-bit is a fair
+  files, as Box Canyon's; a quarter metre a level for 8-bit is a fair
   start). Past the image the generated terrain carries on as mountains from
   its edge.
 - `surface.png` (optional, the same size): what the ground is, by colour,
@@ -502,7 +505,7 @@ node net/play.mjs --arena
   hills (radius up to 30 m), and each side's half (the spawns strictly
   nearer its own flag) needs a spawn.
 
-`tools/bloodgulch.mjs` is how Blood Gulch was drawn: the ground painted by
+`tools/canyon.mjs` is how Box Canyon was drawn: the ground painted by
 code into the two images, the rest written to `map.json`. Edit its output
 in any paint program and text editor, or edit it and run it again.
 

@@ -14,7 +14,7 @@ const STATES = ['waiting', 'countdown', 'play', 'over'];
 const KEYS = { w: MOVE.FORWARD, s: MOVE.BACK, a: MOVE.LEFT, d: MOVE.RIGHT, j: 16 };
 const FIRE_TICKS = 12; // long enough for the press to cross the round trip and land
 
-export const HELP = `QUAKE GOLF. Sink your ball in the cup (a slipgate: it swallows a ball under 8 m/s) in as few shots as you can.
+export const HELP = `GOLF. Sink your ball in the cup (it swallows a ball under 8 m/s) in as few shots as you can.
 Every shot is a stroke. The rocket is your club: shoot the ground just behind your ball, on the side away from where it
 should go. From four tees, a blast this far behind the ball sent it: 0.5-1 m, 200-350 m; 1.5 m, 150-180 m; 2 m,
 80-170 m; 3 m, 30-70 m; 4 m, 11 m. Rough and slopes change that a lot (a 1 m blast from uphill rough went 47 m), and

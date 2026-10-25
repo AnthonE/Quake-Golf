@@ -453,7 +453,7 @@ export const BOX_SIZE = 32;
 export const TELE_SIZE = 32;
 export const STEP = '0.5'; // a fighter walks up onto a box this much higher than its feet
 export const MAPS = 'maps';
-export const MAP_NAME = 'bloodgulch'; // the arena's map unless the build is given another
+export const MAP_NAME = 'canyon'; // the arena's map unless the build is given another
 
 // Weapons, by W_* (index 0 is none). Reloads fit a u8 of ticks. type: 0 hitscan, 1 projectile, 2 sword.
 // head: 0 none, 1 a headshot kills once the shields are down, 2 it always
@@ -471,14 +471,14 @@ export const W_SWORD = 9;
 export const ARMS = [
   null,
   { name: 'ASSAULT RIFLE', type: 0, auto: 1, refire: 11, mag: 32, res: 192, dmg: 8, head: 0, spread: 40, pellets: 1, range: 90, reload: 220, zoom: 1 },
-  { name: 'BATTLE RIFLE', type: 0, auto: 0, refire: 44, mag: 36, res: 108, dmg: 9, head: 1, spread: 6, pellets: 1, range: 160, reload: 220, zoom: 2, burst: 3 },
+  { name: 'BURST RIFLE', type: 0, auto: 0, refire: 44, mag: 36, res: 108, dmg: 9, head: 1, spread: 6, pellets: 1, range: 160, reload: 220, zoom: 2, burst: 3 },
   { name: 'MAGNUM', type: 0, auto: 0, refire: 22, mag: 8, res: 40, dmg: 28, head: 1, spread: 4, pellets: 1, range: 110, reload: 160, zoom: 2 },
   { name: 'SNIPER RIFLE', type: 0, auto: 0, refire: 75, mag: 4, res: 20, dmg: 120, head: 2, spread: 0, pellets: 1, range: 420, reload: 240, zoom: 5 },
   { name: 'SHOTGUN', type: 0, auto: 0, refire: 105, mag: 6, res: 18, dmg: 15, head: 0, spread: 260, pellets: 15, range: 28, reload: 250, zoom: 1 },
   { name: 'ROCKET LAUNCHER', type: 1, auto: 0, refire: 110, mag: 2, res: 6, dmg: 230, head: 0, spread: 0, pellets: 1, range: 0, reload: 250, zoom: 2, kind: 1, speed: 36 },
   { name: 'PLASMA RIFLE', type: 1, auto: 1, refire: 13, mag: 100, res: 0, dmg: 10, head: 0, spread: 40, pellets: 1, range: 0, reload: 0, zoom: 1, kind: 3, speed: 70 },
-  { name: 'NEEDLER', type: 1, auto: 1, refire: 14, mag: 20, res: 60, dmg: 6, head: 0, spread: 70, pellets: 1, range: 0, reload: 230, zoom: 1, kind: 4, speed: 34 },
-  { name: 'ENERGY SWORD', type: 2, auto: 0, refire: 70, mag: 10, res: 0, dmg: 255, head: 0, spread: 0, pellets: 1, range: 5, reload: 0, zoom: 1 },
+  { name: 'SEEKER', type: 1, auto: 1, refire: 14, mag: 20, res: 60, dmg: 6, head: 0, spread: 70, pellets: 1, range: 0, reload: 230, zoom: 1, kind: 4, speed: 34 },
+  { name: 'SWORD', type: 2, auto: 0, refire: 70, mag: 10, res: 0, dmg: 255, head: 0, spread: 0, pellets: 1, range: 5, reload: 0, zoom: 1 },
 ];
 export const MELEE_DMG = 70;
 export const GREN_DMG = 150;
@@ -511,14 +511,14 @@ export const FX_TELE = 10; // a fighter through a teleporter: where it came out,
 // byte is FORCE_MODE plays mode (seed >>> 16) & 0xff every match, for gates
 // and dev. M_FIESTA leaves every field below at 0, so a Fiesta's region is
 // what it always was.
-//   M_INFECTION (Halo's): at the countdown's end one fighter in ten (at least
+//   M_INFECTION (ZOMBIES): at the countdown's end one fighter in ten (at least
 //   one) is drawn a zombie: an energy sword that never runs out, ZRUN and
 //   ZJUMP, no shields (and so no dying to a head shot that kills through
 //   them), half the damage of any gun but the shotgun; humans get a shotgun,
 //   a magnum and two frags. Neither side hurts its own. A human who dies
 //   comes back a zombie; if the zombies all leave, another is drawn. Over
 //   when no human is left, or at the clock.
-//   M_GUNGAME (Arsenal's): the LADDER's guns in order; a kill moves the killer
+//   M_GUNGAME: the LADDER's guns in order; a kill moves the killer
 //   up a rung (its gun, full, at once), an assassination moves the victim
 //   down one, the first kill with the sword wins. No pads.
 //   M_JUGGERNAUT: one fighter drawn the juggernaut (the sword, an
@@ -530,11 +530,11 @@ export const M_GUNGAME = 2;
 export const M_JUGGERNAUT = 3;
 // The team modes: red against blue (P_FL's PF_BLUE), each its own files on the
 // kit (AM below): src/am/<key>.wat and .mjs, client/am/<key>.mjs.
-//   M_SLAYER: every kill scores for your side, a death by your own hand takes
+//   M_SLAYER (TEAM DEATHMATCH): every kill scores for your side, a death by your own hand takes
 //   one off; AH_TARGET (TS_PER a fighter on the larger side, at least TS_MIN) wins.
 //   M_CTF: a flag on each side's stand; bring theirs to yours while yours is
 //   home; CF_CAPS captures win.
-//   M_ODDBALL: one skull; every second your side holds it is a point; OB_TARGET win.
+//   M_ODDBALL (KEEP AWAY): one skull; every second your side holds it is a point; OB_TARGET win.
 //   M_HILL: one hill at a time, moving; every second your side holds it (more
 //   of you on it than of them) is a point; HL_TARGET win.
 // In a team mode everyone spawns on their own half with an assault rifle and
@@ -544,14 +544,15 @@ export const M_SLAYER = 4;
 export const M_CTF = 5;
 export const M_ODDBALL = 6;
 export const M_HILL = 7;
+// name is what a player sees (the M_* and FIESTA names are only the code's)
 export const MODES = [
-  { name: FIESTA ? 'FIESTA' : 'SLAYER', rules: FIESTA ? 'RANDOM GUNS  MOST KILLS IN 10 MIN' : `${FRAG_LIMIT} KILLS WIN`, ticks: MATCH_TICKS },
-  { name: 'INFECTION', rules: 'ZOMBIES HAVE SWORDS  STAY HUMAN FOR 3 MIN', ticks: 22500 },
+  { name: FIESTA ? 'GRAB BAG' : 'FREE FOR ALL', rules: FIESTA ? 'RANDOM GUNS  MOST KILLS IN 10 MIN' : `${FRAG_LIMIT} KILLS WIN`, ticks: MATCH_TICKS },
+  { name: 'ZOMBIES', rules: 'ZOMBIES HAVE SWORDS  STAY HUMAN FOR 3 MIN', ticks: 22500 },
   { name: 'GUN GAME', rules: 'EVERY KILL A NEW GUN  FIRST SWORD KILL WINS', ticks: 37500 },
   { name: 'JUGGERNAUT', rules: 'KILL THE JUGGERNAUT TO BECOME IT  10 POINTS', ticks: 37500 },
-  { name: 'TEAM SLAYER', rules: 'RED V BLUE  EVERY KILL SCORES FOR YOUR SIDE', ticks: 60000, team: 1, pads: 1 },
+  { name: 'TEAM DEATHMATCH', rules: 'RED V BLUE  EVERY KILL SCORES FOR YOUR SIDE', ticks: 60000, team: 1, pads: 1 },
   { name: 'CAPTURE THE FLAG', rules: 'BRING THEIR FLAG HOME TO YOURS  3 TO WIN', ticks: 75000, team: 1, pads: 1 },
-  { name: 'ODDBALL', rules: 'HOLD THE SKULL  A POINT A SECOND  100 TO WIN', ticks: 45000, team: 1, pads: 1 },
+  { name: 'KEEP AWAY', rules: 'HOLD THE SKULL  A POINT A SECOND  100 TO WIN', ticks: 45000, team: 1, pads: 1 },
   { name: 'KING OF THE HILL', rules: 'HOLD THE HILL  A POINT A SECOND  IT MOVES', ticks: 45000, team: 1, pads: 1 },
 ];
 export const MODE_TICKS = MODES.map((m) => m.ticks);

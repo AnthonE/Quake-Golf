@@ -7,7 +7,7 @@
 //                 structures (boxes, by prefab or by hand), teleporters,
 //                 spawn points, weapon pads, and what the team modes play
 //                 for (two flags, the skull's spot, hills: defaults for any
-//                 left out); see maps/bloodgulch/map.json
+//                 left out); see maps/canyon/map.json
 //   height.png    the ground: grey, 8 or 16 bits, 2 m a pixel, read as
 //                 metres = base + level * scale
 //   surface.png   optional: what the ground is (colours, nearest of "surfaces")
@@ -18,7 +18,7 @@
 // origin, placed by a structure at a point with a quarter turn and a remap of
 // its materials, so one base serves both teams.
 //
-//   node tools/map.mjs maps/bloodgulch     checks a map and prints what it holds
+//   node tools/map.mjs maps/canyon     checks a map and prints what it holds
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import * as L from '../src/layout.mjs';

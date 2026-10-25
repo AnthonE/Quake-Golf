@@ -18,7 +18,7 @@ import { SIDE, SIDE_C, SIDE_RGB } from './sides.mjs';
 const NAME = ['RED FLAG', 'BLUE FLAG'];
 // m from the enemy's flag inside which an attacker going for it fights its
 // way on (hurry 0.7) instead of running past everyone (1). With 16 AI
-// fighters on Blood Gulch, 20,000 ticks, seeds 7 to 13: 6 to 15 takes and 2
+// fighters on Box Canyon, 20,000 ticks, seeds 7 to 13: 6 to 15 takes and 2
 // to 3 captures each; at 0.7 all the way across, none at all.
 const RUSH = 25;
 
