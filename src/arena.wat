@@ -1643,3 +1643,7 @@
 #include "am/ctf.wat"
 #include "am/oddball.wat"
 #include "am/hill.wat"
+#include "am/headhunter.wat"
+#include "am/territories.wat"
+#include "am/vip.wat"
+#include "am/assault.wat"

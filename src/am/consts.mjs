@@ -5,3 +5,7 @@ export * from './slayer.mjs';
 export * from './ctf.mjs';
 export * from './oddball.mjs';
 export * from './hill.mjs';
+export * from './headhunter.mjs';
+export * from './territories.mjs';
+export * from './vip.mjs';
+export * from './assault.mjs';
