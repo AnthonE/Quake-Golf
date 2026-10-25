@@ -131,7 +131,7 @@ npm run build && node --test test/mg-<key>.test.mjs test/party.test.mjs
 node net/play.mjs --party --mg <id> --bots 7      # play it: open the URL it prints
 ```
 
-Then make it yours. The fourteen others in `src/mg/` are worked examples, and
+Then make it yours. The twenty-six others in `src/mg/` are worked examples, and
 the top of `src/party.wat` and `client/party-game.mjs` says what each hook is
 given and may do. The rules every machine must agree on are CLAUDE.md's "The
 sim's rules", and the build refuses some of them outright. The ones that bite
