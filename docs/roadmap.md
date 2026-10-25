@@ -111,6 +111,34 @@ only of your own body), physics sandboxes, open worlds.
 - Drawn with `client/party-render.mjs`: a camera at three quarters overhead,
   champions as figures, abilities as glows, beams and decals.
 
+## Mods: what people make for it
+
+Built: room themes (`client/themes/`, a JSON file each, local to the viewer;
+`client/room.html` to make one), a minigame scaffold (`tools/new-mg.mjs`),
+CONTRIBUTING.md, issue forms and a PR template, CI on pull requests from
+forks, and `elo.json`, which the Elo Pros store reads: picked jobs for the
+board's `fireplace` lane, where an accepted PR is paid, and a `mods` list
+crediting who made what (every theme is one). Next, in order:
+
+1. Things in the room. The mantel holds two things today (pumpkins or
+   baubles, a theme's pick). A shelf of slots (the mantel, the side table,
+   the wall over it) that a theme fills from a fixed set (a candle, a trophy,
+   a framed picture), each a few lines of the room's shader, so a theme still
+   stays data. Then the wall shows the viewer's own Elo Pros achievements: a
+   plaque drawn in the 3x5 font like the TV's cards, from
+   `/api/face/{wallet}` once the page knows a wallet (below).
+2. Skins, as Gates does them: an `EloItem` collection for Fireplace (one
+   deploy, the operator's), catalog rows in scry-forge's
+   `data/items/catalogs.json` with `title: "fireplace"`, and the relay
+   reading `/api/items/of/{wallet}?title=fireplace` and sending each player's
+   look beside the sim (never in it: the hashed world is the same with or
+   without them). A skin is a ball's stripes and a rider's cap, a few floats
+   per player in party's and bumper's renderers; a theme is free, a skin is
+   owned.
+3. The playlist as a list (`GAMESETS`, `!pick` and `fireplace.mjs` reading N
+   games), so a whole new game joins Fireplace as one entry once the kits
+   below exist.
+
 ## Accounts and persistence through Elo Pros
 
 What `AnthonE/scry-forge` has today: the wallet is the whole identity;
@@ -128,7 +156,11 @@ match result.
 The wrapper, ours first:
 
 1. List Party and Fireplace as free titles with `play_url` on these pages
-   (the listing rules ask for the source to be public).
+   (the listing rules ask for the source to be public). Fireplace has its
+   row (on the coming-soon shelf, in alpha, until people play it) and its
+   board lane, `fireplace-pr`, in scry-forge since 2026-10-25; `elo.json`
+   lands on the row once its steward signs it (`sign_manifest.py --game
+   fireplace --seq 1`, scry-forge's `docs/store/GAME-REPO.md`).
 2. Sign-in: the page calls `Elo.signIn({nonce})` with a nonce from the relay's
    hello; `net/relay.ts` verifies it and keeps the wallet as the slot's
    player. Guests still play.

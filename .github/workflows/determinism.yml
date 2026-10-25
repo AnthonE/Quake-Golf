@@ -1,7 +1,10 @@
 name: determinism
 
+# A pull request from a fork runs everything a push does; one from a branch of
+# this repo already ran on its push, so its pull_request run skips each job.
 on:
   push:
+  pull_request:
   workflow_dispatch:
     inputs:
       ticks:
@@ -11,6 +14,7 @@ on:
 jobs:
   matrix:
     # the tests, and every sim's recorded log replayed in every configuration (Fireplace's in its own job)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
     runs-on: ubuntu-24.04
     container: mcr.microsoft.com/playwright:v1.56.1-noble
     timeout-minutes: 60
@@ -77,6 +81,7 @@ jobs:
 
   fireplace:
     # Fireplace's whole playlist replayed in every configuration (about 18 min of the matrix alone), then Fireplace online
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
     runs-on: ubuntu-24.04
     container: mcr.microsoft.com/playwright:v1.56.1-noble
     timeout-minutes: 60
@@ -107,8 +112,35 @@ jobs:
           name: traces-fireplace
           path: traces/
 
+  themes:
+    # Fireplace's room in every theme (client/themes/), drawn from the couch: the pictures a theme PR is reviewed by
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
+    runs-on: ubuntu-24.04
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm i --no-save playwright-core@1.56.1
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - run: npm run build
+      - name: Every theme checked, credited in elo.json, and drawn into traces/themes/
+        run: |
+          node tools/elo.mjs --check
+          node tools/theme-shots.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: themes
+          path: traces/themes/
+
   online:
     # the online gates: a relay, a referee, hundreds of bots through its native door, every hash checked
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
     runs-on: ubuntu-24.04
     container: mcr.microsoft.com/playwright:v1.56.1-noble
     timeout-minutes: 60
@@ -152,6 +184,7 @@ jobs:
           path: traces/
 
   xbox:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
