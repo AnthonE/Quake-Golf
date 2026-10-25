@@ -477,6 +477,8 @@ export class Fighter {
         }
         if (Math.abs(((this.look - this.yaw + TURN / 2) % TURN + TURN) % TURN - TURN / 2) > 40) this.turnTo(this.look, 512, 0.1);
         move = this.aside(view, me, obj, toward);
+        // there by the count but below its middle (at a rock's foot, under its top): a hop up onto it
+        if (obj.pos[1] - me.pos[1] > 0.5 && this.rand() < 0.15) jump = 1;
       } else {
         const w = this.waypoint(view, me, obj, t);
         this.turnTo(aimAt(eye, [w[0], eye[1], w[2]]).yaw, 512, 0.25);

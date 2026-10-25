@@ -591,8 +591,8 @@ test('King of the Hill\'s client module: the hill drawn in its holder\'s colour 
   assert.deepEqual([hillOf(g.v), out.zone, out.markers, kit.goal(g.v, g.v.fighter(0), {})], [null, null, [], null]);
 });
 
-test('King of the Hill: a lone AI fighter of either side gets onto every hill from where it spawns: the field, both roofs by their bridges, the rocks, the cave', async () => {
-  const took = [];
+test('King of the Hill: a lone AI fighter of either side gets onto every hill from where it spawns (the field, both roofs by their bridges, the rocks, the cave) and stays on it', async () => {
+  const took = [], stayed = [];
   for (let k = 0; k < MAP.hills.length; k++) {
     for (const side of [0, 1]) {
       const g = await room(L.M_HILL, 2, 3);
@@ -607,9 +607,22 @@ test('King of the Hill: a lone AI fighter of either side gets onto every hill fr
       }
       took.push(`${k}${'rb'[side]} ${(t / 125).toFixed(1)}`);
       assert.ok(hill(g).on[side], `hill ${k}, ${['red', 'blue'][side]}: still off it after 50 s at ${g.v.fighter(side).pos.map((x) => x.toFixed(1))}`);
+      // then 15 s holding it: its steps aside keep it on (not off a small hill's edge, nor up onto the cave's roof);
+      // the rocks' hills stand on tops of 5 x 3 m, and a holder bumped off one climbs back, so at least half the time
+      let on = 0;
+      for (let i = 0; i < 15 * 125; i++) {
+        g.dv.setUint8(rec(other) + L.P_FL, fl(g, other) | L.PF_DEAD); g.dv.setUint16(rec(other) + L.A_RESPAWN, 1000, true);
+        g.dv.setUint32(L.AO + L.HL_MOVES, g.v.tick + 1000, true);
+        const w = bot.think(g.v, g.v.tick, 0);
+        g.step(w !== word ? [[L.EV_INPUT, side, w]] : []);
+        word = w;
+        if (hill(g).on[side]) on++;
+      }
+      stayed.push(`${k}${'rb'[side]} ${Math.round(100 * on / (15 * 125))}%`);
+      assert.ok(on >= (k === 2 || k === 5 ? 0.5 : 0.9) * 15 * 125, `hill ${k}, ${['red', 'blue'][side]}: on it ${on} ticks of ${15 * 125} holding it`);
     }
   }
-  console.log(`  seconds to get on each hill: ${took.join(', ')}`);
+  console.log(`  seconds to get on each hill: ${took.join(', ')}; on it while holding: ${stayed.join(', ')}`);
 });
 
 test('King of the Hill with 8 and 16 AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads; both sides hold the hill and score, every hill it comes to is held, it moves on its ticks, its news a second apart at most', async () => {
