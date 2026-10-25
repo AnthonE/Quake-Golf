@@ -144,7 +144,7 @@ function bar(sc, T, u, w, eu, ew, len, rad, height, rgb, look, a = 0, b = 0, alp
   const um = u + eu * len / 2, wm = w + ew * len / 2;
   sc.box(T.cx + um, planeY(T, wm) + lift + height / 2, T.cx + wm, rad, height / 2, len / 2 + rad, Math.atan2(-eu, ew), ...rgb, look, a, b, alpha, seed, Math.atan(S * ew));
 }
-// The floor's half-width across a funnel at w, and the strips (w0, w1, half) its floor and aprons are drawn in.
+// The floor's half-width across a funnel at w (the drain's edge, turned round).
 function halfAt(T, w) {
   if (w <= T.wp) return Math.min(T.f / 2, T.ap + (T.wp - w) / T.kg);
   return Math.max(MC.PN_GAP, T.ap - (w - T.wp) / T.kb);
@@ -155,7 +155,7 @@ function build(T) {
   const out = [];
   const box = (...a) => out.push(['box', a]);
   const cyl = (...a) => out.push(['cyl', a]);
-  const proxy = { box: (...a) => box(...a), cyl: (...a) => cyl(...a) };
+  const proxy = { box, cyl };
   const { hw, hl } = T;
   // the cabinet: a wooden body under the deck, chrome legs down to the sea
   const mid = planeY(T, 0);
@@ -200,7 +200,6 @@ function build(T) {
   return out;
 }
 
-let env = 'night';
 const flashAt = new Map(); // 'b3' (bumper 3), 's1' (slingshot 1), 'p' (the plunger) -> ms of its last kick
 
 // Ticks into play to draw at (fractional): the prediction's clock, frozen through the result.
@@ -286,7 +285,6 @@ function draw(view, ctx, out) {
   if (pk > 0) out.glow.push({ pos: [T.cx + pu, planeY(T, pw) + 1, T.cx + pw - 1.5], size: 2.5 * pk + 0.5, color: [1, 0.5, 0.3, 0.6 * pk], kind: SPRITE.FLASH, minpx: 1 });
   // double time: the rails' lights blink
   if (dbl) for (const sd of [-1, 1]) out.decals.push({ pos: [T.cx + sd * (T.hw - 1), planeY(T, 0) + 0.1, T.cx], radius: 1.2, width: 1.2, color: [1, 0.4, 0.2, 0.3 + 0.5 * pulse], kind: DECAL.DISC });
-  env = 'night';
 }
 
 // ---- the AI ball
@@ -488,7 +486,7 @@ function think(view, me, bot) {
 export default {
   id: L.MG_PINBALL, key: 'pinball', name: 'PINBALL',
   hint: 'HIT BUMPERS TARGETS LANES  RIDE THE FLIPPERS  A DRAIN COSTS A FIFTH',
-  get env() { return env; },
+  env: 'night',
 
   draw,
 
