@@ -13,7 +13,7 @@ import { put, C } from './font.mjs';
 import { readClock } from './clock.mjs';
 import { NetGraph } from './netgraph.mjs';
 import { Roller } from './bumper-bot.mjs';
-import { epoch, predict, corrector, capturePng, listeners } from './host.mjs';
+import { epoch, predict, corrector, follower, capturePng, listeners } from './host.mjs';
 
 const TURN = 16384;
 // the power-ups' colours, and what the HUD says about each
@@ -105,6 +105,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     return bumperWord({ yaw: get(L.CL_YAW), move: mv & 15, hop: (mv >> 4) & 1, use: ((get(L.CL_PRESSES) - sent) > 0 ? sent + 1 : sent) & 3 });
   };
   const corr = corrector(h);
+  const spec = follower();
 
   // ---- what happened: FX into flashes, the feed and sounds
   const text = new Uint32Array(COLS * renderer.rows);
@@ -235,11 +236,16 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
     let cam, camYaw, camPitch = look;
     if (tgt) {
       const r = tgt.radius;
-      camYaw = tgt === mine || (me && tgt.slot === slot) ? yaw / TURN * 2 * Math.PI : tgt.yaw;
+      let at = tgtPos;
+      // your ball, your mouse: the camera turns as you do
+      if ((tgt === mine || (me && tgt.slot === slot)) && !BOT && !external) { camYaw = yaw / TURN * 2 * Math.PI; spec.drive(at, camYaw); }
+      // another's ball, or an AI's (yours with ?bot=1): the camera eases round to its heading, and pans to it from the last one shown
+      else ({ at, yaw: camYaw } = spec.update(tgt.slot, at, tgt === mine || tgt.slot === slot ? yaw / TURN * 2 * Math.PI : tgt.yaw, ms));
       const back = 6 + r * 3.2;
-      const focus = [tgtPos[0], Math.max(tgtPos[1], PLAT_Y - 3) + r + 0.6, tgtPos[2]];
+      const focus = [at[0], Math.max(at[1], PLAT_Y - 3) + r + 0.6, at[2]];
       cam = [focus[0] - Math.cos(camYaw) * Math.cos(camPitch) * back, focus[1] - Math.sin(camPitch) * back, focus[2] - Math.sin(camYaw) * Math.cos(camPitch) * back];
     } else {
+      spec.reset();
       // nobody to follow: the wheel from high over its edge
       const t = now / 20000;
       camYaw = t + Math.PI;
