@@ -274,6 +274,23 @@ test('route(): out of the yard behind each base (spawns 5 and 13) by the base\'s
   assert.ok(behind.length >= 2 && behind[0][0] === nav.rings[0].x0, JSON.stringify(behind));
 });
 
+test('walkable(): a body\'s width clear, not just the centre line: a leg grazing a door\'s jamb isn\'t, every door\'s own leg is', async () => {
+  const g = await world(1);
+  const v = g.v;
+  const nav = navOf(v);
+  const at = (x, z, top) => [x, v.stand(x, z, top), z];
+  const red = at(...v.map().flags[0]);
+  // in blue's room, 1.5 m off the side door's middle: the line to red's flag threads both bases' side doors a
+  // quarter of a metre from blue's jamb, which would catch a body 0.5 m round; it goes by the door's middle first
+  const from = at(632.9, 513.5);
+  assert.ok(!walkable(v, from, red));
+  const legs = walkRoute(v, from, red);
+  assert.deepEqual(legs.map((w) => w.map((x) => Math.round(x * 10) / 10)), [[620.5, 21, 512], red]);
+  // through the doors' middles it's straight; and each door's own leg, out to in and back, passes
+  assert.ok(walkable(v, at(632.9, 512), red));
+  for (const r of nav.rings) for (const d of r.doors) assert.ok(walkable(v, d.out, d.in) && walkable(v, d.in, d.out), `door ${d.out} ${d.in}`);
+});
+
 test('the AI fighter: roles by rank on its side, a hunt in Team Slayer, a carrier swings and never shoots', async () => {
   const g = await world(9);
   // a Fiesta: nobody has a side, everyone attacks

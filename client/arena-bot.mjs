@@ -47,14 +47,34 @@ export function sees(view, a, b) {
 // reached by the cheapest door whose inside sees it, a fighter inside leaves
 // by the cheapest door it can see, a building in the way is walked round on
 // its ring, corner to corner. "Sees" is walkable(): no box across the way at
-// knee, chest or head height. All of it is kept beside view.map() (map.nav).
+// knee, chest or head height, nor across a body's width. All of it is kept
+// beside view.map() (map.nav).
 const KNEE = 0.5, CHEST = 1.4, HEAD = Number(L.PHYS.P_TOP) - 0.1;
 const RING = 1.5, RING_STEP = 0.5;
+// The body's width walkable() wants clear, WIDE to either side of the centre
+// line at waist and chest height: under its radius, so the 1 m openings
+// findDoors takes still pass their doors' legs and a leg along a wall to a
+// door's in (0.4 m off the wall's face) isn't refused (a body's edge only
+// brushing a jamb slides by it); from the waist up, so a leg off the slab it
+// stands on (dipping into its top as it goes down) isn't taken for one into
+// a wall.
+const WIDE = Number(L.PHYS.P_R) - 0.15, WAIST = 0.9;
+
+// The rays walkable() casts from feet a to feet b: the centre line at knee,
+// chest and head height, then the body's width.
+function rays(a, b) {
+  const dx = b[0] - a[0], dz = b[2] - a[2], l = Math.hypot(dx, dz) || 1, px = -dz / l * WIDE, pz = dx / l * WIDE;
+  const out = [KNEE, CHEST, HEAD].map((h) => [[a[0], a[1] + h, a[2]], [b[0], b[1] + h, b[2]]]);
+  for (const s of [-1, 1]) for (const h of [WAIST, CHEST]) out.push([[a[0] + s * px, a[1] + h, a[2] + s * pz], [b[0] + s * px, b[1] + h, b[2] + s * pz]]);
+  return out;
+}
 
 // Nothing of the map's boxes across the walk from feet a to feet b at knee,
-// chest or head height. Where the straight line digs more than a metre into
-// the ground the feet go over it instead, so the two halves are tried from
-// the ground there (off a hill and under a bridge, the knees meet the bridge).
+// chest or head height, nor across the body's width (a leg that grazes a
+// door's jamb catches the body on it). Where the straight line digs more
+// than a metre into the ground the feet go over it instead, so the two halves
+// are tried from the ground there (off a hill and under a bridge, the knees
+// meet the bridge).
 export function walkable(view, a, b, depth = 0) {
   if (depth < 2) {
     const n = Math.ceil(Math.hypot(b[0] - a[0], b[2] - a[2]) / 2);
@@ -66,7 +86,7 @@ export function walkable(view, a, b, depth = 0) {
     if (at) return walkable(view, a, at, depth + 1) && walkable(view, at, b, depth + 1);
   }
   const map = view.map();
-  for (const h of [KNEE, CHEST, HEAD]) if (!boxClear(map, [a[0], a[1] + h, a[2]], [b[0], b[1] + h, b[2]])) return false;
+  for (const [o, e] of rays(a, b)) if (!boxClear(map, o, e)) return false;
   return true;
 }
 
@@ -160,11 +180,11 @@ function groupAt(map, nav, p) {
   return -1;
 }
 
-// The group of the first box across feet a to feet b at knee, chest or head height, or -1.
+// The group of the first box across feet a to feet b on walkable()'s rays, or -1.
 function blocker(map, a, b) {
   let best = 2, gi = -1;
-  for (const h of [KNEE, CHEST, HEAD]) {
-    const o = [a[0], a[1] + h, a[2]], dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  for (const [o, e] of rays(a, b)) {
+    const dir = [e[0] - o[0], e[1] - o[1], e[2] - o[2]];
     for (let g = 0; g < map.groups.length; g++) {
       const gr = map.groups[g];
       if (slab(gr.box, o, dir, best) > best) continue;
