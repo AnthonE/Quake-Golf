@@ -641,8 +641,9 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       if (x < 128 && Math.round(y / 6) + 1 >= rows - 16) y = (rows - 18) * 6;
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
-      // a diamond (a flag's pennant, a skull's dot, a hill's ring by kind)
+      // a diamond (a flag's pennant, a skull's dot, a hill's ring, a crown's band and points by kind)
       if (m.kind === 'flag') { r(-0.5, -6, 0.5, 2); r(0.5, -6, 5, -2.5); }
+      else if (m.kind === 'crown') { r(-4, -1, 4, 2); r(-4, -4, -2.5, -1); r(-0.75, -5, 0.75, -1); r(2.5, -4, 4, -1); }
       else if (m.kind === 'hill') { r(-4, -1, 4, 1); r(-3, -3, 3, -1, c, 0.5); r(-3, 1, 3, 3, c, 0.5); }
       else if (m.kind === 'skull') { r(-3, -4, 3, 1); r(-2, 1, 2, 3); r(-2, -2, -0.5, -0.5, [0, 0, 0]); r(0.5, -2, 2, -0.5, [0, 0, 0]); }
       else { r(-1, -4, 1, 4); r(-2.5, -2.5, 2.5, 2.5, c, 0.8); r(-4, -1, 4, 1); }
