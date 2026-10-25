@@ -571,7 +571,7 @@ test('Oddball\'s client module: the skull as AO has it; drawn where it lies, ove
     ob.hud(v, { put: (x, y, s, c) => lines.push([y, s, c]), centre() {}, right() {}, rect() {}, rows: 33, C, slot, me, team: me.team, now: 0, t: 1 });
     return lines;
   };
-  const ctx = (slot) => ({ role: 'attack', rank: 0, view: v, ally: (p, q) => v.ally(p, q), slot, t: v.tick });
+  const ctx = (slot, role = 'attack') => ({ role, rank: role === 'defend' ? 2 : 0, view: v, ally: (p, q) => v.ally(p, q), slot, t: v.tick });
   const spot = skullOf(v).spot;
   // free at its spot: the skull with its glow, SKULL over it; everyone runs for it
   let out = draw(0);
@@ -591,11 +591,14 @@ test('Oddball\'s client module: the skull as AO has it; drawn where it lies, ove
   assert.deepEqual([out.solid, out.markers], [[], []]);
   assert.deepEqual(hud(0)[0], [2, 'BLUE HAS THE SKULL  P2', SIDE_C[1]]);
   assert.deepEqual(hud(1).slice(0, 2), [[2, 'YOU HAVE THE SKULL', C.YELLOW], [3, 'STAY ALIVE', C.YELLOW]]);
-  // goals: red hunts it, shooting on the way; blue's other stays by it
+  // goals: red hunts it, shooting on the way; blue's defender stays by it, its attacker goes for the enemy nearest it
   assert.deepEqual(ob.goal(v, v.fighter(0), ctx(0)), { pos: c.pos, r: 2, hurry: 0.8, hold: false });
-  assert.deepEqual(ob.goal(v, v.fighter(3), ctx(3)), { pos: c.pos, r: 6, hurry: 0.2, hold: true });
-  // the carrier: holds where it is with no enemy near; away from one inside 35 m, staying in the map
-  put(g, 1, 500, 540); put(g, 3, 503, 541); put(g, 0, 440, 470); put(g, 2, 450, 470);
+  assert.deepEqual(ob.goal(v, v.fighter(3), ctx(3, 'defend')), { pos: c.pos, r: 6, hurry: 0.2, hold: true });
+  put(g, 1, 500, 540); put(g, 3, 503, 541); put(g, 0, 440, 470); put(g, 2, 480, 530);
+  g.step();
+  assert.deepEqual(ob.goal(v, v.fighter(3), ctx(3)), { pos: v.fighter(2).pos, r: 6, hurry: 0, hold: false });
+  // the carrier: holds where it is with no enemy near; away from one inside 35 m, staying in the map near the skull's spot
+  put(g, 2, 450, 470);
   g.step();
   let me = v.fighter(1);
   assert.deepEqual(ob.goal(v, me, ctx(1)), { pos: me.pos, r: 3, hurry: 1, hold: true });
@@ -607,6 +610,14 @@ test('Oddball\'s client module: the skull as AO has it; drawn where it lies, ove
   assert.ok(go.hold && Math.hypot(go.pos[0] - me.pos[0], go.pos[2] - me.pos[2]) > 10, 'it moves');
   assert.ok(Math.hypot(go.pos[0] - 490, go.pos[2] - 540) > Math.hypot(me.pos[0] - 490, me.pos[2] - 540) + 8, 'away from red 0');
   assert.ok(go.pos[0] > x0 + 19 && go.pos[0] < x1 - 19 && go.pos[2] > z0 + 19 && go.pos[2] < z1 - 19, 'inside the map');
+  assert.ok(Math.hypot(go.pos[0] - spot[0], go.pos[2] - spot[2]) <= 40, 'near the skull\'s spot');
+  // far out, it goes no farther
+  put(g, 1, 600, 545); put(g, 3, 603, 546); put(g, 0, 590, 545);
+  g.step();
+  me = v.fighter(1);
+  const out2 = ob.goal(v, me, ctx(1));
+  assert.ok(Math.hypot(out2.pos[0] - me.pos[0], out2.pos[2] - me.pos[2]) > 10, 'it moves');
+  assert.ok(Math.hypot(out2.pos[0] - spot[0], out2.pos[2] - spot[2]) <= Math.hypot(me.pos[0] - spot[0], me.pos[2] - spot[2]), 'no farther from the spot');
   // dropped: its countdown on the HUD
   lay(g, 520, v.height(520, 520), 520, 1000);
   assert.deepEqual(hud(0)[0], [2, 'SKULL DOWN  BACK IN 8', C.WHITE]);

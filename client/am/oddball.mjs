@@ -5,9 +5,10 @@
 // A waypoint on it says what to do: SKULL while it's free, KILL on an enemy
 // carrier, GUARD on your side's. The HUD says who has it and your side's
 // seconds; the board's SKULL column is each fighter's seconds carrying it.
-// The brain: the carrier keeps away from enemies, toward its own side;
-// everyone else runs for a free skull, hunts an enemy carrier or escorts
-// their own.
+// The brain: the carrier keeps away from enemies, toward its own side, but
+// within KEEP of the skull's spot; everyone else runs for a free skull,
+// hunts an enemy carrier, or for their own side's carrier escorts it
+// (defenders) or meets whoever comes for it.
 import * as L from '../../src/layout.mjs';
 import { boxClear } from '../../src/arena-view.mjs';
 import { C } from '../font.mjs';
@@ -15,6 +16,11 @@ import { SIDE, SIDE_C } from './sides.mjs';
 
 const SKULL_RGB = [0.95, 0.92, 0.82];
 const HOLD = 35; // m: a carrier with no enemy nearer than this holds where it is
+// m from the skull's spot a carrier keeps to: let it run home and the other
+// side, respawning at its own end, hardly ever reaches it (the side behind
+// after 20,000 ticks of 8 and of 16 AI fighters, three seeds each: 9 to 46
+// points without it, 36 to 52 with it)
+const KEEP = 40;
 
 // The skull as AO holds it: state (L.OB_*), where it is (feet), its carrier
 // (-1 unless carried) and side, ticks left lying dropped, each side's ticks
@@ -46,16 +52,18 @@ const across = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
 // Where the carrier at `pos` goes: of eight points 14 m round it it can walk
 // to (no box across the way at knee or chest height, not in a building, not
-// up or down a cliff, 20 m inside the map's bounds), the one farthest from
+// up or down a cliff, 20 m inside the map's bounds, within KEEP of the
+// skull's spot or, beyond it, no farther out), the one farthest from
 // the nearest enemy, less a little for each metre from its nearest teammate;
 // null if none is clear.
-function away(view, pos, enemies, friends) {
+function away(view, pos, enemies, friends, spot) {
   const map = view.map(), [x0, x1, z0, z1] = map.bounds;
+  const keep = Math.max(KEEP, across(pos, spot));
   let best = null, bs = -Infinity;
   for (let k = 0; k < 8; k++) {
     const a = k * Math.PI / 4;
     const x = pos[0] + 14 * Math.cos(a), z = pos[2] + 14 * Math.sin(a);
-    if (x < x0 + 20 || x > x1 - 20 || z < z0 + 20 || z > z1 - 20) continue;
+    if (x < x0 + 20 || x > x1 - 20 || z < z0 + 20 || z > z1 - 20 || across([x, 0, z], spot) > keep) continue;
     const y = view.stand(x, z);
     if (Math.abs(y - pos[1]) > 3) continue;
     if (map.groups.some((g) => x > g.box[0] - 1 && x < g.box[3] + 1 && z > g.box[2] - 1 && z < g.box[5] + 1)) continue;
@@ -127,9 +135,10 @@ export default {
     else out.markers.push({ pos: mark, label: team < 0 ? SIDE[s.side] : s.side === team ? 'GUARD' : 'KILL', color: SIDE_C[s.side], kind: 'skull' });
   },
   cols: [{ head: 'SKULL', get: (o) => String(o.points) }],
-  // the carrier: away from enemies inside HOLD, toward its side; else hold.
-  // Free: everyone runs for it. An enemy carrier: hunt it, shooting on the
-  // way; your own: stay by it, fighting whoever turns up.
+  // the carrier: away from enemies inside HOLD; else hold. Free: everyone
+  // runs for it. An enemy carrier: hunt it, shooting on the way. Your own
+  // side's: defenders stay by it fighting whoever turns up, the rest go for
+  // the enemy nearest it.
   goal(view, me, ctx) {
     const s = skullOf(view);
     if (view.hole().state !== L.H_PLAY) return null;
@@ -137,12 +146,19 @@ export default {
       const all = others(view, me.slot, ctx.ally);
       const enemies = all.filter((o) => !o[2]).map((o) => o[1]), friends = all.filter((o) => o[2]).map((o) => o[1]);
       const near = enemies.some((e) => across(e, me.pos) < HOLD);
-      const to = near ? away(view, me.pos, enemies, friends) : null;
+      const to = near ? away(view, me.pos, enemies, friends, s.spot) : null;
       return { pos: to || me.pos, r: 3, hurry: 1, hold: true };
     }
     if (s.carrier < 0) return { pos: s.pos, r: 1, hurry: 1, hold: false };
     const c = view.fighter(s.carrier);
-    if (ctx.ally(me.slot, s.carrier)) return { pos: c.pos, r: 6, hurry: 0.2, hold: true };
+    if (ctx.ally(me.slot, s.carrier)) {
+      if (ctx.role === 'defend') return { pos: c.pos, r: 6, hurry: 0.2, hold: true };
+      // the rest meet whoever comes for it: the enemy nearest the carrier
+      const foes = others(view, s.carrier, ctx.ally).filter((o) => !o[2]);
+      if (!foes.length) return { pos: c.pos, r: 6, hurry: 0.2, hold: true };
+      foes.sort((a, b) => across(a[1], c.pos) - across(b[1], c.pos));
+      return { pos: foes[0][1], r: 6, hurry: 0, hold: false };
+    }
     return { pos: c.pos, r: 2, hurry: 0.8, hold: false };
   },
   state(view) {
