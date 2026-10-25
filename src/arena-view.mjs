@@ -175,3 +175,18 @@ export function boxRay(map, o, dir, tmax) {
 
 // Nothing of the map's boxes between a and b.
 export const boxClear = (map, a, b) => boxRay(map, a, [b[0] - a[0], b[1] - a[1], b[2] - a[2]], 1) >= 1;
+
+// Can an eye at a see a point at b over the ground and past the map's boxes
+// (a View's map and height)? Steps of a metre. The AI fighter's sight, for
+// the bot core and the kit's modules alike.
+export function sees(view, a, b) {
+  if (!boxClear(view.map(), a, b)) return false;
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const n = Math.ceil(d);
+  for (let k = 1; k < n; k++) {
+    const t = k / n;
+    const x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, z = a[2] + (b[2] - a[2]) * t;
+    if (y < view.height(x, z) + 0.1) return false;
+  }
+  return true;
+}

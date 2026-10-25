@@ -47,6 +47,27 @@ const BLIPS = 32;
 const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'OVERKILL', 'KILLTACULAR', 'KILLTROCITY', 'KILLAMANJARO'];
 const SPREES = { 5: 'KILLING SPREE', 10: 'KILLING FRENZY', 15: 'RUNNING RIOT', 20: 'RAMPAGE' };
 
+// A waypoint's height on screen clear of those placed before it ({ x, y,
+// half: its text's half width in 4 px cells }): its label two rows over its
+// mark and its distance a row under take four rows (24 px), so one whose
+// text would cover another's goes to the nearest height clear of them all,
+// four rows over or under one of them, over before under, inside top..bottom
+// (the band under the score bar and over the feed and bottom lines); with
+// none clear, where it was. Drawing only.
+export function clearOf(placed, x, y, half, top, bottom) {
+  const near = placed.filter((p) => Math.abs(p.x - x) / 4 < p.half + half);
+  const apart = (v) => near.every((p) => Math.abs(p.y - v) >= 24);
+  if (apart(y)) return y;
+  let best = y, bd = Infinity;
+  for (const p of near) {
+    for (const v of [p.y - 24, p.y + 24]) {
+      const d = Math.abs(v - y);
+      if (v >= top && v <= bottom && apart(v) && (d < bd || (d === bd && v < best))) { best = v; bd = d; }
+    }
+  }
+  return best;
+}
+
 export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = false, skill = 0.7, sens: SENS = 3, fixed: FIXED = null, present = true, showGraph: graphOn = false, external = false } = {}) {
   // (the host is `host` here: `h` is the match's state, as in the frame below)
   const { u8, i32, u32, f32, f64, view, pview, set, get, press, sound, memory, hashes, keys } = host;
@@ -645,14 +666,9 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       const label = String(m.label ?? '');
       const ds = `${dist}M`;
       // one that would cover another's label or distance (two waypoints the
-      // same way, both sides' VIPs down the gulch) goes above it, its four
-      // rows clear; below it, at the top of the band
+      // same way, both sides' VIPs down the gulch) moves clear of them all
       const half = Math.max(label.length, f ? ds.length : 0) / 2 + 0.5;
-      for (let k = 0; k < placed.length; k++) {
-        const o = placed.find((p) => Math.abs(p.x - x) / 4 < p.half + half && Math.abs(p.y - y) < 24);
-        if (!o) break;
-        y = o.y - 24 >= 48 * s ? o.y - 24 : o.y + 24;
-      }
+      y = clearOf(placed, x, y, half, 48 * s, x < 128 ? Math.min(H - 40 * s, (rows - 18) * 6) : H - 40 * s);
       placed.push({ x, y, half });
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);

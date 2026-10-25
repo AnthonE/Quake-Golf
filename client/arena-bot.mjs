@@ -16,25 +16,15 @@
 // ordinary event log. Walls it can't see through; one in its way it goes
 // round, sidling and jumping until it moves again.
 import * as L from '../src/layout.mjs';
-import { arenaWord, arenaFrame, frameDue, boxClear, boxRay, slab } from '../src/arena-view.mjs';
+import { arenaWord, arenaFrame, frameDue, boxClear, boxRay, slab, sees } from '../src/arena-view.mjs';
 import { aimAt } from './bot.mjs';
 import { AMC } from './am/index.mjs';
 
 const EYE = 1.6;
 const TURN = 16384;
 
-// Can an eye at a see a point at b over the ground and past the map's boxes? Steps of a metre.
-export function sees(view, a, b) {
-  if (!boxClear(view.map(), a, b)) return false;
-  const d = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-  const n = Math.ceil(d);
-  for (let k = 1; k < n; k++) {
-    const t = k / n;
-    const x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, z = a[2] + (b[2] - a[2]) * t;
-    if (y < view.height(x, z) + 0.1) return false;
-  }
-  return true;
-}
+// Sight (can an eye at a see b?) is arena-view.mjs's, shared with the kit's modules.
+export { sees };
 
 // ---- routes round the map's buildings. Each box group gets a ring: its
 // bounds pushed out RING m, a rectangle a fighter can walk round outside it.

@@ -7,9 +7,10 @@
 export const VP_TARGET = 10;
 export const VP_REDRAW = 375; // ticks after a VIP dies or leaves before its side's next is drawn: 3 s
 // The VIPs, in AO (byte offsets from it), red's then blue's, all zero until play starts:
-export const VP_VIP = 0; // u8 x 2: each side's VIP, its slot + 1 (0: none now)
-export const VP_LAST = 2; // u8 x 2: each side's last VIP, slot + 1 (a draw passes over it if anyone else is alive)
-export const VP_LEFT = 4; // u16 x 2: ticks before a side with no VIP draws its next (0: as soon as one is alive)
+// u16s, as slot + 1 runs to NPLAYER (256):
+export const VP_VIP = 0; // u16 x 2: each side's VIP, its slot + 1 (0: none now)
+export const VP_LAST = 4; // u16 x 2: each side's last VIP, slot + 1 (a draw passes over it if anyone else is alive)
+export const VP_LEFT = 8; // u16 x 2: ticks before a side with no VIP draws its next (0: as soon as one is alive)
 // Its news, FX_MODE with these as size (MX_AM + 8 * 6 ..), at the VIP's feet:
 export const VP_MX_DRAW = 64; // owner is its side's VIP now: shot its side (0 red, 1 blue)
 export const VP_MX_KILL = 65; // owner killed a VIP: shot the VIP's slot, + 256 for blue's (owner == the VIP: by its own hand)

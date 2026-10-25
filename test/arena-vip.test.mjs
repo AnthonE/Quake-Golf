@@ -54,12 +54,16 @@ const dead = (g, p) => g.v.fighter(p).dead;
 const MAP = compileMap();
 
 // Both VIPs as AO holds them: [red's, blue's] slots (-1 none), lasts and ticks left.
-const vips = (g) => [g.sim.u8[L.AO + AC.VP_VIP] - 1, g.sim.u8[L.AO + AC.VP_VIP + 1] - 1];
-const lasts = (g) => [g.sim.u8[L.AO + AC.VP_LAST] - 1, g.sim.u8[L.AO + AC.VP_LAST + 1] - 1];
-const lefts = (g) => [g.dv.getUint16(L.AO + AC.VP_LEFT, true), g.dv.getUint16(L.AO + AC.VP_LEFT + 2, true)];
+const ao = (g, o, k) => g.dv.getUint16(L.AO + o + 2 * k, true);
+const setAo = (g, o, k, n) => g.dv.setUint16(L.AO + o + 2 * k, n, true);
+const vips = (g) => [ao(g, AC.VP_VIP, 0) - 1, ao(g, AC.VP_VIP, 1) - 1];
+const lasts = (g) => [ao(g, AC.VP_LAST, 0) - 1, ao(g, AC.VP_LAST, 1) - 1];
+const lefts = (g) => [ao(g, AC.VP_LEFT, 0), ao(g, AC.VP_LEFT, 1)];
+// AO's bytes the VIPs take: VP_VIP, VP_LAST and VP_LEFT, two u16s each.
+const VIPS = 12;
 // Slot p made its side's VIP by hand (a turn in its record, as a draw leaves it).
 function crown(g, p) {
-  g.sim.u8[L.AO + AC.VP_VIP + team(g, p)] = p + 1;
+  setAo(g, AC.VP_VIP, team(g, p), p + 1);
   if (!turns(g, p)) g.dv.setUint16(mr(p) + L.MR_AUX, 1, true);
 }
 
@@ -290,7 +294,7 @@ test('VIP: VP_REDRAW ticks after its VIP dies (counting that one) its side draws
   const picks = new Set();
   for (const seed of [1, 2, 3, 0x9e3779b9, 12345, 777]) {
     // (each from the same state, a tick before the draw)
-    const was = g.sim.u8.slice(L.AO, L.AO + 16), shields = [sh(g, 0), sh(g, 2)];
+    const was = g.sim.u8.slice(L.AO, L.AO + VIPS), shields = [sh(g, 0), sh(g, 2)];
     g.dv.setUint32(L.HDR_RNG, seed, true);
     g.step();
     assert.equal(vips(g)[0], [0, 2][xorshift(seed) % 2], `seed ${seed}`);
@@ -368,10 +372,10 @@ test('VIP: a VIP that leaves, whose slot is taken again on one tick, or that die
   one.step([[L.EV_JOIN, 1]]);
   assert.deepEqual([team(one, 1), vips(one), sh(one, 1), news(one, from)], [1, [0, 1], L.OVERSHIELD, [[AC.VP_MX_DRAW, 1, 1]]]);
   // a join to a side that has its VIP changes nothing; nor a leave of anyone but a VIP
-  const was = one.sim.u8.slice(L.AO, L.AO + 8);
+  const was = one.sim.u8.slice(L.AO, L.AO + VIPS);
   one.step([[L.EV_JOIN, 2]]);
   one.step([[L.EV_LEAVE, 2]]);
-  assert.deepEqual(one.sim.u8.slice(L.AO, L.AO + 8), was);
+  assert.deepEqual(one.sim.u8.slice(L.AO, L.AO + VIPS), was);
 });
 
 test('VIP: both VIPs down on one tick (a VIP\'s frag at its feet): a point each, in slot order, the thrower\'s own for the other; both at the target on one tick, a draw', async () => {
@@ -428,9 +432,9 @@ test('VIP: over on the tick a side reaches VP_TARGET; at the clock the side ahea
   assert.deepEqual([0, 2].map((p) => g.v.fighter(p).place), [want(0) ? 1 : 2, want(2) ? 1 : 2], 'red first, by VIP kills');
   assert.deepEqual([1, 3].map((p) => g.v.fighter(p).place), [3, 4], 'then blue: 1 more VIP kills than 3');
   // over, nothing counts
-  const was = g.sim.u8.slice(L.AO, L.AO + 8);
+  const was = g.sim.u8.slice(L.AO, L.AO + VIPS);
   steps(g, 400);
-  assert.deepEqual([scores(g), g.sim.u8.slice(L.AO, L.AO + 8)], [[AC.VP_TARGET, 4], was]);
+  assert.deepEqual([scores(g), g.sim.u8.slice(L.AO, L.AO + VIPS)], [[AC.VP_TARGET, 4], was]);
   // the next match: AO and the records 0 through its countdown, VIPs drawn anew as it starts
   while (g.v.hole().state !== L.H_COUNT) g.step();
   assert.ok(g.sim.u8.slice(L.AO, L.AO + L.AO_SIZE).every((x) => x === 0) && [0, 1, 2, 3].every((p) => turns(g, p) === 0 && points(g, p) === 0 && sh(g, p) === 100));
@@ -600,13 +604,69 @@ test('VIP\'s client module: the VIPs as AO has them; crowns over both but the on
   h.step();
   assert.deepEqual(goal(2), { pos: w.fighter(3).pos, r: 2, hurry: 0.8, hold: false });
   // a defender with no VIP of its own attacks; with no enemy VIP, the nearest enemy
-  h.sim.u8[L.AO + AC.VP_VIP] = 0;
+  setAo(h, AC.VP_VIP, 0, 0);
   assert.deepEqual(goal(4, 'defend', 2).pos, w.fighter(3).pos);
-  h.sim.u8[L.AO + AC.VP_VIP + 1] = 0;
-  h.dv.setUint16(L.AO + AC.VP_LEFT + 2, 1000, true);
+  setAo(h, AC.VP_VIP, 1, 0);
+  setAo(h, AC.VP_LEFT, 1, 1000);
   put(h, 5, 450, 470); put(h, 1, 600, 600); put(h, 3, 600, 400);
   h.step();
   assert.deepEqual(goal(2), { pos: w.fighter(5).pos, r: 6, hurry: 0, hold: false });
+});
+
+test('VIP: in a full room the last slot, 255, is a VIP like any other: AO holds it, it stays the VIP hurt, with no redraw or heal, and its death scores', async () => {
+  const g = await room(L.NPLAYER, { park: false });
+  const q = L.NPLAYER - 1, s = team(g, q);
+  // every other fighter of its side dead a long while: its side's next draw (due on the next tick) can only be q
+  for (let p = 0; p < q; p++) if (team(g, p) === s) { g.sim.u8[rec(p) + L.P_FL] |= L.PF_DEAD; g.dv.setUint16(rec(p) + L.A_RESPAWN, 3000, true); }
+  g.dv.setUint16(mr(q) + L.MR_AUX, 0, true);
+  setAo(g, AC.VP_VIP, s, 0); setAo(g, AC.VP_LAST, s, 0); setAo(g, AC.VP_LEFT, s, 1);
+  let from = g.v.fxCount();
+  g.step();
+  assert.deepEqual([vips(g)[s], turns(g, q), sh(g, q), hp(g, q), news(g, from)], [q, 1, L.OVERSHIELD, 100, [[AC.VP_MX_DRAW, q, s]]]);
+  assert.deepEqual([vipsOf(g.v)[s].slot, says(vipsOf(g.v)[s])], [q, 'P256']);
+  // hurt, ten ticks: still the VIP, one turn, no draw, its health as it was and its shields only recharging
+  g.dv.setUint8(rec(q) + L.A_SH, 3); g.dv.setUint8(rec(q) + L.A_HP, 5);
+  from = g.v.fxCount();
+  steps(g, 10);
+  assert.deepEqual([vips(g)[s], turns(g, q), hp(g, q), news(g, from)], [q, 1, 5, []]);
+  assert.ok(sh(g, q) < 20, 'no overshield again');
+  // killed by the other side: its point and the killer's, no VIP, q the last, VP_REDRAW to the next
+  const k = [...Array(q).keys()].find((p) => team(g, p) !== s && !dead(g, p));
+  setPoints(g, k, 0);
+  const was = scores(g);
+  from = g.v.fxCount();
+  slay(g, k, q);
+  const want = [...was]; want[1 - s]++;
+  assert.deepEqual([scores(g), points(g, k), vips(g)[s], lasts(g)[s], lefts(g)[s]], [want, 1, -1, q, AC.VP_REDRAW - 1]);
+  assert.deepEqual(news(g, from), [[AC.VP_MX_KILL, k, q + 256 * s]]);
+});
+
+test('VIP\'s waypoints: one whose text would cover another\'s goes to the nearest clear height (over before under, inside the band); apart ones stay; three on one point, near the top too, all apart', async () => {
+  const { clearOf } = await import('../client/arena-game.mjs');
+  // places markers in turn as markerRects does: each { x, y, half } where it asked to go
+  const lay = (ms, top = 48, bottom = 400) => {
+    const placed = [];
+    for (const m of ms) placed.push({ ...m, y: clearOf(placed, m.x, m.y, m.half, top, bottom) });
+    return placed.map((m) => m.y);
+  };
+  const m = (x, y, half = 4) => ({ x, y, half });
+  // apart: across, or four rows up or down, as they were
+  assert.deepEqual(lay([m(100, 200), m(200, 200), m(100, 224), m(100, 176)]), [200, 200, 224, 176]);
+  // on one point: over, then under (the nearer of the two clear heights; a tie goes up)
+  assert.deepEqual(lay([m(100, 200), m(100, 200)]), [200, 176]);
+  assert.deepEqual(lay([m(100, 200), m(100, 200), m(100, 200)]), [200, 176, 224]);
+  assert.deepEqual(lay([m(100, 200), m(100, 210)]), [200, 224], 'the nearer clear height, under');
+  assert.deepEqual(lay([m(100, 200), m(100, 190)]), [200, 176], 'the nearer clear height, over');
+  // at the top of the band: under, then under that (it never ends where it started)
+  assert.deepEqual(lay([m(100, 60), m(100, 60), m(100, 60)]), [60, 84, 108]);
+  assert.deepEqual(lay([m(100, 60), m(100, 60), m(100, 60), m(110, 60, 6)]), [60, 84, 108, 132]);
+  // text widths: half widths in 4 px cells, apart by a hair or touching
+  assert.deepEqual(lay([m(100, 200, 4), m(132.1, 200, 4)]), [200, 200]);
+  assert.deepEqual(lay([m(100, 200, 4), m(131.9, 200, 4)]), [200, 176]);
+  // the band full (no clear height inside it): where it asked
+  assert.deepEqual(lay([m(100, 60), m(100, 84), m(100, 72)], 48, 100), [60, 84, 72]);
+  // at the bottom of the band: over
+  assert.deepEqual(lay([m(100, 400), m(100, 400)], 48, 400), [400, 376]);
 });
 
 test('VIP with 8 and 16 AI fighters: both sides\' VIPs drawn and killed, both sides scoring, in 20,000 ticks; no trap on the debug build, the same hash on every tick on 1 and 4 threads', async (t) => {

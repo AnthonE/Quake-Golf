@@ -26,9 +26,10 @@
 ;; count is 0 (VP_REDRAW ticks counting the one it lost its VIP on; a side
 ;; with nobody alive to draw tries every tick).
 (func $vp_tick (result i32)
-  (local $s i32) (local $v i32) (local $a i32) (local $n i32)
+  (local $s i32) (local $o i32) (local $v i32) (local $a i32) (local $n i32)
   (!for $s (i32.const 0) (i32.const 2)
-    (local.set $v (i32.load8_u offset=@(AO + VP_VIP) (local.get $s)))
+    (local.set $o (i32.shl (local.get $s) (i32.const 1)))
+    (local.set $v (i32.load16_u offset=@(AO + VP_VIP) (local.get $o)))
     (if (local.get $v)
       (then
         (local.set $v (i32.sub (local.get $v) (i32.const 1)))
@@ -36,9 +37,9 @@
           (then
             (call $vp_lose (local.get $s) (local.get $v))
             (call $vp_news (i32.const @VP_MX_GONE) (local.get $v) (local.get $s) (local.get $v))))))
-    (if (i32.eqz (i32.load8_u offset=@(AO + VP_VIP) (local.get $s)))
+    (if (i32.eqz (i32.load16_u offset=@(AO + VP_VIP) (local.get $o)))
       (then
-        (local.set $a (i32.add (i32.const @(AO + VP_LEFT)) (i32.shl (local.get $s) (i32.const 1))))
+        (local.set $a (i32.add (i32.const @(AO + VP_LEFT)) (local.get $o)))
         (local.set $n (i32.load16_u (local.get $a)))
         (if (local.get $n)
           (then
@@ -54,7 +55,7 @@
 (func $vp_kill (param $q i32) (param $a i32) (param $cause i32)
   (local $s i32) (local $r i32)
   (local.set $s (call $a_team (local.get $q)))
-  (if (i32.or (i32.ne (i32.load8_u offset=@(AO + VP_VIP) (local.get $s)) (i32.add (local.get $q) (i32.const 1)))
+  (if (i32.or (i32.ne (i32.load16_u offset=@(AO + VP_VIP) (i32.shl (local.get $s) (i32.const 1))) (i32.add (local.get $q) (i32.const 1)))
               (i32.eqz (call $vp_was (local.get $q) (local.get $s))))
     (then (return)))
   (call $vp_lose (local.get $s) (local.get $q))
@@ -80,9 +81,11 @@
 
 ;; Side s's VIP, slot p, is no more: none now, p its last, VP_REDRAW to the next.
 (func $vp_lose (param $s i32) (param $p i32)
-  (i32.store8 offset=@(AO + VP_VIP) (local.get $s) (i32.const 0))
-  (i32.store8 offset=@(AO + VP_LAST) (local.get $s) (i32.add (local.get $p) (i32.const 1)))
-  (i32.store16 offset=@(AO + VP_LEFT) (i32.shl (local.get $s) (i32.const 1)) (i32.const @VP_REDRAW)))
+  (local $o i32)
+  (local.set $o (i32.shl (local.get $s) (i32.const 1)))
+  (i32.store16 offset=@(AO + VP_VIP) (local.get $o) (i32.const 0))
+  (i32.store16 offset=@(AO + VP_LAST) (local.get $o) (i32.add (local.get $p) (i32.const 1)))
+  (i32.store16 offset=@(AO + VP_LEFT) (local.get $o) (i32.const @VP_REDRAW)))
 
 ;; 1 if slot p could be side s's next VIP: alive, on s, and not slot `last` - 1.
 (func $vp_can (param $p i32) (param $s i32) (param $last i32) (result i32)
@@ -95,7 +98,7 @@
 ;; its turn counted; news at its feet.
 (func $vp_draw (param $s i32)
   (local $last i32) (local $c i32) (local $p i32) (local $pick i32) (local $pb i32) (local $r i32)
-  (local.set $last (i32.load8_u offset=@(AO + VP_LAST) (local.get $s)))
+  (local.set $last (i32.load16_u offset=@(AO + VP_LAST) (i32.shl (local.get $s) (i32.const 1))))
   (block $counted
     (loop $again
       (local.set $c (i32.const 0))
@@ -112,7 +115,7 @@
         (then
           (br_if $found (i32.eqz (local.get $pick)))
           (local.set $pick (i32.sub (local.get $pick) (i32.const 1)))))))
-  (i32.store8 offset=@(AO + VP_VIP) (local.get $s) (i32.add (local.get $p) (i32.const 1)))
+  (i32.store16 offset=@(AO + VP_VIP) (i32.shl (local.get $s) (i32.const 1)) (i32.add (local.get $p) (i32.const 1)))
   (local.set $r (i32.shl (local.get $p) (i32.const 3)))
   (i32.store16 offset=@(MODE_REC + MR_AUX) (local.get $r) (i32.add (i32.load16_u offset=@(MODE_REC + MR_AUX) (local.get $r)) (i32.const 1)))
   (local.set $pb (i32.shl (local.get $p) (i32.const 6)))

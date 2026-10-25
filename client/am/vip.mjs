@@ -11,7 +11,7 @@
 // within GUARD of their own. With no VIP to hunt, the nearest enemy.
 import * as L from '../../src/layout.mjs';
 import * as AC from '../../src/am/consts.mjs';
-import { boxClear } from '../../src/arena-view.mjs';
+import { boxClear, sees } from '../../src/arena-view.mjs';
 import { C } from '../font.mjs';
 import { SIDE, SIDE_C, SIDE_RGB } from './sides.mjs';
 import { nearestEnemy } from './slayer.mjs';
@@ -32,8 +32,8 @@ const SIGHT = 90;
 // none now), last (-1: none yet), left (ticks to the next draw) }. In the
 // countdown AO is 0: nobody, and nobody waiting.
 export function vipsOf(view) {
-  const u8 = view.u8, dv = view.dv;
-  return [0, 1].map((k) => ({ side: k, slot: u8[L.AO + AC.VP_VIP + k] - 1, last: u8[L.AO + AC.VP_LAST + k] - 1, left: dv.getUint16(L.AO + AC.VP_LEFT + 2 * k, true) }));
+  const at = (o, k) => view.dv.getUint16(L.AO + o + 2 * k, true);
+  return [0, 1].map((k) => ({ side: k, slot: at(AC.VP_VIP, k) - 1, last: at(AC.VP_LAST, k) - 1, left: at(AC.VP_LEFT, k) }));
 }
 
 // A VIP in words: P5, NEXT IN 3 (seconds to its draw), or NONE YET (a side with nobody alive to draw).
@@ -46,17 +46,6 @@ function feet(view, p, dt = 0) {
 }
 const alive = (view, q) => (view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) === L.PF_LIVE;
 const across = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
-
-// Can an eye at a see a point at b, past the map's boxes and over the ground (steps of a metre)? As the bot's own.
-function sees(view, a, b) {
-  if (!boxClear(view.map(), a, b)) return false;
-  const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]));
-  for (let k = 1; k < n; k++) {
-    const t = k / n, x = a[0] + (b[0] - a[0]) * t, z = a[2] + (b[2] - a[2]) * t;
-    if (a[1] + (b[1] - a[1]) * t < view.height(x, z) + 0.1) return false;
-  }
-  return true;
-}
 
 // Live fighters but slot `me`, by side from its bit: [friends, enemies], feet.
 function sides(view, me) {
