@@ -10,7 +10,9 @@
 // ordinary clients as there are bots. With --watch they are spectators
 // instead: no slot, no words, but the same acks, repairs and hash reports.
 // With --arena the room is the arena's (build/arena/game.wasm) and every bot
-// an AI fighter (client/arena-bot.mjs), saying how old its view is in its frames.
+// an AI fighter (client/arena-bot.mjs), saying how old its view is in its frames;
+// the summary has each match's mode, how it ended (a team mode's scores and
+// winner), and each fighter's side.
 // With --bumper it is bumper balls' (build/bumper/game.wasm) and every bot an
 // AI ball (client/bumper-bot.mjs). With --party it is Party's
 // (build/party/game.wasm), a minigame a round, and every bot an AI ball that
@@ -35,7 +37,7 @@ import * as L from '../src/layout.mjs';
 import { createImpair, parseImpair } from './impair.js';
 import { feedTick } from './inbox.mjs';
 import { newMemory, instantiate, Sim } from '../harness/core.mjs';
-import { View } from '../src/arena-view.mjs';
+import { View, modeName } from '../src/arena-view.mjs';
 import { BrainBot } from '../client/brain.mjs';
 import { Fighter } from '../client/arena-bot.mjs';
 import { Roller } from '../client/bumper-bot.mjs';
@@ -131,7 +133,14 @@ function step() {
     // Fireplace: each game the room moved into (the arena by the mode its seed forces), and when
     if (fireplace) {
       const dv = world.view.dv, g = dv.getUint32(L.FP_GAME, true), seed = dv.getUint32(L.HDR_SEED, true), n = dv.getUint16(L.FP_COUNT + 2, true);
-      if (world.games.at(-1)?.n !== n) world.games.push({ game: g, n, name: g === L.G_ARENA && seed >>> 24 === L.FORCE_MODE ? `ARENA ${L.MODES[(seed >>> 16) & 0xff]?.name}` : L.GAMES[g], simTick: sim.tick });
+      if (world.games.at(-1)?.n !== n) world.games.push({ game: g, n, name: g === L.G_ARENA && modeName(seed) !== null ? `ARENA ${modeName(seed)}` : L.GAMES[g], simTick: sim.tick });
+    }
+    // the arena: each match's mode as play starts, and how it ended (a team mode's scores and winner)
+    if (arena) {
+      const v = world.view, st = v.dv.getUint32(L.HDR_STATE, true), hole = v.dv.getUint32(L.HDR_HOLE, true);
+      if (st === L.H_PLAY && !world.games.some((g) => g.hole === hole)) { const md = v.mode(); world.games.push({ hole, mode: md.mode, name: md.name, teamed: md.teamed, simTick: sim.tick }); }
+      const now = world.games.find((g) => g.hole === hole);
+      if (st === L.H_OVER && now && now.over === undefined) { const md = v.mode(); Object.assign(now, { over: sim.tick, score: md.score, target: md.target, teamWin: md.teamWin }); }
     }
     // Party: each round's minigame, as play starts, and when it ended (once a
     // round, though a keyframe from the seed has the world play it again)
@@ -428,7 +437,7 @@ const cpu = process.cpuUsage(cpu0);
 const wall = (performance.now() - t0) / 1000;
 const v = world.view;
 const players = sessions.filter((s) => s.joined && !s.watch).map((s) => {
-  if (arena) { const f = v.fighter(s.slot); return { slot: s.slot, kills: f.kills, deaths: f.deaths, zombie: f.zombie, rung: f.rung, points: f.points }; }
+  if (arena) { const f = v.fighter(s.slot); return { slot: s.slot, kills: f.kills, deaths: f.deaths, zombie: f.zombie, rung: f.rung, points: f.points, team: f.team, carry: f.carry, aux: f.aux }; }
   if (bumper) { const b = v.bumper(s.slot); return { slot: s.slot, wins: b.wins, kos: b.kos, bumps: b.bumps, rounds: b.rounds }; }
   if (party) { const b = v.partier(s.slot); return { slot: s.slot, pts: b.pts, wins: b.wins, kos: b.kos, rounds: b.rounds }; }
   if (fireplace) return { slot: s.slot, mallows: v.dv.getUint16(L.FP_MALLOWS + 2 * s.slot, true) };
@@ -446,7 +455,9 @@ const per = sessions.map((s) => {
 });
 const summary = {
   bots: nBots, seconds, impair, genome: arena || bumper || party ? null : genome, arena, bumper, party, fireplace,
-  games: fireplace || party ? world.games : undefined,
+  games: fireplace || party || arena ? world.games : undefined,
+  // the arena's match as the run ended: its mode, and a team mode's scores, target, winner and sides' counts
+  mode: arena ? world.view.mode() : undefined,
   watch, joined: per.filter((p) => p.joined).length, rejected: per.filter((p) => p.reject !== null).length,
   errors: per.filter((p) => p.error).map((p) => ({ k: p.k, error: p.error })),
   cpuPctOfOneCore: Number((100 * (cpu.user + cpu.system) / 1e6 / wall).toFixed(1)),
