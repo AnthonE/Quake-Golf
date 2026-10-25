@@ -40,6 +40,10 @@ function standing(m, o, teamWin = 0) {
   if (m === L.M_JUGGERNAUT) return o.points * 65536 + o.kills;
   return o.kills * 65536 - o.deaths;
 }
+// The motion tracker's dots at most, the nearest: with the sword in hand (59
+// rects), the HUD's bars (12), the score bar (5) and CTF's two waypoints (4),
+// 112 of MAX_RECT. They go after every other rect, so a cut drops dots, not bars.
+const BLIPS = 32;
 const MEDALS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'OVERKILL', 'KILLTACULAR', 'KILLTROCITY', 'KILLAMANJARO'];
 const SPREES = { 5: 'KILLING SPREE', 10: 'KILLING FRENZY', 15: 'RUNNING RIOT', 20: 'RAMPAGE' };
 
@@ -395,10 +399,12 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       const filled = f.hp > k * 12.5;
       r(110 + k * 12.6, 17, 110 + k * 12.6 + 11, 20, filled ? (f.hp < 35 ? [1, 0.3, 0.2] : [0.4, 0.9, 0.4]) : [0.15, 0.15, 0.15], 0.85);
     }
-    // the motion tracker: enemies within 25 m that move or shoot; in a team mode your side too, still or not, in yellow (Halo's)
+    // the motion tracker: enemies within 25 m that move or shoot; in a team mode your side too, still or not, in yellow
+    // (Halo's): the nearest BLIPS, apart from the bars
     const R = 26, cx = 32 * s, cy = (H / s - 32) * s;
     const fy = Math.cos(camYaw), fz = Math.sin(camYaw);
     const teamed = view.teamed();
+    const near = [];
     for (let p = 0; p < L.NPLAYER; p++) {
       const ally = view.ally(f.slot, p);
       if (p === f.slot || (ally && !teamed)) continue;
@@ -410,11 +416,15 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       if (!ls || ls[0] !== o.shots) lastShots.set(p, [o.shots, now]);
       const loud = Math.hypot(o.vel[0], o.vel[2]) > 3 || now - (lastShots.get(p)?.[1] ?? -1e9) < 1500;
       if (dist > 25 || (!loud && !ally)) continue;
+      near.push([dist, dx, dz, ally]);
+    }
+    near.sort((a, b) => a[0] - b[0]);
+    const blips = near.slice(0, BLIPS).map(([, dx, dz, ally]) => {
       const fwd = dx * fy + dz * fz, right = -dx * fz + dz * fy;
       const x = cx / s + right / 25 * R, y = cy / s - fwd / 25 * R;
-      r(x - 1.5, y - 1.5, x + 1.5, y + 1.5, ally ? [1, 0.85, 0.25] : [1, 0.25, 0.2]);
-    }
-    return { rects: out, tracker: [cx, cy, R * s] };
+      return [(x - 1.5) * s, (y - 1.5) * s, (x + 1.5) * s, (y + 1.5) * s, ...(ally ? [1, 0.85, 0.25] : [1, 0.25, 0.2]), 1];
+    });
+    return { rects: out, blips, tracker: [cx, cy, R * s] };
   }
 
   // Is the crosshair over an enemy within the gun's range (a carrier's swing's 2.4 m)? For the red reticle.
@@ -581,18 +591,19 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       if (a >= 1) { tracers.splice(k, 1); continue; }
       beams.push({ a: t.a, b: t.b, width: t.width, color: [t.color[0], t.color[1], t.color[2], t.color[3] * (1 - a)] });
     }
-    let rects = [], tracker = null;
+    let rects = [], blips = [], tracker = null;
     const playing = st === 2 && f?.live;
     if (playing) {
       const moving = Math.hypot(f.vel[0], f.vel[2]) > 1 && f.ground;
       // a carrier's hands hold the flag or the skull (a flag in the colour of the side it was taken from)
       if (!WATCH && !f.dead) rects = f.carry ? carryRects(kit?.carry, SIDE_RGB[f.team === 0 ? 1 : 0], now, moving) : gunRects(f.weapon, now, moving);
-      if (!f.dead) { const hr = hudRects(f, now); rects.push(...hr.rects); tracker = hr.tracker; }
+      if (!f.dead) { const hr = hudRects(f, now); rects.push(...hr.rects); blips = hr.blips; tracker = hr.tracker; }
     }
     const zoom = zoomed && f && !f.dead ? zoomOf() : 1;
     const kitRects = [];
     hudText(text, { h, f, slot: tgt ? watched : slot, st, now, fps, md, kit, kitRects, playT });
-    rects.push(...kitRects);
+    // the tracker's dots last: the waypoints' room and the renderer's MAX_RECT are taken from the end
+    rects.push(...kitRects, ...blips);
     // the objective's waypoints over everything, through walls, with the camera as it is drawn (not over the board)
     if (out.markers.length && st === 2 && !(h.state === L.H_OVER || (held.has('Tab') && h.live))) {
       const mr = markerRects(out.markers, { cam, yaw: camYaw, pitch: camPitch, zoom }, f);
