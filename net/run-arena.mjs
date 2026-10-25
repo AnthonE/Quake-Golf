@@ -81,7 +81,7 @@ try {
   const end = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.state())));
   report.chromeState = end.map((s) => ({ slot: s.slot, kills: s.me?.kills, deaths: s.me?.deaths, behind: s.clState !== 2, feed: s.feed, mode: s.mode?.mode, match: s.match?.hole,
     zombie: s.me?.zombie, rung: s.me?.rung, points: s.me?.points, humans: s.mode?.humans, zombies: s.mode?.zombies,
-    team: s.team, carry: s.me?.carry, score: s.mode?.score, target: s.mode?.target, teamWin: s.mode?.teamWin, kit: s.kit }));
+    team: s.team, carry: s.me?.carry, score: s.mode?.score, target: s.mode?.target, teamWin: s.mode?.teamWin, teamN: s.mode?.teamN, kit: s.kit }));
   report.chromeHashes = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.hashes.length)));
 } finally {
   await browser.close();
@@ -98,8 +98,14 @@ report.botHost = b && { joined: b.joined, rejected: b.rejected, errors: b.errors
   kills: b.world.players.reduce((n, p) => n + p.kills, 0), downKBpsEach: b.sessions.length ? Number((b.sessions.reduce((n, x) => n + x.downKB, 0) / b.sessions.length / seconds).toFixed(1)) : 0,
   mode: b.mode && { mode: b.mode.mode, name: b.mode.name, teamed: b.mode.teamed, score: b.mode.score, target: b.mode.target, teamWin: b.mode.teamWin, teamN: b.mode.teamN },
   matches: b.games, sides: b.mode?.teamed ? [0, 1].map((k) => b.world.players.filter((p) => p.team === k).length) : null };
-// a forced team mode: both sides were dealt fighters, by the bot host's world and on every page
+// a forced team mode: both sides were dealt fighters, counted over the whole
+// room (the bot host's own and every page's), and every page has a side and
+// sees both sides' counts (AH_TEAMN) above 0; a room of one has one side
 const teamed = mode !== null && !!L.MODES[mode]?.team;
+const room = [...(b?.world.players ?? []).map((p) => p.team), ...(report.chromeState ?? []).map((s) => s.team)];
+report.sides = teamed ? [0, 1].map((k) => room.filter((t) => t === k).length) : null;
+const both = (n) => !!n && n.length === 2 && n.every((k) => k > 0);
+const two = nbots + chrome >= 2;
 const gate = {
   everyBotIn: !nbots || (!!b && b.joined === nbots && !b.errors.length),
   refereeChecked: !!r && r.compared >= 4 * (nbots + chrome),
@@ -107,7 +113,7 @@ const gate = {
   someoneDied: (report.chromeState || []).some((s) => s.kills + s.deaths > 0) || (report.botHost?.kills ?? 0) > 0,
   chromeKeptUp: (report.chromeState || []).every((s) => !s.behind),
   modePlayed: mode === null || ((!nbots || report.botHost?.mode?.mode === mode) && (report.chromeState || []).every((s) => s.mode === mode)),
-  sidesDealt: !teamed || ((!nbots || (report.botHost?.sides?.every((n) => n > 0) && nbots > 1)) && (report.chromeState || []).every((s) => s.team === 0 || s.team === 1)),
+  sidesDealt: !teamed || ((!two || both(report.sides)) && (report.chromeState || []).every((s) => (s.team === 0 || s.team === 1) && (!two || both(s.teamN)))),
   noErrors: report.errors.length === 0,
 };
 report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };
