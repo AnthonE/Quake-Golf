@@ -13,8 +13,8 @@
 ;; setup writes into PG_H from the round's seed ($jr_angle), the stage's
 ;; reach of the tick ($jr_reach): ground and push work them out on their own
 ;; bank's tick, so the prediction is exact however far ahead it runs. The
-;; rope meeting a ball is the ball's own business (push); only ball against
-;; ball is late.
+;; rope meeting a ball is the ball's own business (push), and balls don't
+;; bump here: only a ball going out is the confirmed world's, a round trip late.
 
 ;; Ticks 0..n-1 of a speed of s a tick and k more each tick, added up (2^-24
 ;; turn; i32 arithmetic wraps, and a turn is the low 24 bits).
@@ -98,11 +98,12 @@
   (local.set $h (f32.load offset=@(PG_H + JR_HL) (local.get $d)))
   (f32.sub (local.get $h) (f32.mul (f32.mul (local.get $h) (f32.const @JR_CUT)) (f32.div (f32.convert_i32_u (local.get $k)) (f32.const @JR_STEPS)))))
 
-;; The stage for the crowd, a strong hop and good brakes, and the rope's
-;; schedule: held overhead through the grace, one rope turning the way the
-;; seed says, double dutch from the first time it passes the bottom from
-;; JR_T2 (the second rope comes in at the top), and from JR_TR0 the
-;; switches, each held where the first rope passes a side.
+;; The stage for the crowd, a strong hop and good brakes, no bumps (the
+;; rope is the hazard: a ball it knocks flying across would take its row
+;; with it), and the rope's schedule: held overhead through the grace, one
+;; rope turning the way the seed says, double dutch from the first time it
+;; passes the bottom from JR_T2 (the second rope comes in at the top), and
+;; from JR_TR0 the switches, each held where the first rope passes a side.
 (func $jr_setup (param $n i32)
   (local $cols i32) (local $hl f32) (local $dir i32) (local $t i32) (local $s i32) (local $k i32) (local $nseg i32) (local $hold i32) (local $a i32)
   (local.set $cols (i32.div_u (i32.add (local.get $n) (i32.const @(JR_ROWS - 1))) (i32.const @JR_ROWS)))
