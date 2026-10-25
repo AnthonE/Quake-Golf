@@ -541,7 +541,7 @@ test('the client module: draws the countdown and the round, frames the disc, wri
   const finite = () => { for (let k = 0; k < out.scene.count * 16; k++) assert.ok(Number.isFinite(out.scene.data[k]), 'finite'); };
   const n = tiles(g.v).length, nc = g.dv.getUint32(L.PG_H + MC.CN_NC, true);
   cannon.draw(g.v, { tick: g.v.tick, dt: 0, now: 0, slot: 0 }, out);
-  assert.equal(out.scene.count, n + 2 + 6 * nc, 'every tile, the column, and each cannon');
+  assert.equal(out.scene.count, n + 2 + 8 * nc, 'every tile, the column, and each cannon');
   finite();
   while (g.v.hole().state !== L.H_PLAY) g.step();
   for (const tp of [300, 1500, 4000, 8000, 11000, 14000]) {
@@ -552,7 +552,7 @@ test('the client module: draws the countdown and the round, frames the disc, wri
     const tick = g.v.tick;
     cannon.draw(g.v, { tick, dt: 0, ptick: tick + 3.5, now: 0, slot: 0 }, out);
     finite();
-    assert.ok(out.scene.count > 2 + 6 * nc && out.scene.count <= 24000, `${out.scene.count} solids`);
+    assert.ok(out.scene.count > 2 + 8 * nc && out.scene.count <= 24000, `${out.scene.count} solids`);
     const s = stage(g.v);
     const t = g.v.party().t + 3.5;
     let live = 0;

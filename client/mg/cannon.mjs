@@ -2,7 +2,7 @@
 // pale stone in rings round a sandstone core (the part the rim never takes),
 // standing on a column in the sea; tiles the rim is about to take darken and
 // shake, then drop and tumble away. Round it, on posts out of the sea, the
-// cannons: an iron drum and a square barrel with a brass muzzle, turning to
+// cannons: an iron drum and a square barrel banded in bronze, turning to
 // aim down each shot's lane as its red stripe shows on the floor, the muzzle
 // glowing hotter till it fires in a flash and a puff of smoke, the barrel
 // kicking back. The cannonballs are dark iron spheres rolling down their
@@ -33,7 +33,7 @@ const RINGS = [[0.86, 0.84, 0.78], [0.66, 0.68, 0.72]];
 const CORE = [[0.93, 0.83, 0.6], [0.84, 0.7, 0.48]];
 const DOOM = [0.24, 0.22, 0.22];
 const IRON = [0.15, 0.15, 0.17];
-const BRASS = [0.78, 0.6, 0.28];
+const BRONZE = [0.34, 0.3, 0.24];
 const STONE = [0.5, 0.48, 0.45];
 const RED = [1, 0.12, 0.06];
 
@@ -196,19 +196,20 @@ function cannon(sc, out, s, can, tp, now) {
   sc.cyl(can.x, top - 0.25, can.z, 2.9, 0.25, ...STONE, LOOK.MATTE);
   sc.cyl(can.x, PLAT_Y + 0.55, can.z, 2.3, 0.8, ...IRON, LOOK.METAL);
   const kick = fired >= 0 && tp - s.tf[fired] < 40 ? 0.7 * (1 - (tp - s.tf[fired]) / 40) : 0;
-  const bore = rc + 0.25, len = MC.CN_BARREL + 0.9, back = 0.9 + kick;
+  const bore = rc * 0.8 + 0.35, len = MC.CN_BARREL + 1.7, back = 1.7 + kick;
   const bx = can.x + cy * (len / 2 - back), bz = can.z + sy * (len / 2 - back), by = PLAT_Y + MC.CN_MZY;
   sc.box(bx, by, bz, len / 2, bore, bore, yaw, ...IRON, LOOK.METAL);
   const mx = can.x + cy * (MC.CN_BARREL - kick), mz = can.z + sy * (MC.CN_BARREL - kick);
-  sc.box(mx - cy * 0.2, by, mz - sy * 0.2, 0.22, bore + 0.22, bore + 0.22, yaw, ...BRASS, LOOK.METAL);
-  sc.sphere(can.x - cy * back, by, can.z - sy * back, bore * 0.9, ...IRON, LOOK.METAL);
-  // hot as it nears firing, out once it has
+  sc.box(mx - cy * 0.25, by, mz - sy * 0.25, 0.25, bore + 0.2, bore + 0.2, yaw, ...BRONZE, LOOK.METAL);
+  sc.box(can.x - cy * (back - 0.3), by, can.z - sy * (back - 0.3), 0.3, bore + 0.12, bore + 0.12, yaw, ...BRONZE, LOOK.METAL);
+  sc.sphere(can.x - cy * back, by, can.z - sy * back, bore * 0.75, ...IRON, LOOK.METAL);
+  // the bore: dark, hot as it nears firing
   if (cur >= 0 && tp < s.tf[cur]) {
     const u = Math.max(0, Math.min(1, (tp - (s.tf[cur] - MC.CN_TELE)) / MC.CN_TELE));
     const pulse = 0.75 + 0.25 * Math.sin(now * TICK * Math.PI * 2 * (2 + 6 * u));
-    sc.sphere(mx + cy * 0.05, by, mz + sy * 0.05, rc * 0.85, 1, 0.3 + 0.4 * u, 0.1, LOOK.GLOW, (0.3 + 1.6 * u) * pulse, 0.4);
+    sc.sphere(mx + cy * 0.05, by, mz + sy * 0.05, rc * 0.8, 1, 0.3 + 0.4 * u, 0.1, LOOK.GLOW, (0.3 + 1.6 * u) * pulse, 0.4);
     out.glow.push({ pos: [mx + cy * 0.4, by, mz + sy * 0.4], size: 1.4 + 2.2 * u, color: [1, 0.35 + 0.3 * u, 0.1, (0.25 + 0.55 * u) * pulse], kind: SPRITE.FLASH, minpx: 2 });
-  }
+  } else sc.sphere(mx + cy * 0.05, by, mz + sy * 0.05, rc * 0.8, 0.03, 0.03, 0.035, LOOK.MATTE);
 }
 
 // Shot k on tick tp: its stripe (shown CN_TELE before it fires, ahead of it
@@ -292,7 +293,7 @@ function nearShots(view, s, slot, x, z) {
   const list = [];
   for (const k of shown(s, seen, t)) {
     const pe = (x - s.mx[k]) * s.uz[k] - (z - s.mz[k]) * s.ux[k];
-    if (Math.abs(pe) < s.rc[k] + RB + 14) list.push(k);
+    if (Math.abs(pe) < s.rc[k] + RB + 12) list.push(k);
   }
   if (slot >= 0) NEAR[slot] = { at: view.tick, bank: view.bank, x, z, list };
   return list;
@@ -306,9 +307,9 @@ function danger(view, x, z, t, slot) {
   if (g.state !== L.H_PLAY) return 0;
   const s = stage(view);
   const cx = s.cx, tp = (t - g.start) | 0;
-  if (!holds(view, cellAt(x, z, cx), tp)) return 1;
-  let d = 0;
-  if (dropOf(view, cellAt(x, z, cx)) - tp < 60) d = 0.7;
+  const drop = dropOf(view, cellAt(x, z, cx));
+  if (tp >= drop) return 1;
+  let d = drop - tp < 60 ? 0.7 : 0;
   for (const k of nearShots(view, s, slot, x, z)) {
     const wx = x - s.mx[k], wz = z - s.mz[k];
     const pe = Math.abs(wx * s.uz[k] - wz * s.ux[k]), rr = s.rc[k] + RB + 0.35;
@@ -325,7 +326,7 @@ function danger(view, x, z, t, slot) {
     if (eta < -0.05 || eta > 1.2) continue;
     d = Math.max(d, (0.35 + 0.4 * (1 - Math.max(0, eta) / 1.2)) * side);
   }
-  const rho = Math.hypot(x - cx, z - cx), edge = rimAt(s.r0, tp + 90);
+  const rho = Math.sqrt((x - cx) * (x - cx) + (z - cx) * (z - cx)), edge = rimAt(s.r0, tp + 90);
   if (rho > edge - 2.5) d = Math.max(d, 0.25 + 0.3 * Math.min(1, (rho - edge + 2.5) / 2.5));
   return d;
 }
@@ -365,11 +366,12 @@ function crowdOf(view) {
   CROWD.set(key, { tick: view.tick, grid });
   return grid;
 }
+let lastBoom = -1e9; // ms, the last cannon heard
 const crowdAt = (grid, x, z) => grid.get(Math.floor(x / 3) * 4096 + Math.floor(z / 3)) || 0;
 
 export default {
   id: L.MG_CANNON, key: 'cannon', name: 'CANNONADE',
-  hint: 'CANNONS FIRE DOWN THE RED STRIPES  GET OUT OF THE LANES  LAST ONE ON',
+  hint: 'CANNONS FIRE DOWN THE RED STRIPES  GET OUT OF THE LANES',
   rules: 'LAST ONE IN WINS  HOP A SMALL ONE  THE EDGE GOES AT 60 S',
   env: 'day',
 
@@ -422,8 +424,9 @@ export default {
   fx(fx, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(fx.pos) : ctx.dist ?? 0;
     if (fx.kind === MC.CN_FX_FIRE) {
-      // a volley's booms ripple: the nearest few heard
-      if (d < 140) ctx.sound?.blast?.(d + 4, 6);
+      // a volley's booms ripple round the ring, one heard every 70 ms at most
+      const now = ctx.now ?? 0;
+      if (d < 140 && !(now - lastBoom < 70)) { lastBoom = now; ctx.sound?.blast?.(d + 4, 6); }
     } else if (fx.kind === MC.CN_FX_HIT) {
       ctx.glow?.({ pos: fx.pos, size: 1.2 + fx.size * 0.06, color: [1, 0.75, 0.4, 0.9], kind: SPRITE.SPARK, life: 320 });
       ctx.glow?.({ pos: fx.pos, size: 1.5 + fx.size * 0.05, color: [1, 0.6, 0.3, 0.5], kind: SPRITE.FLASH, life: 260, grow: true });
