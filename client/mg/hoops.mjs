@@ -103,6 +103,7 @@ let env = 'day';
 // hoops your own predicted ball has gone through, drawn faint at once: hoop -> the tick into play it went through
 const passed = new Map();
 let lastMe = null; // your predicted ball's centre and tick into play, last frame
+let leadFed = -1e9; // ms of the last lead change in the feed: one-point leads flip often early on
 
 function court(out, st, now) {
   const sc = out.scene, cx = st.cx, R = st.rad;
@@ -268,7 +269,7 @@ export default {
     if (f.kind === MC.HO_FX_LEAD) {
       if (mine) { ctx.banner?.('YOU TAKE THE LEAD', C.GREEN, 1500); ctx.sound?.pickup?.(); }
       else if (f.shot === ctx.slot) ctx.banner?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} TAKES THE LEAD`, C.RED, 1500);
-      else ctx.feed?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} TAKES THE LEAD`, C.YELLOW);
+      else if ((ctx.now ?? 0) - leadFed > 4000) { leadFed = ctx.now ?? 0; ctx.feed?.(`${ctx.name?.(f.owner) ?? `P${f.owner + 1}`} TAKES THE LEAD`, C.YELLOW); }
     }
   },
 
