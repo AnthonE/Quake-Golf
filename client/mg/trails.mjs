@@ -23,8 +23,8 @@ const f = Math.fround;
 const FT = 1.2; // the floor's thickness, m
 const LINES = 4; // m between the floor's grid lines
 const FADE = 125; // ticks a cell is drawn fading before it goes
-const WALLS = 22; // m round the focus a hard cell stands as a wall
-const MAXWALL = 2600; // wall boxes a frame, at most
+const WALLS = 30; // m round the focus a hard cell stands as a wall
+const MAXWALL = 4096; // hard cells a frame stood up as walls, at most
 const N = (k) => Math.fround(Number(L.BPHYS[k]));
 const ACC = N('B_ACC_DT'), AIR = N('B_AIR_DT'), AIR_DRAG = N('B_AIR_DRAG'), HOP_G = Number(L.PHYS.GP_DT) / TICK;
 
@@ -80,6 +80,8 @@ function playTime(view, g, ctx, pred) {
 const hue = (s) => (s * 0.618034) % 1;
 const light = (h) => [0, 0.33, 0.67].map((o) => 0.5 + 0.5 * Math.cos(6.2832 * (h + o)));
 export const lightColor = (s) => light(hue(s));
+const LIGHTS = Array.from({ length: 256 }, (_, s) => lightColor(s)); // the walls': a slot's light
+const WHITER = LIGHTS.map((c) => c.map((x) => Math.min(1, x * 0.75 + 0.3))); // and your own, a little whiter
 const NB = 80; // hues in the palette
 const BIN = Uint8Array.from({ length: 256 }, (_, s) => Math.floor(hue(s) * NB) % NB);
 // palette indices: soft, hard, fading by hue; then your own three
@@ -158,40 +160,65 @@ export function paintLayer(view, st, T, me, own) {
 }
 
 // Hard cells within R of (fx, fz) as walls of light LT_WALL high, sinking
-// their last FADE ticks: each a slab turned the way its light runs there,
-// from the cell of the same light laid just before it to the one just after
-// (of its eight neighbours), so a trail on a slant stands as a smooth wall,
-// not a staircase. Rows nearest the focus first, at most MAXWALL.
+// their last FADE ticks. Each light's cells are taken in the order it laid
+// them (slot, then tick) and chained while each is near the last; a chain
+// is drawn as the fewest straight slabs that pass within TOL of every cell's
+// middle, so a trail on a slant stands as a smooth wall, not a staircase.
+// At most MAXWALL cells, the rows nearest the focus first.
+const KEYS = new Float64Array(MAXWALL);
+const CX = new Float64Array(MAXWALL), CZ = new Float64Array(MAXWALL);
+const TOL = 0.37; // m a slab may pass from a cell's middle: a staircase on the diagonal is 0.354 either side of it
+const SPLIT = 2 ** 17; // a key: (slot * 16384 + tick) * SPLIT + cell
 function walls(sc, st, g, T, fx, fz, R, me) {
   const n = st.side, cs = MC.LT_CS;
   const ci = Math.floor((fx - st.x0) / cs), cj = Math.floor((fz - st.x0) / cs), rc = Math.ceil(R / cs);
-  let boxes = 0;
-  for (let k = 0; k <= 2 * rc && boxes < MAXWALL; k++) {
+  let m = 0;
+  for (let k = 0; k <= 2 * rc && m < MAXWALL; k++) {
     const j = cj + (k & 1 ? -((k + 1) >> 1) : k >> 1);
-    if (j < 1 || j >= n - 1) continue;
+    if (j < 0 || j >= n) continue;
     const w = Math.floor(Math.sqrt(Math.max(0, rc * rc - (j - cj) * (j - cj))));
-    for (let i = Math.max(1, ci - w); i <= Math.min(n - 2, ci + w) && boxes < MAXWALL; i++) {
+    for (let i = Math.max(0, ci - w); i <= Math.min(n - 1, ci + w) && m < MAXWALL; i++) {
       const v = g[j * n + i];
-      if (!v) continue;
-      const tl = v >>> 8, a = T - tl, life = lifeOf(tl);
-      if (a < MC.LT_HARD || a >= life) continue;
-      const s = v & 255;
-      let pt = -1, pi = i, pj = j, nt = Infinity, ni = i, nj = j;
-      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-        const u = g[(j + dj) * n + i + di];
-        if (!u || (u & 255) !== s || (di === 0 && dj === 0)) continue;
-        const ut = u >>> 8;
-        if (ut < tl && ut > pt) { pt = ut; pi = i + di; pj = j + dj; }
-        if (ut > tl && ut < nt) { nt = ut; ni = i + di; nj = j + dj; }
-      }
-      const dx = ni - pi, dz = nj - pj;
-      const hy = (MC.LT_WALL / 2) * Math.min(1, (life - a) / FADE);
-      const c = s === me ? lightColor(s).map((x) => Math.min(1, x * 0.75 + 0.3)) : lightColor(s);
-      sc.box(st.x0 + (i + 0.5) * cs, PLAT_Y + hy, st.x0 + (j + 0.5) * cs, dx || dz ? 0.3 : 0.22, hy, 0.17, dx || dz ? Math.atan2(dz, dx) : 0,
-        c[0], c[1], c[2], LOOK.GLOW, a >= life - FADE ? 1.1 : 1.6, 0.6, 1, s * 16 + 1);
-      boxes++;
+      if (stateOf(v, T) !== 2) continue;
+      KEYS[m++] = ((v & 255) * 16384 + (v >>> 8)) * SPLIT + j * n + i;
     }
   }
+  const keys = KEYS.subarray(0, m).sort();
+  let boxes = 0, len = 0, ps = -1, ptl = 0, ph = 0, pi = 0, pj = 0;
+  const flush = () => {
+    if (!len) return;
+    const c = ps === me ? WHITER[ps] : LIGHTS[ps], hy = (MC.LT_WALL / 2) * (ph / 4), glow = ph < 4 ? 1.1 : 1.6;
+    // the fewest straight slabs: from a, on to the furthest cell that keeps every one between within TOL of the line
+    const slab = (a, b) => {
+      const dx = CX[b] - CX[a], dz = CZ[b] - CZ[a], l = Math.hypot(dx, dz);
+      sc.box((CX[a] + CX[b]) / 2, PLAT_Y + hy, (CZ[a] + CZ[b]) / 2, l / 2 + cs * 0.5, hy, 0.17, l > 0 ? Math.atan2(dz, dx) : 0,
+        c[0], c[1], c[2], LOOK.GLOW, glow, 0.6, 1, (ps * 16 + boxes) % 4096);
+      boxes++;
+    };
+    if (len === 1) slab(0, 0);
+    for (let a = 0; a < len - 1;) {
+      let b = a + 1;
+      for (let e = a + 2; e < len; e++) {
+        const dx = CX[e] - CX[a], dz = CZ[e] - CZ[a], l = Math.hypot(dx, dz);
+        let ok = true;
+        for (let q = a + 1; q < e && ok; q++) ok = Math.abs((CX[q] - CX[a]) * dz - (CZ[q] - CZ[a]) * dx) <= TOL * l;
+        if (!ok) break;
+        b = e;
+      }
+      slab(a, b);
+      a = b;
+    }
+    len = 0;
+  };
+  for (let q = 0; q < m; q++) {
+    const key = keys[q], c = key % SPLIT, rest = (key - c) / SPLIT;
+    const tl = rest % 16384, s = (rest - tl) / 16384, i = c % n, j = (c - i) / n;
+    const left = lifeOf(tl) - (T - tl), h = left < FADE ? 1 + Math.min(2, Math.floor((left / FADE) * 3)) : 4;
+    if (s !== ps || h !== ph || tl - ptl > 40 || Math.abs(i - pi) > 2 || Math.abs(j - pj) > 2) { flush(); ps = s; ph = h; }
+    CX[len] = st.x0 + (i + 0.5) * cs; CZ[len] = st.x0 + (j + 0.5) * cs; len++;
+    ptl = tl; pi = i; pj = j;
+  }
+  flush();
   return boxes;
 }
 
