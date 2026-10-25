@@ -93,7 +93,7 @@ test('readers: the map\'s objectives from MAP_OBJ, a stand\'s height, a forced s
   assert.equal(modeName(7), null);
 });
 
-test('the kit: a module for every team mode, news routed by its MX codes, the stubs inert', () => {
+test('the kit: a module for every team mode, news routed by its MX codes', () => {
   for (const a of L.AM) {
     const k = AMC[a.mode];
     assert.equal(k.mode, a.mode);
