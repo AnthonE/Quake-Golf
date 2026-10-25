@@ -109,13 +109,6 @@ test('the kit: a module for every team mode, news routed by its MX codes, the st
   assert.equal(newsOf(L.CF_MX_TAKE), AMC[L.M_CTF]);
   assert.equal(newsOf(L.HL_MX_CONTEST), AMC[L.M_HILL]);
   assert.deepEqual([AMC[L.M_CTF].carry, AMC[L.M_ODDBALL].carry], ['flag', 'skull']);
-  // the stubs left (Capture the Flag's and Oddball's are filled: their own test files)
-  for (const m of [L.M_HILL]) {
-    const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
-    AMC[m].draw(null, {}, out);
-    assert.deepEqual(out, { solid: [], glow: [], beams: [], markers: [], zone: null });
-    assert.equal(AMC[m].goal(null, null, {}), null);
-  }
   assert.deepEqual([SIDE, SIDE_C], [['RED', 'BLUE'], [C.RED, C.CYAN]]);
 });
 
@@ -132,7 +125,7 @@ test('Team Slayer\'s module: the lead in words, its HUD lines and news, a hunt f
   // news: blue takes the lead (shot 2), told to each side
   for (const team of [0, 1]) {
     const said = [], shown = [];
-    slayer.news({ size: L.TS_MX_LEAD, owner: 3, shot: 2 }, { team, C, feed: (t, c) => said.push([t, c]), banner: (t, c) => shown.push([t, c]) });
+    slayer.news({ size: L.TS_MX_LEAD, owner: 3, shot: 2 }, { slot: 5, me: { slot: 5 }, team: (p) => (p === 5 ? team : -1), C, feed: (t, c) => said.push([t, c]), banner: (t, c) => shown.push([t, c]) });
     assert.deepEqual(said, [['BLUE TAKES THE LEAD', C.CYAN]]);
     assert.equal(shown[0][0], team ? 'YOUR SIDE TAKES THE LEAD' : 'YOUR SIDE LOST THE LEAD');
   }

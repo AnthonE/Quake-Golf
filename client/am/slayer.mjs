@@ -43,7 +43,8 @@ export default {
     const side = f.shot - 1;
     if (side !== 0 && side !== 1) return;
     ctx.feed(`${SIDE[side]} TAKES THE LEAD`, SIDE_C[side]);
-    const me = ctx.team;
+    // your side (news ctx's team is a function of the slot), none for a spectator
+    const me = ctx.me ? ctx.team(ctx.slot) : -1;
     if (me >= 0) ctx.banner(me === side ? 'YOUR SIDE TAKES THE LEAD' : 'YOUR SIDE LOST THE LEAD', me === side ? SIDE_C[side] : ctx.C.GREY, 2000);
   },
   draw() {},
