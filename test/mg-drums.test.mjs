@@ -226,7 +226,7 @@ test('a drum carries a ball with no keys on: on at its surface\'s speed, to the 
   }
 });
 
-test('a slot coming over the top drops a ball on it through the drum (an FX, then out); the slats either side along it hold the ones there', async () => {
+test('a slot coming over the top drops a ball on it into the drum (an FX), out as it reaches the dark core; the slats either side along it hold the ones there', async () => {
   for (const seed of [6, 9]) {
     const g = await room(3, { seed });
     const s = stage(g.v);
@@ -257,7 +257,9 @@ test('a slot coming over the top drops a ball on it through the drum (an FX, the
     let k = 0;
     while (!g.v.partier(0).out && k++ < 400) g.step();
     const [sink] = fxs(g.v, L.FX_SINK, k0).filter((e) => e.owner === 0);
-    assert.ok(sink, 'out');
+    assert.ok(sink && k < 40, `out ${k} ticks on`);
+    const o = g.v.partier(0);
+    assert.ok(Math.hypot(across(s, o), o.pos[1] + 1 - YA) < MC.DR_CORE + B_RAD, 'at the core');
     assert.equal(drums.sink(sink, (p) => `P${p + 1}`, g.v), 'P1 DROPPED THROUGH A SLOT');
   }
 });
@@ -359,8 +361,8 @@ test('the prediction matches the confirmed ball bit for bit: carried off, held a
   const a = angleAt(s, i, t1 - 1) + (c + 0.5) / MC.DR_N;
   let [z, y] = onShell(s, i, a);
   put(g, 0, s.x0 + (m + 0.5) * MC.DR_SEG, z, { y, vz: speedAt(s, i, t1) * Math.cos(a * TAU) });
-  assert.ok(predicted(g, still(120)) >= 120);
-  assert.ok(g.v.partier(0).falling, 'through it');
+  for (k = 0; k < 120 && !g.v.partier(0).falling; k += 5) assert.ok(predicted(g, still(5)) >= 5);
+  assert.ok(g.v.partier(0).falling && !g.v.partier(0).out, 'through it (its out at the core is the confirmed world\'s)');
   // D: the same slot, a hop over it as it comes
   at(g, t1 - 30);
   const a2 = angleAt(s, i, t1 - 30) + (c + 0.5) / MC.DR_N;
@@ -387,7 +389,7 @@ test('the prediction matches the confirmed ball bit for bit: carried off, held a
   at(g, MC.DR_LEN - 1500);
   put(g, 0, C, zOf(s, 1));
   const words = Array.from({ length: 360 }, (_, k) => partyWord({ yaw: (k * 211) & 16383, move: (k >> 3) % 3 === 0 ? 0 : 1, hop: k % 37 === 0 ? 1 : 0 }));
-  for (k = 0; k < words.length && !g.v.partier(0).falling; k += 30) assert.ok(predicted(g, words.slice(k, k + 30)) >= 1);
+  for (k = 0; k < words.length && !g.v.partier(0).falling; k += 10) assert.ok(predicted(g, words.slice(k, k + 10)) >= 1);
 });
 
 // A round of Partier balls steered by this minigame's brain (tools/genparty.mjs), recorded as a log.

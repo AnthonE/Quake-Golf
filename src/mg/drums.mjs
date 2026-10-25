@@ -68,6 +68,9 @@ export const DR_GRAV = 0.4;
 export const DR_SNAP = 0.12;
 export const DR_E = 0.2;
 export const DR_IN = 0.5;
+// Inside each drum a dark core DR_CORE m in radius: a ball dropped through a
+// slot is out as it reaches it (the confirmed world's call, as an out is).
+export const DR_CORE = 4.5;
 // Its header, byte offsets in PG_H (112 B, in the prediction's copy).
 export const DR_K = 0; // u32 drums
 export const DR_M = 4; // u32 cells along each

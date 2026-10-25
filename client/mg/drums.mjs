@@ -21,7 +21,7 @@ const SLAT_T = 0.12; // a slat's half thickness, m: its outer face on the shell
 const WARN_CELL = 62; // ticks a cell glows before it opens
 const PALETTE = [[0.93, 0.25, 0.22], [0.2, 0.52, 0.95], [1, 0.76, 0.12], [0.3, 0.75, 0.32], [0.72, 0.38, 0.92], [1, 0.52, 0.12], [0.15, 0.74, 0.76], [0.95, 0.4, 0.62]];
 export const NAMES = ['RED', 'BLUE', 'YELLOW', 'GREEN', 'PURPLE', 'ORANGE', 'TEAL', 'PINK'];
-const CORE = MC.DR_R - 1.5; // the dark drum inside the slats: a slot is a hole into it
+const CORE = MC.DR_CORE; // the dark drum inside the slats: a slot is a hole into it
 const CREAM = [0.97, 0.94, 0.86];
 // the ball's knobs on a drum (src/mg/drums.mjs), per second
 const A_PUSH = Number(L.BPHYS.B_ACC_DT) * MC.DR_ACC / TICK; // 16.5 m/s^2 flat out

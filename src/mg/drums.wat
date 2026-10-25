@@ -320,12 +320,28 @@
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz))
   (!put u8 @(PLAYERS + P_FL) (local.get $pb) (local.get $fl)))
 
-;; The schedule's moments as FX: a drum about to reverse (DR_WARN ahead) and
-;; reversing, at its top's middle; each phase's start, at the centre.
+;; A ball dropped through a slot to the dark core inside its drum is out,
+;; in slot order. The schedule's moments as FX: a drum about to reverse
+;; (DR_WARN ahead) and reversing, at its top's middle; each phase's start,
+;; at the centre.
 (func $dr_tick
   (local $t i32) (local $j i32) (local $i i32) (local $k i32) (local $q i32) (local $kind i32) (local $u f32) (local $top f32)
+  (local $p i32) (local $pb i32) (local $x f32) (local $dz f32) (local $dy f32) (local $rr f32)
   (local.set $t (call $p_t (i32.const 0)))
   (local.set $k (i32.load (i32.const @(PG_H + DR_K))))
+  (!for $p (i32.const 0) (i32.const @NPLAYER)
+    (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+    (if (i32.eq (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(PF_LIVE | PF_DEAD | PF_FALL))) (i32.const @(PF_LIVE | PF_FALL)))
+      (then
+        (local.set $x (!at f32 @(PLAYERS + P_PX) (local.get $pb)))
+        (if (i32.and (f32.ge (local.get $x) (f32.load (i32.const @(PG_H + DR_X0)))) (f32.lt (local.get $x) (f32.load (i32.const @(PG_H + DR_X1)))))
+          (then
+            (local.set $rr (f32.add (f32.const @DR_CORE) (call $b_rad (local.get $pb))))
+            (local.set $dz (f32.sub (!at f32 @(PLAYERS + P_PZ) (local.get $pb))
+                                    (call $dr_za (i32.const 0) (call $dr_drum (i32.const 0) (!at f32 @(PLAYERS + P_PZ) (local.get $pb))))))
+            (local.set $dy (f32.sub (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (call $b_rad (local.get $pb))) (f32.load (i32.const @(PG_H + DR_YA)))))
+            (if (f32.lt (!madd (local.get $dz) (local.get $dz) (f32.mul (local.get $dy) (local.get $dy))) (f32.mul (local.get $rr) (local.get $rr)))
+              (then (call $p_out (local.get $p)))))))))
   (!for $kind (i32.const 0) (i32.const 2)
     ;; kind 0: the phase DR_WARN ahead; 1: the phase beginning now
     (local.set $j (i32.add (local.get $t) (select (i32.const @DR_WARN) (i32.const 0) (i32.eqz (local.get $kind)))))
