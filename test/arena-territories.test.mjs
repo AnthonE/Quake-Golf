@@ -499,7 +499,7 @@ test('Territories\' client module: each territory a disc in its holder\'s colour
     return out;
   };
   // the discs: each holder's colour (grey for nobody's), running hard while its gauge moves, painted within TR_H of its point
-  const grey = [0.62, 0.62, 0.6];
+  const grey = [0.85, 0.85, 0.82];
   let out = draw(2);
   assert.deepEqual(out.zone, ts.map((t, k) => ({ x: t.pos[0], z: t.pos[2], r: 5, y: t.pos[1], h: 2, color: [SIDE_RGB[0], SIDE_RGB[0], grey, grey, SIDE_RGB[1], SIDE_RGB[1]][k], pulse: [1, 0.5, 1, 0.3, 0.5, 0.5][k] })));
   // the rim: C's 251 of 625 is four of twelve lit red and the fifth blinking, the rest dim; B's all twelve red; D's none

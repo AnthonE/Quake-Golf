@@ -25,7 +25,7 @@ import { C } from '../font.mjs';
 import { SIDE, SIDE_C, SIDE_RGB } from './sides.mjs';
 
 const R = Number(AC.TR_R), H = Number(AC.TR_H), CAP = AC.TR_CAP;
-const NOBODY_RGB = [0.62, 0.62, 0.6];
+const NOBODY_RGB = [0.85, 0.85, 0.82]; // light grey: it reads on the sand and the grass
 export const LETTER = 'ABCDEFGH';
 // m a fighter's cost to a territory goes up for each more of its side
 // dealt it than it needs: with 8 a side on Blood Gulch's six (60 to 130 m
