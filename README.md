@@ -42,7 +42,9 @@ set (`build/arena/game.wasm`), with the same lockstep, relays, keyframes,
 prediction, spectators and replays, up to 256 in a room. A room's first
 match is a Fiesta: ten minutes, everyone spawns with two guns drawn at
 random, the most kills at the end wins; the matches after it go round the
-[modes](#modes), Infection, gun game and Juggernaut. All of them are on
+[modes](#modes), free-for-alls and [red against blue](#teams) by turns: Team
+Slayer, Infection, Capture the Flag, gun game, Oddball, Juggernaut, King of
+the Hill. All of them are on
 [Blood Gulch](#blood-gulch-structures-and-maps): a walled box canyon with a
 base at each end you can walk into and up onto, a teleporter behind each, a
 cave through the north ridge, boulders for cover. (Set `FIESTA = 0` in
@@ -120,8 +122,9 @@ needles, frags) are checked where things are now, as in Halo.
 renderer (`client/arena-render.mjs`: golf's ray-marched terrain and splats,
 plus tracers as beams, glowing sprites, and a HUD of rectangles for the gun
 in your hands, shields and health, a motion tracker that shows enemies
-within 25 m who move or fire, a reticle that turns red over an enemy in
-range, the scope, the hit marker and a kill feed with medals).
+within 25 m who move or fire (and your own side in yellow, in a team mode),
+a reticle that turns red over an enemy in range, the scope, the hit marker
+and a kill feed with medals).
 `client/arena-bot.mjs` is the AI fighter: the nearest enemy it can see over
 the ground, a settling aim with a human's wobble, the gun for the range,
 strafing, frags, melee up close, and pads when nobody is in sight.
@@ -159,14 +162,17 @@ node --test test/map.test.mjs
 
 ### Modes
 
-Each match plays one of four modes, chosen as its countdown starts: match k
-of a room plays `ARENA_MODES[k % 4]` (`src/layout.mjs`), Fiesta, Infection,
-gun game, Juggernaut, and round again. So a room opens on a Fiesta;
-Fireplace's arena, one match long, plays whichever mode the room draws for
-it (see Fireplace). A seed whose top byte is `0xA8` plays mode
-`(seed >>> 16) & 0xff` every match: `node
-net/play.mjs --arena --mode 1` is a room of Infection only (`tools/genarena.mjs`
-and `net/run-arena.mjs` take `--mode` too).
+Each match plays one of eight modes, chosen as its countdown starts: match k
+of a room plays `ARENA_MODES[k % 8]` (`src/layout.mjs`), Fiesta, Team Slayer,
+Infection, Capture the Flag, gun game, Oddball, Juggernaut, King of the Hill,
+and round again: a free-for-all and a [team mode](#teams) by turns. So a room
+opens on a Fiesta; Fireplace's arena, one match long, plays whichever mode
+the room draws for it (see Fireplace). A seed whose top byte is `0xA8` plays
+mode `(seed >>> 16) & 0xff` (the mode's `M_*`: 1 Infection, 2 gun game, 3
+Juggernaut, 4 Team Slayer, 5 Capture the Flag, 6 Oddball, 7 King of the Hill)
+every match: `node net/play.mjs --arena --mode 1` is a room of Infection only
+(`tools/genarena.mjs` and `net/run-arena.mjs` take `--mode` too). The four
+free-for-all modes:
 
 ![Infection in Chrome: the humans in blue keep together; P10 has just infected P14](docs/a4-infection.png)
 
@@ -193,8 +199,8 @@ kills are its points.
 
 **How it fits.** The mode is a word of the header, `AH_MODE` at `REGION +
 0x48`, followed to `0x5c` by the humans and zombies counted every tick, the
-gun game's leader or the juggernaut, and a winner; all inside the
-prediction's copy. A fighter's side is a bit of its flags, `PF_ZOMBIE` (16)
+gun game's leader or the juggernaut, and a winner (and to `0x74` by the team
+modes' fields: [Teams](#teams)); all inside the prediction's copy. A fighter's side is a bit of its flags, `PF_ZOMBIE` (16)
 or `PF_JUGG` (32), so the prediction runs a zombie's legs as the confirmed
 world does. What only the confirmed world reads (the rung, the place,
 infections or points, ticks as a human) is 8 bytes a fighter at `MODE_REC`,
@@ -203,7 +209,8 @@ promotions and places are serial and in slot order like the rest of the
 match. A Fiesta writes none of it: 20,000 ticks of a Fiesta of eight AI
 fighters and 30,000 ticks of Fireplace hash on every tick as they did before
 modes, and the bots send the same words. The page draws zombies green, the
-juggernaut gold and everyone else in one blue when a mode has sides, shows
+juggernaut gold and everyone else in one blue in Infection and Juggernaut
+(red and blue in a team mode), shows
 the mode and its rule over the countdown, its count on the HUD (humans left;
 your rung of 9, the gun next and the leader; the juggernaut and the points),
 its news in the feed ("P12 INFECTED P40", "P3 IS ON THE SWORD") and its own
@@ -254,6 +261,77 @@ node tools/genarena.mjs --bots 8 --ticks 20000 --mode 1 --out logs/arena-infecti
 node harness/matrix.mjs --ticks 20000 --log logs/arena-infection.qgl --wasm build/arena/game.wasm
 node net/run-arena.mjs --mode 1 [--bots 15] [--seconds 60]
 ```
+
+### Teams
+
+Red against blue, in four more modes on the same build: Team Slayer, Capture
+the Flag, Oddball and King of the Hill. They join the rotation by turns with
+the free-for-alls (`ARENA_MODES`: Fiesta, Team Slayer, Infection, Capture
+the Flag, gun game, Oddball, Juggernaut, King of the Hill) and Fireplace
+draws them too; `node net/play.mjs --arena --mode 5` is a room of Capture
+the Flag only.
+
+![Capture the Flag in Chrome, on blue's side: red has just brought blue's flag home](docs/a5-ctf.png)
+
+| Mode | Wins | How it plays |
+| --- | --- | --- |
+| Team Slayer | 10 kills a fighter on the larger side (at least 50), or the most at 8 min | every kill of an enemy a point for your side, a death by your own hand one off it |
+| Capture the Flag | 3 captures, or the most at 10 min | a flag on the floor of each base's room; touch theirs to take it, bring it to yours while yours is home; a carrier who dies drops it; your side returns a dropped flag by touching it, or it goes home by itself after 20 s |
+| Oddball | 100 points, or the most at 6 min | one skull mid-field; whoever touches it takes it, either side; a point a second for the side holding it; dropped, it goes back to its spot after 15 s |
+| King of the Hill | 100 points, or the most at 6 min | one hill at a time, moving every 60 s round six points (mid-field, both roofs, the cave, both rock piles); the side with more fighters on it holds it, as many each is contested; a point a second held |
+
+Everyone spawns on their own half (the spawn points nearer their own flag;
+two on the middle line are nobody's) with an assault rifle, a magnum and two
+frags, and the map's pads are laid: the sniper rifles on the roofs, the
+rocket launcher mid-field. King of the Hill keeps its hill clear: nobody
+spawns on it, or within 4 m of its edge, while it's up (each base's roof has
+two of its side's spawns, and a side respawning onto its own roof's hill
+held it 49 to 1 in a minute of 64 AI fighters). Teams are dealt as a match starts, red, blue, red
+in slot order, and a join goes to the side with fewer, red on a tie; nobody
+is moved as people leave. Neither side hurts its own, as in Infection. A
+flag's or the skull's carrier has no guns and no frags: a click or Q swings
+what it carries, a rifle butt's reach that always kills (a press waiting as
+it takes one up is dropped, and a trigger held down swings only once let go
+and pressed again). A match ends at its
+target, or at the clock with the side ahead winning (level is a draw); the
+places put the winning side first, then each side by its objective points
+(captures, seconds holding), then kills, so Fireplace's marshmallows go to
+the winners' best three.
+
+**How it fits.** The team modes are a kit, as Party's minigames are: the
+core in `src/arena.wat` (sides, dealing, spawns, pads, scores, the end,
+carrying) and each mode in its own files, `src/am/<key>.wat` (four hooks,
+called through the `(!am)` macro while the mode is on: `start` as play
+begins, `tick` every tick of play, `kill` on a death, and `bar`, asked
+before a fighter spawns at a spawn point), `src/am/<key>.mjs` (its
+constants and its state's fields), `client/am/<key>.mjs` (how it draws, its
+HUD lines, news and board columns, and what the AI fighter goes for) and
+`test/arena-<key>.test.mjs`. A side is a bit of the fighter's flags, `PF_BLUE` (64), and a carrier
+another, `PF_CARRY` (128), so the prediction runs your own swing as the
+confirmed world will; the scores, the target, who won and each side's count
+sit in the header past the modes' fields (`AH_SCORE` .. `AH_END`, inside the
+prediction's copy); each mode's objective (where the flags are and who has
+them, the skull, the hill and its holder) in 1 KiB of the region,
+`AO` at `REGION + 0xcc00`, hashed and in every keyframe. A Fiesta writes none
+of it, and in Fiesta's build the pads are laid only for a mode that has
+them, so a Fiesta's region is what it always was (20,000 ticks of a Fiesta
+of eight AI fighters hash on every tick as they did before teams, and the
+bots send the same words). The flags' stands, the skull's spot and the hills
+are the map's (`flags`, `ball` and `hills` in `map.json`, into `MAP_OBJ`;
+a map without them gets them by default). The page draws the sides red and
+blue, a score bar under the shields, waypoints through walls (TAKE, RETURN,
+KILL, ESCORT, HOME; the skull; the hill with its distance), the flags waving
+on their stands or over their carriers, the skull with a glow, and the hill
+as a disc on the ground or a roof in the colour of whoever holds it; the
+board is by side. The AI fighter routes through doors (found once per world
+by probing each building's walls), leaves its own side alone, and plays the
+objective its mode's module gives it: a carrier runs home, defenders (every
+third fighter of a side) hold their stand and return their flag, attackers
+run for the enemy's flag and escort their carrier; the skull's carrier keeps
+away from enemies near the middle, the rest hunt it; everyone holds the
+hill.
+
+**Results.** ...
 
 ### Blood Gulch: structures and maps
 
@@ -338,9 +416,16 @@ node net/play.mjs --arena
   `turn` and a `tint` (a map of materials to others), or its own `boxes` in
   world metres; `teleporters`, `{ from, to, radius }`, one-way; `spawns`,
   `[x, z]` on the ground or `[x, z, top]` on the highest box no higher than
-  `top`; `pads` (slayer's guns), `{ weapon, at }`. Materials: `metal`, `rock`,
-  `dark`, `red`, `blue`, `light`. At most 512 boxes in 64 structures, 16
-  teleporters, 32 spawns and 12 pads.
+  `top`; `pads` (slayer's and the team modes' guns), `{ weapon, at }`;
+  `flags`, the team modes' two flag stands, `[{ team: 'red', at }, { team:
+  'blue', at }]`; `ball`, Oddball's skull, `{ at }`; `hills`, King of the
+  Hill's, `[{ at, radius }]` (`at` as a spawn's: `[x, z]` or `[x, z, top]`).
+  Left out, the flags stand an eighth in from each end of the bounds' longer
+  side, the skull in the middle, and three hills in the middle and halfway to
+  each flag. Materials: `metal`, `rock`, `dark`, `red`, `blue`, `light`. At
+  most 512 boxes in 64 structures, 16 teleporters, 32 spawns, 12 pads and 8
+  hills (radius up to 30 m), and each side's half (the spawns strictly
+  nearer its own flag) needs a spawn.
 
 `tools/bloodgulch.mjs` is how Blood Gulch was drawn: the ground painted by
 code into the two images, the rest written to `map.json`. Edit its output
@@ -375,7 +460,7 @@ bundle fits one datagram again. The late inputs and the relay's few stalls
 are this one machine running the relay, the referee, 255 bots and a headless
 Chrome at once.
 
-Not done yet: team slayer, vehicles, dropped weapons, a manual reload while firing,
+Not done yet: vehicles, dropped weapons, a manual reload while firing,
 and a second map (though [making one](#making-a-map) is now a paint program
 and a text editor away).
 
@@ -389,8 +474,8 @@ sit down: the camera closes in on the TV until its glass fills the screen, and
 you're in whatever the room is playing. When a game ends it pulls back to the
 room, and the TV shows the marshmallows and what's on next; then it closes in
 again. The room plays the playlist through: bumper balls (two rounds), party
-(three minigames), the arena (one three-minute match of Fiesta, Infection,
-gun game or Juggernaut, drawn for it), party again, a hole of golf, and round
+(three minigames), the arena (one three-minute match of any of its eight
+modes, drawn for it), party again, a hole of golf, and round
 again; the top three of each game get 3, 2 and 1 marshmallows. Join any time,
 into whatever is on (or the next round of it); leave any time.
 
@@ -422,10 +507,12 @@ built on that seed, and everyone in the room is joined into it on that tick
 words when the two games read the same word (golf's, which bumper and party
 share). The seed is a hash of the room's PRNG and the games played (`FP_NEXT`,
 `REGION + 0xe400`). The arena's forces a mode: `0xA8` in its top byte, the
-mode in the next, drawn by `$rand` from the four, never the one the arena
+mode in the next, drawn by `$rand` from the eight, never the one the arena
 played last (`FP_MODE`, `REGION + 0xe404`), and drawn as the game before ends
 so the TV can name it; whatever the mode, the match is cut to 3 min
-(Infection's already is; gun game and Juggernaut lose 2 min, a Fiesta 7).
+(Infection's already is; gun game, Juggernaut, Oddball and King of the Hill
+lose 2 or 3 min, Team Slayer 5, a Fiesta and Capture the Flag 7), and a team
+match cut short goes to the side ahead.
 Party's keeps its top byte off `0xA7`, which would play one minigame only.
 What lasts from game to game (the marshmallows, the arena's last mode, the
 next seed) sits in 8 KiB of the region no game touches. A game's static world
@@ -463,7 +550,7 @@ each new game straight after its switch; no party seed forcing a minigame);
 the arena's seed drawn as the party before it ended, and the mode it played;
 marshmallows, 3, 2 and 1, by each game's places (party's by points, then wins;
 a mode's by its own), summed from game to game and lost with the slot; the
-mode's draw (any of the four, then never the last, 40 draws each way), each
+mode's draw (any of the eight, then never the last, 100 draws each way), each
 mode's match cut to 3 min and placed by the mode; a party seed that came out
 with `0xA7` on top turned off it; the playlist equal on every tick on 1 and 4
 threads through bumper balls and the switch into party; and keyframes taken
