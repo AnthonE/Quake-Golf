@@ -674,7 +674,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const team = md.teamed && f?.live ? f.team : -1;
     if (h.state === L.H_COUNT) {
       centre(4, `${md.name}  STARTS IN ${Math.ceil(left / 125)}`, C.YELLOW); centre(5, md.rules, C.WHITE);
-      if (team >= 0) centre(7, `${WATCH ? `P${slot + 1} IS` : 'YOU ARE'} ON ${SIDE[team]}`, SIDE_C[team]);
+      // (a spectator's WATCHING line comes here: Oddball's and Team Slayer's rules reach back to col 18 of row 5)
+      if (team >= 0) centre(7, WATCH ? `WATCHING P${slot + 1} ON ${SIDE[team]}  < >` : `YOU ARE ON ${SIDE[team]}`, SIDE_C[team]);
     }
     if (h.state === L.H_PLAY) centre(0, clock(left), left < 30 * 125 ? C.RED : C.WHITE);
     const who = WATCH ? 'P' + (slot + 1) : 'YOU';
@@ -749,8 +750,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     if (banner.until > now) centre(Math.floor(rows / 2) - 6, banner.text, banner.color);
     if (medal.until > now) centre(Math.floor(rows / 2) - 8, medal.text, C.ORANGE);
     if (st === 2 && !BOT && !WATCH && !locked) centre(Math.floor(rows / 2) + 7, 'CLICK TO PLAY', C.WHITE);
-    // (a team mode's own lines have rows 2 to 4)
-    if (WATCH && st === 2) put(t, COLS, 1, md.teamed ? 5 : 3, f?.live ? `WATCHING P${slot + 1}  < >` : 'NOBODY TO WATCH', C.CYAN);
+    // (a team mode's own lines have rows 2 to 4; in its countdown the watched one's side line says it)
+    if (WATCH && st === 2 && !(h.state === L.H_COUNT && team >= 0)) put(t, COLS, 1, md.teamed ? 5 : 3, f?.live ? `WATCHING P${slot + 1}  < >` : 'NOBODY TO WATCH', C.CYAN);
     if (showGraph) put(t, COLS, 1, rows - 1, `${fps} FPS  LEAD ${f32[L.CL_LEAD >> 2].toFixed(1)}  DELAY ${f32[L.CL_DELAY >> 2].toFixed(1)}  LAG ${f?.lag ?? 0}  REPAIRS ${get(L.CL_REPAIRS)}`, C.GREY);
     if (board && md.teamed) teamBoard(t, { list, slot, md, kit, over: h.state === L.H_OVER, rows, centre });
     else if (board) {
