@@ -186,7 +186,7 @@ function runs(yaw, u) {
 // looking ahead h ticks from t in steps of 4; Infinity if none does.
 function slotIn(s, i, m, dz, t, h, pad = 0.55) {
   const psi = Math.atan2(dz, Math.sqrt(Math.max(0, MC.DR_RC2 - dz * dz))) / TAU, dp = pad / (TAU * MC.DR_R);
-  for (let k = 0, tau = t; tau <= t + h; tau += 4, k++) {
+  for (let tau = t; tau <= t + h; tau += 4) {
     const phi = angleAt(s, i, tau);
     let a = psi - dp - phi; a -= Math.floor(a);
     let b = psi + dp - phi; b -= Math.floor(b);
@@ -214,12 +214,13 @@ const ball = (view, me) => (typeof me === 'number' ? view.partier(me) : me);
 // What the ball wants on tick `tick` (its word's), from a world `tick -
 // view.tick` old. On its drum: the cell along it that no slot reaches
 // soonest within its horizon (near ones first, a crowded one less), and
-// over its top, as a velocity it steers for against the surface's pull and
-// the slope, choosing keys or none by which gets nearer the push it wants.
-// Cornered by a slot there's no stepping aside from: a hop over it as it
-// comes. Carried far down a side, a drum about to reverse on it, or a crowd
-// on its own drum and room on the next: across to that one, flat out, a hop
-// at the edge, steering for its top in the air.
+// over its top, a little upstream, as a velocity it steers for against the
+// surface's pull and the slope, choosing keys or none by which gets nearer
+// the push it wants. A slot coming with no cell along clear of it: ahead of
+// it with the spin to the next drum that way, or with none clear there a
+// hop over it as it comes. Carried far down a side, or a crowd on its own
+// drum and room on the next: across to that one. Across is flat out, a hop
+// 3.1 m out from the top, steering for the other's top in the air.
 export function plan(view, me, bot, tick) {
   const g = view.party();
   if (g.state !== L.H_PLAY) return null;
