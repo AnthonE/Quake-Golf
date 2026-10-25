@@ -143,11 +143,19 @@ export function navOf(view) {
   return map.nav;
 }
 
-// The group whose bounds hold feet p (across, and no higher than its top: under a cave's roof is in the cave), or -1.
-function groupAt(nav, p) {
+// The group feet p are in, or -1: within its bounds (across, and no higher
+// than its top) with one of its boxes over them or under them (under a
+// building's roof or a cave's, or up on it; not the open ground a bridge
+// stretches the bounds over).
+function groupAt(map, nav, p) {
   for (let k = 0; k < nav.rings.length; k++) {
     const b = nav.rings[k].box;
-    if (p[0] > b[0] && p[0] < b[3] && p[2] > b[2] && p[2] < b[5] && p[1] < b[4] + 0.5) return k;
+    if (!(p[0] > b[0] && p[0] < b[3] && p[2] > b[2] && p[2] < b[5] && p[1] < b[4] + 0.5)) continue;
+    const g = map.groups[k];
+    for (let i = g.first; i < g.first + g.count; i++) {
+      const [x0, y0, z0, x1, y1, z1] = map.boxes[i].box;
+      if (p[0] > x0 && p[0] < x1 && p[2] > z0 && p[2] < z1 && (y0 > p[1] || Math.abs(p[1] - y1) < 0.5)) return k;
+    }
   }
   return -1;
 }
@@ -195,7 +203,7 @@ export function route(view, from, goal) {
   const map = view.map();
   if (walkable(view, from, goal)) return goal;
   const nav = navOf(view);
-  const gi = groupAt(nav, goal), fi = groupAt(nav, from);
+  const gi = groupAt(map, nav, goal), fi = groupAt(map, nav, from);
   if (fi >= 0) {
     const r = nav.rings[fi];
     let best = null, bc = Infinity;
