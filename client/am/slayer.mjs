@@ -17,12 +17,16 @@ export function lead([red, blue], team) {
   return { text: side === team ? `YOUR SIDE LEADS BY ${by}` : `${SIDE[side]} LEADS BY ${by}`, side };
 }
 
-// The nearest live enemy of slot `me` by feet, across: [slot, distance], or [-1, Infinity].
+// The nearest live enemy of slot `me` by feet, across: [slot, distance], or
+// [-1, Infinity]. The other side by its bit, read straight off the records
+// (256 AI fighters each asking this every 8 ticks: view.ally's general case
+// was most of its cost).
 export function nearestEnemy(view, me) {
   let best = -1, bd = Infinity;
+  const u8 = view.u8, side = u8[L.PLAYERS + me.slot * L.PSIZE + L.P_FL] & L.PF_BLUE;
   for (let q = 0; q < L.NPLAYER; q++) {
-    const b = L.PLAYERS + q * L.PSIZE;
-    if ((view.u8[b + L.P_FL] & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE || q === me.slot || view.ally(me.slot, q)) continue;
+    const b = L.PLAYERS + q * L.PSIZE, fl = u8[b + L.P_FL];
+    if ((fl & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE || (fl & L.PF_BLUE) === side) continue;
     const d = Math.hypot(view.dv.getFloat32(b + L.P_PX, true) - me.pos[0], view.dv.getFloat32(b + L.P_PZ, true) - me.pos[2]);
     if (d < bd) { bd = d; best = q; }
   }

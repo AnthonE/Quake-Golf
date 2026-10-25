@@ -372,7 +372,11 @@ export class Fighter {
     const human = (q) => (view.u8[L.PLAYERS + q * L.PSIZE + L.P_FL] & (L.PF_LIVE | L.PF_DEAD | L.PF_ZOMBIE)) === L.PF_LIVE;
     const hunts = hunter || mode === L.M_JUGGERNAUT;
     let best = this.target;
-    if (((t + this.slot) & 15) === 0 || !alive(best)) {
+    // (in a team mode a fighter with no target waits for its own tick to look
+    // again: half the room may have nobody in sight, and every one of them
+    // looking every tick was 7 ms a tick for 256; a free-for-all looks as it always has)
+    const kit = AMC[mode];
+    if (((t + this.slot) & 15) === 0 || (kit && best < 0 ? false : !alive(best))) {
       const near = [];
       this.prey = -1;
       for (let q = 0; q < L.NPLAYER; q++) {
@@ -405,7 +409,6 @@ export class Fighter {
     }
 
     // a team mode's objective, asked of its kit module every 8 ticks (each bot on its own tick of the 8)
-    const kit = AMC[mode];
     if (kit && (((t + this.slot) & 7) === 0 || this.rank < 0)) {
       if (((t + this.slot) & 15) === 0 || this.rank < 0) this.rank = roleOf(view, this.slot).rank;
       const obj = kit.goal(view, me, { role: this.rank % 3 === 2 ? 'defend' : 'attack', rank: this.rank, view, ally: (p, q) => view.ally(p, q), slot: this.slot, t });
