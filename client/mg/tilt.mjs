@@ -1,9 +1,10 @@
 // TILT TABLE, as drawn and as the AI ball sees it. The table is one big box
-// of orange and cream checks on a steel pivot, turned by a yaw and a roll
+// of orange and brown checks on a steel pivot, turned by a yaw and a roll
 // (it tips about one axis at a time), its edge a red and white curb. The
 // move coming glows on it from TT_WARN before it starts and through its tip:
-// orange arrows toward the side it will tip to (red for a swing over), green
-// bars for levelling. The band that crumbles next glows red and shakes for
+// orange arrows sliding toward the side it will tip to and that side's curb
+// lit (red for a swing over), green bars for levelling. The band that
+// crumbles next glows red and shakes for
 // TT_CRWARN, then falls away in chunks. All of it is the sim's own schedule
 // (src/mg/tilt.wat): the moves read from PG_S, the slope and the half-width
 // worked in f32 as the sim works them, so what is drawn and what the bots
@@ -11,13 +12,13 @@
 import * as L from '../../src/layout.mjs';
 import * as MC from '../../src/mg/tilt.mjs'; // TT_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
-import { LOOK, SPRITE } from '../party-render.mjs';
+import { LOOK } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const f = Math.fround;
 const TICK = 0.008;
 const HY = 0.6; // the table's half thickness, m
-const CHECK = [0.95, 0.56, 0.2]; // its checks (the renderer pairs a light colour with cream)
+const CHECK = [0.95, 0.56, 0.2]; // its checks (the renderer pairs a colour this light with a dark one)
 const CURB = [[0.92, 0.16, 0.13], [0.97, 0.95, 0.9]];
 const CURB_W = 0.5; // the curb's width, m, inside the edge
 const STEEL = [0.55, 0.58, 0.62];
@@ -109,15 +110,15 @@ function tbox(sc, F, cx, px, pz, ex, ez, ly, hy, rgb, look, a = 0, b = 0, alpha 
   const wx = F.alongX ? -z1 : lx, wz = F.alongX ? lx : z1;
   sc.box(cx + wx, PLAT_Y + y1 + dy, cx + wz, hx, hy, hz, F.yaw, rgb[0], rgb[1], rgb[2], look, a, b, alpha, seed, F.roll);
 }
-// An arrow lying in the table at plan (px, pz), length len, pointing the way (ux, uz) (a world axis): a shaft and a stepped head.
+// An arrow lying on the table at plan (px, pz), length len, pointing the way (ux, uz) (a world axis): a shaft and a stepped head.
 function arrow(sc, F, cx, px, pz, ux, uz, len, rgb, lit, alpha, seed) {
-  const w = len * 0.12;
+  const w = len * 0.1;
   const part = (along, half, across) => {
     const x = px + ux * along, z = pz + uz * along;
-    tbox(sc, F, cx, x, z, ux ? half : across, ux ? across : half, 0.05, 0.03, rgb, LOOK.GLOW, lit, 0.4, alpha, seed);
+    tbox(sc, F, cx, x, z, ux ? half : across, ux ? across : half, 0.1, 0.06, rgb, LOOK.GLOW, lit, 0.5, alpha, seed);
   };
   part(-len / 6, len / 3, w);
-  for (let i = 0; i < 3; i++) part(len / 6 + (i + 0.5) * len / 9, len / 18, w * (3.2 - i));
+  for (let i = 0; i < 4; i++) part(len / 6 + (i + 0.5) * len / 12, len / 24, w * (4 - i));
 }
 
 // ---- the AI ball
@@ -154,16 +155,25 @@ export default {
     const hn = halfOf(st.h0, k + 1);
     let shx = 0, shz = 0;
     if (w > 0 && w < 1) { const sh = 0.02 + 0.06 * w; shx = sh * Math.sin(now * 37); shz = sh * Math.sin(now * 29 + 1); }
+    // the move coming, from its warning through its tip
+    const j = st.state === L.H_PLAY ? moveAt(st, ti + MC.TT_WARN) : -1;
+    const mv = j >= 0 && ti >= st.moves[j].t - MC.TT_WARN && ti < st.moves[j].t + st.moves[j].tip ? st.moves[j] : null;
+    const u = mv ? Math.min(1, Math.max(0, (t - (mv.t - MC.TT_WARN)) / MC.TT_WARN)) : 0;
+    const pulse = 0.5 + 0.5 * Math.sin(now * (6 + 12 * u)), tipping = mv && ti >= mv.t;
+    const hot = mv && mv.dir ? (mv.kind === MC.TT_K_SWING ? [1, 0.2, 0.15] : [1, 0.6, 0.12]) : null;
     // the slab, its checks 2 m in the world's plan
     tbox(sc, F, cx, 0, 0, h, h, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, 1, 7);
-    // the curb, in segments round the edge
+    // the curb, in segments round the edge; the side the move coming tips down lit
     const n = Math.max(4, Math.round(h / 0.8)), seg = (2 * h) / n;
-    for (let i = 0; i < n; i++) {
-      const along = -h + (i + 0.5) * seg, col = CURB[i & 1];
-      tbox(sc, F, cx, h - CURB_W / 2, along, CURB_W / 2, seg / 2, 0.02, 0.03, col, LOOK.PLASTIC, 0, 0, 1, 11);
-      tbox(sc, F, cx, -h + CURB_W / 2, along, CURB_W / 2, seg / 2, 0.02, 0.03, col, LOOK.PLASTIC, 0, 0, 1, 12);
-      tbox(sc, F, cx, along, h - CURB_W / 2, seg / 2, CURB_W / 2, 0.02, 0.03, col, LOOK.PLASTIC, 0, 0, 1, 13);
-      tbox(sc, F, cx, along, -h + CURB_W / 2, seg / 2, CURB_W / 2, 0.02, 0.03, col, LOOK.PLASTIC, 0, 0, 1, 14);
+    const sides = [[1, 0, 11], [-1, 0, 12], [0, 1, 13], [0, -1, 14]];
+    for (const [sx, sz, seed] of sides) {
+      const lit = hot && SIDES[mv.dir][0] === sx && SIDES[mv.dir][1] === sz;
+      for (let i = 0; i < n; i++) {
+        const along = -h + (i + 0.5) * seg, x = sx ? sx * (h - CURB_W / 2) : along, z = sz ? sz * (h - CURB_W / 2) : along;
+        const ex = sx ? CURB_W / 2 : seg / 2, ez = sz ? CURB_W / 2 : seg / 2;
+        if (lit) tbox(sc, F, cx, x, z, ex, ez, 0.04, 0.05, i & 1 ? hot : [1, 0.95, 0.7], LOOK.GLOW, tipping ? 1.6 : 0.5 + 1.1 * pulse, 0.3, 1, seed);
+        else tbox(sc, F, cx, x, z, ex, ez, 0.02, 0.03, CURB[i & 1], LOOK.PLASTIC, 0, 0, 1, seed);
+      }
     }
     if (w > 0 && w < 1) {
       const pulse = 0.5 + 0.5 * Math.sin(now * (9 + 14 * w)), band = (h - hn) / 2, mid = (h + hn) / 2;
@@ -179,34 +189,32 @@ export default {
         const ho = halfOf(st.h0, k - 1), band = (ho - h) / 2, mid = (ho + h) / 2;
         const m = Math.max(2, Math.round(ho / 2.5)), len = (2 * ho) / m, drop = -0.5 * 26 * a * a;
         for (let i = 0; i < m; i++) {
-          const along = -ho + (i + 0.5) * len, out1 = 1 + 1.5 * a * (0.5 + ((i * 7) % 5) / 5);
-          tbox(sc, F, cx, mid * out1, along, band, len / 2 * 0.94, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, 1 - a / FALL, 30 + i, drop * (1 + 0.1 * (i % 3)));
-          tbox(sc, F, cx, -mid * out1, along, band, len / 2 * 0.94, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, 1 - a / FALL, 31 + i, drop * (1 + 0.1 * ((i + 1) % 3)));
-          tbox(sc, F, cx, along, mid * out1, len / 2 * 0.94, band, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, 1 - a / FALL, 32 + i, drop * (1 + 0.1 * ((i + 2) % 3)));
-          tbox(sc, F, cx, along, -mid * out1, len / 2 * 0.94, band, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, 1 - a / FALL, 33 + i, drop * (1 + 0.1 * (i % 3)));
+          // each chunk drifting out a little as it drops, at its own pace
+          const along = -ho + (i + 0.5) * len, out1 = mid + a * (1.5 + ((i * 7) % 5) * 0.5), fade = 1 - a / FALL;
+          tbox(sc, F, cx, out1, along, band, len / 2 * 0.94, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, fade, 30 + i, drop * (1 + 0.1 * (i % 3)));
+          tbox(sc, F, cx, -out1, along, band, len / 2 * 0.94, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, fade, 31 + i, drop * (1 + 0.1 * ((i + 1) % 3)));
+          tbox(sc, F, cx, along, out1, len / 2 * 0.94, band, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, fade, 32 + i, drop * (1 + 0.1 * ((i + 2) % 3)));
+          tbox(sc, F, cx, along, -out1, len / 2 * 0.94, band, -HY, HY, CHECK, LOOK.CHECKER, 2, 0, fade, 33 + i, drop * (1 + 0.1 * (i % 3)));
         }
       }
     }
-    // the move coming, from its warning through its tip: arrows toward its side, or bars for level
-    if (st.state === L.H_PLAY) {
-      const j = moveAt(st, ti + MC.TT_WARN);
-      const m = j >= 0 ? st.moves[j] : null;
-      if (m && ti >= m.t - MC.TT_WARN && ti < m.t + m.tip) {
-        const u = Math.min(1, Math.max(0, (t - (m.t - MC.TT_WARN)) / MC.TT_WARN));
-        const pulse = 0.5 + 0.5 * Math.sin(now * (6 + 12 * u));
-        const lit = ti >= m.t ? 1.4 : 0.6 + 0.8 * pulse, alpha = ti >= m.t ? 0.9 : 0.55 + 0.35 * pulse;
-        const len = Math.max(2.4, h * 0.36), sp = h / 2;
-        const [ux, uz] = SIDES[m.dir];
-        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-          if (m.dir === MC.TT_LEVEL) {
-            for (const o of [-0.18, 0.18]) tbox(sc, F, cx, a * sp, b * sp + o * len, len * 0.3, len * 0.07, 0.05, 0.03, [0.3, 1, 0.4], LOOK.GLOW, lit, 0.4, alpha, 40);
-          } else arrow(sc, F, cx, a * sp, b * sp, ux, uz, len, m.kind === MC.TT_K_SWING ? [1, 0.2, 0.15] : [1, 0.6, 0.12], lit, alpha, 41);
-        }
+    // and on the table: arrows sliding toward the side it tips down, or bars for level, three
+    // by three on a big table, two by two on a smaller, one on the smallest
+    if (mv) {
+      const lit = tipping ? 1.5 : 0.7 + 0.8 * pulse, alpha = tipping ? 0.95 : 0.6 + 0.3 * pulse;
+      const g = h >= 14 ? 3 : h >= 6 ? 2 : 1, sp = g > 1 ? (2 * h) / (g + 0.6) : 0;
+      const len = Math.min(Math.max(2.4, h * 0.36), sp ? sp * 0.8 : h * 1.2), [ux, uz] = SIDES[mv.dir];
+      const slide = ((now * 0.9) % 1 - 0.5) * len * 0.3;
+      for (let a = 0; a < g; a++) for (let b = 0; b < g; b++) {
+        const px = (a - (g - 1) / 2) * sp, pz = (b - (g - 1) / 2) * sp;
+        if (!hot) {
+          for (const o of [-0.18, 0.18]) tbox(sc, F, cx, px, pz + o * len, len * 0.3, len * 0.07, 0.1, 0.06, [0.3, 1, 0.4], LOOK.GLOW, lit, 0.5, alpha, 40);
+        } else arrow(sc, F, cx, px + ux * slide, pz + uz * slide, ux, uz, len, hot, lit, alpha, 41);
       }
     }
     // the pivot: a steel column out of the sea and a ball joint under the middle
-    const pr = 0.9 + st.h0 * 0.025, top = PLAT_Y - 2 * HY - 1.2;
-    sc.sphere(cx, top, cx, 1.2, ...STEEL, LOOK.METAL);
+    const pr = 0.9 + st.h0 * 0.025, jr = pr * 1.3, top = PLAT_Y - 2 * HY - jr - 0.15;
+    sc.sphere(cx, top, cx, jr, ...STEEL, LOOK.METAL);
     sc.cyl(cx, top / 2, cx, pr, top / 2, ...STEEL, LOOK.METAL);
   },
 
@@ -227,7 +235,6 @@ export default {
       if ((fx.shot & 7) !== MC.TT_LEVEL) ctx.sound?.land?.(20);
     } else if (fx.kind === MC.TT_FX_CRACK) {
       ctx.sound?.tick?.();
-      if (fx.shot === 1) ctx.banner?.('THE EDGES CRUMBLE', C.ORANGE, 1800);
     } else if (fx.kind === MC.TT_FX_DROP) {
       ctx.sound?.land?.(28);
     }
@@ -257,11 +264,11 @@ export default {
     const j = moveAt(st, ti + MC.TT_WARN);
     const m = j >= 0 ? st.moves[j] : null;
     if (m && ti >= m.t - MC.TT_WARN && ti < m.t + m.tip) {
-      const secs = (m.t - t) * TICK;
-      if (m.dir === MC.TT_LEVEL) ctx.centre(row, secs > 0 ? `LEVELLING IN ${secs.toFixed(1)}` : 'LEVELLING', C.GREEN);
+      const secs = (m.t - t) * TICK, soon = secs >= 0.05;
+      if (m.dir === MC.TT_LEVEL) ctx.centre(row, soon ? `LEVELLING IN ${secs.toFixed(1)}` : 'LEVELLING', C.GREEN);
       else {
         const sd = side(m.dir), verb = m.kind === MC.TT_K_SWING ? 'SWINGS' : 'TIPS';
-        ctx.centre(row, secs > 0 ? `${verb}${sd ? ` ${sd}` : ''}  ${degOf(m.gx, m.gz)} DEG  IN ${secs.toFixed(1)}` : `TIPPING${sd ? ` ${sd}` : ''}!`, m.kind === MC.TT_K_SWING ? C.RED : C.ORANGE);
+        ctx.centre(row, soon ? `${verb}${sd ? ` ${sd}` : ''}  ${degOf(m.gx, m.gz)} DEG  IN ${secs.toFixed(1)}` : `TIPPING${sd ? ` ${sd}` : ''}!`, m.kind === MC.TT_K_SWING ? C.RED : C.ORANGE);
         if (sd) ctx.centre(row + 1, `GET UPHILL: GO ${UP[sd]}`, C.YELLOW);
       }
     }

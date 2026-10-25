@@ -11,7 +11,7 @@
 export const TT_H0 = 6; // the table's half-width: TT_H0 m plus TT_HK times the root of the balls in, at most TT_HMAX
 export const TT_HK = 2;
 export const TT_HMAX = 40;
-export const TT_HMIN = 5; // its half-width once every edge has crumbled
+export const TT_HMIN = 3; // its half-width once every edge has crumbled
 export const TT_SPAWN = 0.7; // balls start on a spiral over this much of the half-width
 export const TT_LEN = 12500; // 100 s
 // The schedule, in ticks into play: the first tip at TT_FIRST, each move
@@ -35,12 +35,13 @@ export const TT_RAMP = 9375; // 75 s
 export const TT_CHAIN0 = 5000; // 40 s: from here half the tilts swing over to the other side before levelling
 export const TT_NMAX = 96; // moves the schedule holds at most (about 40 fill 100 s)
 export const TT_KSEED = 0x7417; // $p_seed key for the schedule
-// A ball on the table: the slope pulls it TT_PULL m/s^2 a unit of slope
-// (gravity's 20, a rolling ball's 5/7 of it); a ball within TT_SNAP over
-// the table, leaving it no faster than TT_SNAPV, is put back on it; one
-// within TT_GRIP under its top is lifted onto it (it rose past the ball);
-// a ball off the table TT_DROP under the table's plane is out.
-export const TT_PULL = 14;
+// A ball on the table: the slope pulls it TT_PULL m/s^2 a unit of slope (a
+// rolling ball's 5/7 of gravity's 20 would be 14.3: a little more, so a
+// steep tilt bites); a ball within TT_SNAP over the table, leaving it no
+// faster than TT_SNAPV, is put back on it; one within TT_GRIP under its top
+// is lifted onto it (it rose past the ball); a ball off the table TT_DROP
+// under the table's plane is out.
+export const TT_PULL = 16;
 export const TT_SNAP = 0.5;
 export const TT_SNAPV = 1.5;
 export const TT_GRIP = 1.5;
@@ -49,8 +50,8 @@ export const TT_DROP = 5;
 // TT_CRN even steps from the half-width at the start to TT_HMIN, cracking
 // for TT_CRWARN before it goes.
 export const TT_CR0 = 5625; // 45 s
-export const TT_CRI = 500; // 4 s: the last at 73 s
-export const TT_CRN = 8;
+export const TT_CRI = 500; // 4 s: the last at 81 s
+export const TT_CRN = 10;
 export const TT_CRWARN = 250; // 2 s
 // Its header, byte offsets in PG_H.
 export const TT_HALF = 0; // f32 the half-width at the start

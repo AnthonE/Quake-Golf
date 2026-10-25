@@ -165,7 +165,7 @@ test('the schedule: from the seed, a tilt toward any side but the last, level be
   assert.ok(Math.abs(mid - -0.1) < 1e-6, `half way through the swing: ${mid}`);
   for (let t = 101; t < 620; t++) assert.ok(gradAt(st, t)[0] !== gradAt(st, t - 1)[0] || (t > 225 && t <= 400), 'moving through each tip');
   // the edges: TT_CRN steps from TT_CR0, every TT_CRI, to TT_HMIN
-  assert.deepEqual([0, MC.TT_CR0 - 1, MC.TT_CR0, MC.TT_CR0 + MC.TT_CRI - 1, MC.TT_CR0 + MC.TT_CRI, MC.TT_CR0 + 7 * MC.TT_CRI, MC.TT_LEN].map(dropsAt), [0, 0, 1, 1, 2, 8, 8]);
+  assert.deepEqual([0, MC.TT_CR0 - 1, MC.TT_CR0, MC.TT_CR0 + MC.TT_CRI - 1, MC.TT_CR0 + MC.TT_CRI, MC.TT_CR0 + 7 * MC.TT_CRI, MC.TT_LEN].map(dropsAt), [0, 0, 1, 1, 2, 8, MC.TT_CRN]);
   assert.equal(halfOf(f(30), MC.TT_CRN), MC.TT_HMIN);
   assert.ok(MC.TT_CR0 + (MC.TT_CRN - 1) * MC.TT_CRI < MC.TT_LEN - 2000, 'the last edge well before the clock');
   assert.equal(MC.TT_FX_WARN, L.FX_MG + 4 * L.MG_TILT);
@@ -232,7 +232,7 @@ test('a ball rides the table: still on the level, on the top every tick as it ti
     const word = partyWord({ yaw: yawTo(-qx, -qz), move: keys ? 1 : 0 });
     for (let i = 0; i < 200; i++) g.step([[L.EV_INPUT, 0, word]]);
     const b = g.v.partier(0), d = (b.pos[0] - C) * qx + (b.pos[2] - C) * qz;
-    assert.ok(keys ? b.ground && d < -1.5 : d > 3.5, `${keys ? 'climbs' : 'slides'}: ${d.toFixed(2)} m down from the middle after 1.6 s at ${degOf(q.gx, q.gz)} degrees`);
+    assert.ok(keys ? b.ground && d < -0.5 : d > 3.5, `${keys ? 'climbs' : 'slides'}: ${d.toFixed(2)} m down from the middle after 1.6 s at ${degOf(q.gx, q.gz)} degrees`);
   }
 });
 
