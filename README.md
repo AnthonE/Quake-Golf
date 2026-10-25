@@ -543,7 +543,7 @@ arena by its mode: "NEXT: ARENA INFECTION") are drawn in the games' 3x5 font.
 `client/fireplace-bot.mjs` is a guest: a brain for each game (party's is
 `client/party-bot.mjs`'s Partier), asked for the one that's on.
 
-**Results.** `test/fireplace.test.mjs` (9 tests, 47 s here): the prefixer; one
+**Results.** `test/fireplace.test.mjs` (9 tests, 57 s here): the prefixer; one
 module with every export; the playlist on the debug build from bumper balls
 round to bumper balls again, the room coming and going (each game's matches:
 two rounds, three minigames, one match cut to 3 min, one hole; everyone in
@@ -558,13 +558,13 @@ threads through bumper balls and the switch into party; and keyframes taken
 just into party, mid-party, mid-arena and mid-golf, each restored into a sim
 sitting in bumper balls' world, its terrain and map rebuilt, every tick after
 equal to a run that never left. The determinism matrix replays 145,000 ticks
-of twelve guests, the playlist round once with the minigames as they stand at
-this commit: bumper balls, party from 191 s (Tag, Paint Party, Musical Pads),
-the arena from 495 s (Juggernaut, drawn), party from 684 s (Color Call, Red
-Light, Hot Potato), golf from 970 s and bumper balls again from 1129 s: 27
-configurations (Node, Deno, Chrome x JIT tiers x 1, 2 and 4 threads), equal on
-every tick, at 0.056 to 0.058 ms a tick on TurboFan in Deno and Chrome, the
-region's hash included. Online, `net/run-fireplace.mjs --bots 15 --seconds
+of twelve guests, the playlist round once with the minigames and the arena's
+modes as they stand at this commit: bumper balls, party from 191 s (Tag, The
+Wall, Bomb Rain), the arena from 392 s (Juggernaut, drawn from the eight),
+party from 581 s (Musical Pads, Red Light, Hot Potato), golf from 771 s and
+bumper balls again from 930 s: 27 configurations (Node, Deno, Chrome x JIT
+tiers x 1, 2 and 4 threads), equal on every tick, at 0.056 to 0.060 ms a tick
+on TurboFan in Deno and Chrome, the region's hash included. Online, `net/run-fireplace.mjs --bots 15 --seconds
 270` on one 4-core machine shared with other work: 16 sessions (15 guests and
 Chrome), the room moved from bumper balls into party at 147 s, 4,174 interval
 hashes checked by the referee, all equal, 7 bytes a closed tick on average,
