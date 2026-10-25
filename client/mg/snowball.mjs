@@ -251,8 +251,8 @@ function plan(view, me, bot, w) {
 // packed snow blue-grey with a sheen, fading as the snow covers it again.
 const N = MC.SB_GN;
 const TRACKS = { cells: new Uint8Array(N * N), n: N, origin: [0, 0], size: N, palette: new Float32Array(1024), version: -1, buf: null, grid: null };
-TRACKS.palette.set([0.82, 0.86, 0.93, 0.3], 4);
-for (let k = 0; k < 8; k++) TRACKS.palette.set([0.56, 0.66, 0.8, 0.62 - 0.065 * k], 4 * (2 + k));
+TRACKS.palette.set([0.8, 0.85, 0.93, 0.35], 4);
+for (let k = 0; k < 8; k++) TRACKS.palette.set([0.5, 0.61, 0.78, 0.72 - 0.075 * k], 4 * (2 + k));
 export function tracks(view, st, t) {
   const T = TRACKS;
   if (T.buf !== view.dv.buffer) { T.buf = view.dv.buffer; T.grid = new Uint32Array(T.buf, L.PG_BIG + MC.SB_GRID, N * N); T.version = -1; }
@@ -279,7 +279,7 @@ function drawnAt(view, ctx, p) {
 }
 // The pebbles in a snowball, in its own frame: they turn with it as it rolls.
 const PEBBLES = [[0.62, 0.55, 0.56], [-0.7, 0.2, 0.68], [0.1, -0.75, -0.65], [-0.35, 0.8, -0.48], [0.85, -0.3, -0.42]].map((v) => { const n = Math.hypot(...v); return v.map((c) => c / n); });
-const rolls = new Map(); // slot -> { ang, ax, az, at }: the angle it has turned through about its rolling axis
+const rolls = new Map(); // slot -> { frame }: its pebbles as it has turned them
 // v turned by ang about the unit axis (ax, 0, az)
 function turn(v, ax, az, ang) {
   const c = Math.cos(ang), s = Math.sin(ang), d = v[0] * ax + v[2] * az;
@@ -350,30 +350,34 @@ export default {
     // the snowballs: white, a band of the rider's colour, pebbles turning as it rolls
     const cam = ctx.cam || [cx, PLAT_Y + 50, cx];
     const ms = ctx.ms || 16;
-    const myR = ctx.pme && !ctx.pme.out ? ctx.pme.radius : ctx.me?.radius ?? 0;
+    const myR = ctx.pme && !ctx.pme.out ? ctx.pme.radius : ctx.me && !ctx.me.out ? ctx.me.radius : 0;
     for (let p = 0; p < L.NPLAYER; p++) {
       const a = L.PLAYERS + p * L.PSIZE;
       const fl = view.u8[a + L.P_FL];
       if ((fl & (L.PF_LIVE | L.PF_DEAD)) !== L.PF_LIVE) { rolls.delete(p); continue; }
       const [x, y, z, r] = drawnAt(view, ctx, p);
       const own = p === ctx.slot;
-      if (!own && Math.hypot(x - cam[0], y + r - cam[1], z - cam[2]) < r + 2.5) continue;
+      const near = Math.hypot(x - cam[0], y + r - cam[1], z - cam[2]);
+      if (!own && near < r + 2.5) continue;
+      // a big one by the lens would hide the ball followed: see-through
+      const alpha = !own && near < r * 1.5 + 5 ? 0.3 : 1;
       const vx = own && ctx.pme ? ctx.pme.vel[0] : view.dv.getFloat32(a + L.P_VX, true), vz = own && ctx.pme ? ctx.pme.vel[2] : view.dv.getFloat32(a + L.P_VZ, true);
       const sp = Math.hypot(vx, vz);
       let rl = rolls.get(p);
-      if (!rl) { rl = { ang: 0, ax: 0, az: 1, frame: [...PEBBLES] }; rolls.set(p, rl); }
+      if (!rl) { rl = { frame: [...PEBBLES] }; rolls.set(p, rl); }
       if (sp > 0.05) {
         // the axis it rolls about, (vz, 0, -vx) / sp, the pebbles carried round it
         const ax = vz / sp, az = -vx / sp, da = sp * ms / 1000 / r;
         rl.frame = rl.frame.map((v) => { const u = turn(v, ax, az, da), n = Math.hypot(...u); return [u[0] / n, u[1] / n, u[2] / n]; });
       }
       const col = slotColor(p);
-      sc.sphere(x, y + r, z, r, ...SNOW, LOOK.MATTE, 0, 0, 1, p);
-      sc.cyl(x, y + r, z, r * 1.025, Math.max(0.1, r * 0.12), ...col, LOOK.PLASTIC, 0, 0, 1, p);
+      sc.sphere(x, y + r, z, r, ...SNOW, LOOK.MATTE, 0, 0, alpha, p);
+      sc.cyl(x, y + r, z, r * 1.025, Math.max(0.1, r * 0.12), ...col, LOOK.PLASTIC, 0, 0, alpha, p);
+      if (alpha < 1) continue;
       for (const v of rl.frame) {
-        // only those on the near side of it are worth a solid; under the band they'd hide anyway
+        // (one under the band would hide in it)
         if (Math.abs(v[1]) < 0.16) continue;
-        sc.sphere(x + v[0] * r * 0.97, y + r + v[1] * r * 0.97, z + v[2] * r * 0.97, Math.max(0.07, r * 0.07), 0.3, 0.3, 0.33, LOOK.MATTE, 0, 0, 1, p);
+        sc.sphere(x + v[0] * r * 0.97, y + r + v[1] * r * 0.97, z + v[2] * r * 0.97, Math.max(0.06, r * 0.055), 0.3, 0.3, 0.33, LOOK.MATTE, 0, 0, 1, p);
       }
       // in play: a ring on the snow round one that can swallow you (red) or that you can swallow (green)
       if (g.state === L.H_PLAY && !own && myR > 0 && (fl & L.PF_FALL) === 0) {
