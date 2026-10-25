@@ -67,11 +67,11 @@ test('Blood Gulch\'s objectives: a flag on each base\'s floor, the skull mid-fie
   assert.deepEqual(m.flags.map(at), [21, 21]);
   assert.equal(at(m.ball), 19.69);
   assert.deepEqual(m.hills.map(at), [19.69, 25.8, 23.4, 21, 25.8, 23.4]);
-  // each half's spawns: the bases' own (0-7 red's, 8-15 blue's), the field's split by the nearer flag, ties blue's
+  // each half's spawns: the bases' own (0-7 red's, 8-15 blue's), the field's split by the nearer flag; the two on the middle line nobody's
   const halves = m.spawns.map((s) => half(s.x, s.z, m.flags));
   assert.deepEqual(halves.slice(0, 16), [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1]);
-  assert.deepEqual(m.sides, [14, 18]);
-  assert.equal(m.spawns.filter((s) => Math.abs(s.x - 392) === Math.abs(s.x - 632)).length, 2, 'two on the middle line');
+  assert.deepEqual(m.sides, [14, 16]);
+  assert.deepEqual(m.spawns.filter((s) => Math.abs(s.x - 392) === Math.abs(s.x - 632)).map((s) => half(s.x, s.z, m.flags)), [2, 2], 'two on the middle line');
 });
 
 // A map directory of its own: a flat 64 x 64 m floor, 8-bit, and what's given.
@@ -166,7 +166,7 @@ test('a map that leaves its objectives out gets them: flags an eighth in from th
       assert.deepEqual([0, 1, 2].map((k) => [0, 1, 2, 3].map((i) => at(L.MAP_HILLS, k, i))), hills.map((h) => h.map(Math.fround)));
     } finally { rmSync(dir, { recursive: true }); }
   }
-  // the halves as the sim reckons them, in f32: strictly nearer red's flag is red's, a tie blue's
+  // the halves as the sim reckons them, in f32: strictly nearer red's flag is red's, strictly nearer blue's blue's, a tie nobody's
   const fl = [[491, 512], [533, 512]];
-  assert.deepEqual([half(511.9, 0, fl), half(512, 0, fl), half(512.1, 900, fl), half(400, 512, fl), half(600, 512, fl)], [0, 1, 1, 0, 1]);
+  assert.deepEqual([half(511.9, 0, fl), half(512, 0, fl), half(512.1, 900, fl), half(400, 512, fl), half(600, 512, fl)], [0, 2, 1, 0, 1]);
 });

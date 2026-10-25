@@ -1585,15 +1585,18 @@
            (f32.lt (f32.abs (f32.sub (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (local.get $y))) (local.get $h))))
 
 ;; Whose half of the map (x, z) is on: 0 red's if strictly nearer red's flag
-;; than blue's (MAP_FLAGS), else 1 blue's. tools/map.mjs's half() mirrors it.
+;; than blue's (MAP_FLAGS), 1 blue's if strictly nearer blue's, 2 neither's
+;; (as far from both: a spawn there is nobody's, so neither side starts on
+;; the middle line). tools/map.mjs's half() mirrors it.
 (func $a_half (param $x f32) (param $z f32) (result i32)
-  (local $dx f32) (local $dz f32) (local $r f32)
+  (local $dx f32) (local $dz f32) (local $r f32) (local $b f32)
   (local.set $dx (f32.sub (local.get $x) (f32.load (i32.const @MAP_FLAGS))))
   (local.set $dz (f32.sub (local.get $z) (f32.load (i32.const @(MAP_FLAGS + 4)))))
   (local.set $r (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz))))
   (local.set $dx (f32.sub (local.get $x) (f32.load (i32.const @(MAP_FLAGS + 16)))))
   (local.set $dz (f32.sub (local.get $z) (f32.load (i32.const @(MAP_FLAGS + 20)))))
-  (f32.ge (local.get $r) (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz)))))
+  (local.set $b (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz))))
+  (select (i32.const 0) (select (i32.const 1) (i32.const 2) (f32.gt (local.get $r) (local.get $b))) (f32.lt (local.get $r) (local.get $b))))
 
 ;; The half spawn point i is on.
 (func $a_spawn_half (param $i i32) (result i32)

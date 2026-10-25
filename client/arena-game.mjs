@@ -590,8 +590,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const kitRects = [];
     hudText(text, { h, f, slot: tgt ? watched : slot, st, now, fps, md, kit, kitRects, playT });
     rects.push(...kitRects);
-    // the objective's waypoints over everything, through walls, with the camera as it is drawn
-    if (out.markers.length && st === 2) {
+    // the objective's waypoints over everything, through walls, with the camera as it is drawn (not over the board)
+    if (out.markers.length && st === 2 && !(h.state === L.H_OVER || (held.has('Tab') && h.live))) {
       const mr = markerRects(out.markers, { cam, yaw: camYaw, pitch: camPitch, zoom }, f);
       rects = rects.slice(0, Math.max(0, MAX_RECT - mr.length)).concat(mr);
     }
@@ -621,7 +621,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       // behind the eye (or level with it): the edge on the side it's on, halfway down
       if (depth < 0.3) { x = px < W / 2 ? 0 : W - 1; y = H / 2; }
       x = Math.max(8 * s, Math.min(W - 8 * s, x));
-      y = Math.max(30 * s, Math.min(H - 40 * s, y));
+      // kept below the score bar (its label two rows up clear of rows 4 and 5) and above the bottom lines
+      y = Math.max(48 * s, Math.min(H - 40 * s, y));
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
       // a diamond (a flag's pennant, a skull's dot, a hill's ring by kind)
