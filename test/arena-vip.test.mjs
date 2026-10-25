@@ -516,7 +516,7 @@ test('VIP\'s client module: the VIPs as AO has them; crowns over both but the on
   let out = draw(0);
   const f2 = v.fighter(2), f3 = v.fighter(3);
   assert.deepEqual(out.solid.map((o) => [o.kind, o.pos[0], o.pos[2], o.color.slice(0, 3)]), [[CROWN, f2.pos[0], f2.pos[2], [0.95, 0.22, 0.16]], [CROWN, f3.pos[0], f3.pos[2], [0.22, 0.45, 1]]]);
-  assert.ok(out.solid.every((o, k) => Math.abs(o.pos[1] - [f2, f3][k].pos[1] - 2.25) < 0.06));
+  assert.ok(out.solid.every((o, k) => Math.abs(o.pos[1] - [f2, f3][k].pos[1] - 2.15) < 0.06));
   assert.deepEqual(out.markers.map((m) => [m.label, m.color, m.kind]), [['PROTECT', C.RED, 'crown'], ['KILL', C.CYAN, 'crown']]);
   assert.deepEqual(draw(5).markers.map((m) => [m.label, m.color]), [['KILL', C.RED], ['PROTECT', C.CYAN]]);
   out = draw(2);

@@ -629,6 +629,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const out = [];
     const s = W / 320;
     const rows = renderer.rows;
+    // the ones placed so far: { x, y, half (its text's half width in cells) }
+    const placed = [];
     for (const m of markers) {
       const [px, py, depth] = project(cv, W, H, m.pos);
       let x = px, y = py;
@@ -639,6 +641,19 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       y = Math.max(48 * s, Math.min(H - 40 * s, y));
       // on the left, its label and distance kept above the kill feed (rows - 16 to rows - 12)
       if (x < 128 && Math.round(y / 6) + 1 >= rows - 16) y = (rows - 18) * 6;
+      const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
+      const label = String(m.label ?? '');
+      const ds = `${dist}M`;
+      // one that would cover another's label or distance (two waypoints the
+      // same way, both sides' VIPs down the gulch) goes above it, its four
+      // rows clear; below it, at the top of the band
+      const half = Math.max(label.length, f ? ds.length : 0) / 2 + 0.5;
+      for (let k = 0; k < placed.length; k++) {
+        const o = placed.find((p) => Math.abs(p.x - x) / 4 < p.half + half && Math.abs(p.y - y) < 24);
+        if (!o) break;
+        y = o.y - 24 >= 48 * s ? o.y - 24 : o.y + 24;
+      }
+      placed.push({ x, y, half });
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
       // a diamond (a flag's pennant, a skull's dot, a hill's ring, a crown's band and points by kind)
@@ -647,11 +662,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       else if (m.kind === 'hill') { r(-4, -1, 4, 1); r(-3, -3, 3, -1, c, 0.5); r(-3, 1, 3, 3, c, 0.5); }
       else if (m.kind === 'skull') { r(-3, -4, 3, 1); r(-2, 1, 2, 3); r(-2, -2, -0.5, -0.5, [0, 0, 0]); r(0.5, -2, 2, -0.5, [0, 0, 0]); }
       else { r(-1, -4, 1, 4); r(-2.5, -2.5, 2.5, 2.5, c, 0.8); r(-4, -1, 4, 1); }
-      const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
       const col = Math.round(x / 4), row = Math.round(y / 6);
-      const label = String(m.label ?? '');
       if (label) put(text, COLS, Math.max(0, Math.min(COLS - label.length, col - (label.length >> 1))), Math.max(0, row - 2), label, m.color ?? C.WHITE);
-      const ds = `${dist}M`;
       if (f) put(text, COLS, Math.max(0, Math.min(COLS - ds.length, col - (ds.length >> 1))), Math.min(rows - 1, row + 1), ds, C.WHITE);
     }
     return out;

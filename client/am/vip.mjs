@@ -18,7 +18,7 @@ import { nearestEnemy } from './slayer.mjs';
 
 // the renderer's crown sprite (client/arena-render.mjs, fs_splat), and its place over a VIP's feet
 export const CROWN = 10;
-const OVER = 2.25;
+const OVER = 2.15; // m: the crown's middle over a VIP's feet, its band just clear of the helmet (1.84 m)
 // m: an enemy inside THREAT of the VIP moves it on; a defender's spot is 3 m
 // off its VIP, held within 4 of it, and farther than GUARD - 4 from its VIP
 // it keeps going while it shoots (at GUARD, half the time a defender was
