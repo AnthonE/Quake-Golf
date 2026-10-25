@@ -496,6 +496,7 @@ export async function mount(h, { canvas, lockTarget = canvas, bot: BOT = false, 
       right(0, `POINTS ${me.pts}  WINS ${me.wins}`, C.YELLOW);
       if (me.out && g.state === L.H_PLAY && !score) centre(rows - 4, f ? `OUT  WATCHING P${f.slot + 1}  CLICK FOR ANOTHER` : 'OUT', C.GREY);
       if (me.out && me.place === 0 && g.state === L.H_PLAY && !score) centre(rows - 5, 'YOU PLAY THE NEXT ROUND', C.CYAN);
+      if (me.out && g.state === L.H_PLAY && score && mod.outForGood && f) centre(rows - 4, `WATCHING P${f.slot + 1}  CLICK FOR ANOTHER`, C.GREY);
       if (me.out && g.state === L.H_PLAY && score && !mod.ownScore) centre(rows - 4, `DOWN  BACK IN ${Math.max(0, Math.ceil((g.respawn - ((g.tick - me.outAt) | 0)) / 125))}`, C.GREY);
       if (item && !me.out) put(tx, COLS, 47, rows - 3, `${L.PU_NAMES[item]}  CLICK`, C.WHITE);
     } else if (WATCH && f) put(tx, COLS, 1, 1, `WATCHING P${f.slot + 1}  < >`, C.CYAN);
