@@ -7,10 +7,13 @@ import { playArena } from '../tools/genarena.mjs';
 import { compileMap } from '../tools/map.mjs';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
+import { AMC, SIDE_RGB } from '../client/am/index.mjs';
+import { hillOf } from '../client/am/hill.mjs';
+import { C } from '../client/font.mjs';
 import * as L from '../src/layout.mjs';
 
-// King of the Hill (src/am/hill.wat). Helpers as test/arena-teams.test.mjs
-// has them; the hill read straight from its fields in AO.
+// King of the Hill (src/am/hill.wat, client/am/hill.mjs). Helpers as
+// test/arena-teams.test.mjs has them; the hill read straight from its fields in AO.
 
 // A room on the debug build: n fighters in, stepped to play. mode forces every
 // match through the seed; null plays the rotation.
@@ -473,25 +476,91 @@ test('a Fiesta after a match of King of the Hill: its region exactly a Fiesta\'s
   check();
 });
 
-test('King of the Hill with 8 and 16 AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads; the hill moves on its ticks', async () => {
+test('King of the Hill\'s client module: the hill drawn in its holder\'s colour with its waypoint, its HUD lines, its news, the board\'s column, the AI fighter\'s goal', async () => {
+  const g = await room(L.M_HILL, 4); // 0, 2 red; 1, 3 blue
+  const kit = AMC[L.M_HILL];
+  away(g, [0, 1, 2, 3]);
+  goHill(g, 1); // red's roof
+  const h = hill(g);
+  assert.deepEqual(hillOf(g.v), { at: 1, moves: h.moves, pos: h.pos, r: 6, hold: 0, on: [0, 0], held: [0, 0] });
+  const draw = (slot, now = 0, cam = [470, 30, 540]) => {
+    const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
+    kit.draw(g.v, { now, slot, me: g.v.fighter(slot), cam, view: g.v }, out);
+    return out;
+  };
+  // nobody's: white, pulsing softly, painted only within HL_H of the roof; lights round the rim, a pillar, its waypoint
+  let out = draw(0);
+  assert.deepEqual(out.zone, { x: 392, z: 512, r: 6, y: h.pos[1], h: 2, color: [0.92, 0.92, 0.88], pulse: 0.35 });
+  assert.ok(out.glow.length === 12 && out.glow.every((x) => Math.abs(Math.hypot(x.pos[0] - 392, x.pos[2] - 512) - 6 * 0.97) < 1e-6 && Math.abs(x.pos[1] - h.pos[1] - 0.35) < 1e-6), 'the rim, on the roof');
+  assert.deepEqual(out.beams.map((b) => [b.a, b.b]), [[[392, h.pos[1] + 2, 512], [392, h.pos[1] + 30, 512]]]);
+  assert.deepEqual(out.markers, [{ pos: [392, h.pos[1] + 3, 512], label: 'HILL', color: C.WHITE, kind: 'hill' }]);
+  // red holds it: red; HOLD to red, HILL in red to blue, nothing over the head of the one on it; no pillar close by
+  on(g, 0);
+  g.step();
+  assert.deepEqual([draw(2).zone.color, draw(2).zone.pulse, draw(2).markers[0].label, draw(1).markers[0].label, draw(1).markers[0].color], [SIDE_RGB[0], 1, 'HOLD', 'HILL', C.RED]);
+  assert.deepEqual([draw(0).markers, draw(2, 0, [395, 27, 515]).beams], [[], []]);
+  // contested: flashing red and blue
+  on(g, 1, 1.5, 0);
+  g.step();
+  assert.deepEqual([draw(2, 100).zone.color, draw(2, 400).zone.color, draw(2, 700).zone.color], [SIDE_RGB[0], SIDE_RGB[1], SIDE_RGB[0]]);
+  // the HUD: who has it and when it moves, who's on it (or how it stands for you, on it), the target
+  const hud = (slot) => { const lines = []; kit.hud(g.v, { put: (x, y, s, c) => lines.push([x, y, s, c]), C, me: g.v.fighter(slot), team: team(g, slot) }); return lines; };
+  const left = (n) => `${Math.floor(n / 125 / 60)}:${String(Math.floor(n / 125) % 60).padStart(2, '0')}`;
+  const moves = `MOVES IN ${left(h.moves - g.v.tick)}`;
+  assert.deepEqual(hud(2), [[1, 2, 'HILL: CONTESTED', C.YELLOW], [18, 2, moves, C.GREY], [1, 3, 'ON IT', C.GREY], [7, 3, 'RED 1', C.RED], [13, 3, 'BLUE 1', C.CYAN], [1, 4, 'FIRST TO 100 SECONDS', C.GREY]]);
+  assert.deepEqual(hud(0)[2], [1, 3, 'CONTESTED: CLEAR THEM OFF', C.YELLOW]);
+  away(g, [1]);
+  g.step();
+  assert.deepEqual([hud(0)[0], hud(0)[2], hud(1)[0]], [[1, 2, 'HILL: RED', C.RED], [1, 3, 'YOU ARE HOLDING IT', C.RED], [1, 2, 'HILL: RED', C.RED]]);
+  // the news, told to each side
+  for (const p of [0, 1]) {
+    const said = [], shown = [], glows = [];
+    const ctx = { slot: p, me: g.v.fighter(p), view: g.v, C, feed: (t, c) => said.push([t, c]), banner: (t, c) => shown.push([t, c]), glow: (x) => glows.push(x) };
+    for (const [size, shot] of [[MOVE, 2], [TAKE, 2], [CONTEST, 3]]) kit.news({ size, owner: 255, shot, pos: h.pos }, ctx);
+    assert.deepEqual(said, [['THE HILL MOVED', C.YELLOW], ['BLUE HAS THE HILL', C.CYAN], ['THE HILL IS CONTESTED', C.YELLOW]]);
+    assert.deepEqual(shown.map((x) => x[0]), ['THE HILL MOVED', p ? 'YOUR SIDE HAS THE HILL' : 'BLUE HAS THE HILL', 'THE HILL IS CONTESTED']);
+    assert.equal(glows.length, 3);
+  }
+  // the board's column: seconds on a held hill
+  g.dv.setUint16(L.MODE_REC + L.MR_POINTS, 37, true);
+  assert.deepEqual([kit.cols.map((c) => c.head), kit.cols[0].get(g.v.fighter(0))], [['HILL'], '37']);
+  // the goal, attacker or defender: the hill at a run, held from two thirds of its radius in
+  for (const role of ['attack', 'defend']) assert.deepEqual(kit.goal(g.v, g.v.fighter(3), { role }), { pos: h.pos, r: 4, hurry: 0.6, hold: true });
+  assert.deepEqual(kit.state(g.v), { hill: 1, hold: 1, on: [1, 0], moves: h.moves, score: scores(g), target: L.HL_TARGET });
+  // the next match's countdown: no hill yet, nothing drawn, no goal
+  endMatch(g);
+  while (g.v.hole().state !== L.H_COUNT) g.step();
+  out = draw(0);
+  assert.deepEqual([hillOf(g.v), out.zone, out.markers, kit.goal(g.v, g.v.fighter(0), {})], [null, null, [], null]);
+});
+
+test('King of the Hill with 8 and 16 AI fighters: no trap on the debug build, the same hash on every tick on 1 and 4 threads; both sides hold the hill and score, every hill it comes to is held, it moves on its ticks, its news a second apart at most', async () => {
   const [debug, bytes] = [arenaBytes(true), arenaBytes()];
   const ticks = 20000;
   for (const bots of [8, 16]) {
-    const seen = { moves: [], hold: [0, 0, 0, 0], points: [0, 0], start: -1 };
-    let last = -1;
+    const seen = { moves: [], hold: [0, 0, 0, 0], best: [0, 0], hills: new Map(), news: [], start: -1 };
+    let last = -1, fx = 0;
     const { log, mode } = await playArena({ bytes: debug, seed: forcedSeed(L.M_HILL), bots, ticks, leaveAt: 3000,
       onTick: (t, v) => {
+        for (; fx < v.fxCount(); fx++) { const f = v.fx(fx); if (f.kind === L.FX_MODE && (f.size === TAKE || f.size === CONTEST)) seen.news.push(f.tick); }
         if (v.hole().state !== L.H_PLAY) return;
         if (v.hole().start !== seen.start) { seen.start = v.hole().start; last = -1; } // a match: its moves from its own start
-        const at = v.dv.getUint32(L.AO + L.HL_AT, true);
+        const at = v.dv.getUint32(L.AO + L.HL_AT, true), hold = v.dv.getUint32(L.AO + L.HL_HOLD, true);
         if (last >= 0 && at !== last) seen.moves.push(v.tick - 1 - seen.start);
         last = at;
-        seen.hold[v.dv.getUint32(L.AO + L.HL_HOLD, true)]++;
-        seen.points = [v.dv.getUint32(L.AH_SCORE, true), v.dv.getUint32(L.AH_SCORE + 4, true)];
+        seen.hold[hold]++;
+        const k = `${v.hole().hole}:${at}`;
+        seen.hills.set(k, (seen.hills.get(k) || 0) + (hold === 1 || hold === 2));
+        seen.best = seen.best.map((b, i) => Math.max(b, v.dv.getUint32(L.AH_SCORE + 4 * i, true)));
       } });
     assert.equal(mode.mode, L.M_HILL);
+    console.log(`  ${bots} fighters: ticks nobody/red/blue/contested ${seen.hold.join('/')}, points to ${seen.best.join(' and ')}, moves at ${seen.moves.join(', ')}, `
+      + `ticks held on each hill ${[...seen.hills].map(([k, n]) => `${k} ${n}`).join(', ')}, ${seen.news.length} news`);
     assert.deepEqual(seen.moves.slice(0, 2), [L.HL_MOVE, 2 * L.HL_MOVE], `${bots}: moved on its ticks`);
-    console.log(`  ${bots} fighters: ticks nobody/red/blue/contested ${seen.hold.join('/')}, points ${seen.points.join(' to ')}, moves at ${seen.moves.join(', ')}`);
+    assert.ok(seen.hold[1] > 1000 && seen.hold[2] > 1000, `${bots}: both sides held it`);
+    assert.ok(seen.best[0] >= 10 && seen.best[1] >= 10, `${bots}: both sides scored`);
+    assert.ok(seen.hills.size >= 3 && [...seen.hills.values()].every((n) => n > 0), `${bots}: every hill held`);
+    assert.ok(seen.news.every((t, i) => i === 0 || t - seen.news[i - 1] >= L.HL_NEWSGAP), `${bots}: news gaps`);
     const parsed = parseLog(log);
     const a = await replay({ bytes, log: parsed, ticks, threads: 1, tag: `hl${bots}-1` });
     const b = await replay({ bytes, log: parsed, ticks, threads: 4, tag: `hl${bots}-4`, startWorkers });
