@@ -23,7 +23,7 @@ const CAP = 0.14; // the lighter top's depth, m
 const HEDGE = [0.2, 0.42, 0.16], TOP = [0.46, 0.7, 0.3]; // the hedge, its clipped top
 const DOOR = [0.95, 0.66, 0.16]; // a door's stripes, with black
 const FLOOR = [0.8, 0.73, 0.56]; // the gravel
-const SLIDE = 40; // ticks a door takes to rise or sink, from the tick it moves
+const SHUT = 40, OPEN = 20; // ticks a door takes to rise (ending as it turns solid) and to sink (from the tick it opens)
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export const ordinal = (n) => `${n}${[, 'ST', 'ND', 'RD'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'TH'}`;
 
@@ -238,15 +238,16 @@ function playTime(view, g, ctx) {
   return Math.max(0, t);
 }
 
-// How far up door D stands t ticks into play, 0 sunk to 1 shut: it moves on
-// the epoch's first tick (solid from then, or open), rising or sinking over SLIDE ticks.
+// How far up door D stands t ticks into play, 0 sunk to 1 shut, as the
+// sim has it: solid or open from an epoch's first tick. One shutting rises
+// over the last SHUT ticks before (in its warning, so it's up as it turns
+// solid); one opening sinks over OPEN ticks from the tick it opens.
 export function doorUp(M, D, t) {
-  const e = epochAt(t), up = !(maskOf(M, e) >>> D.g & 1);
-  if (e === 0) return up ? 1 : 0;
-  const was = !(maskOf(M, e - 1) >>> D.g & 1);
-  if (up === was) return up ? 1 : 0;
-  const k = clamp((t - e * MC.MZ_PERIOD) / SLIDE, 0, 1);
-  return up ? k : 1 - k;
+  const e = epochAt(t);
+  if (!(maskOf(M, e) >>> D.g & 1)) return 1;
+  const sink = e > 0 && !(maskOf(M, e - 1) >>> D.g & 1) ? 1 - clamp((t - e * MC.MZ_PERIOD) / OPEN, 0, 1) : 0;
+  const rise = !(maskOf(M, e + 1) >>> D.g & 1) ? clamp((t - ((e + 1) * MC.MZ_PERIOD - SHUT)) / SHUT, 0, 1) : 0;
+  return Math.max(sink, rise);
 }
 // Will door D move at the end of the epoch t is in, and is it in its warning?
 export function doorWarn(M, D, t) {
@@ -451,6 +452,7 @@ export default {
   rules: 'FIRST ON THE PAD WINS  THE REST BY HOW FAR THEY GOT',
   env: 'day',
   ownScore: true,
+  outForGood: true,
 
   draw(view, ctx, out) {
     const M = maze(view);
@@ -474,17 +476,20 @@ export default {
     const flash = 0.5 + 0.5 * Math.sin(now * 14);
     for (const D of M.doors) {
       const up = doorUp(M, D, t), warn = tp >= 0 && g.state === L.H_PLAY && doorWarn(M, D, t);
-      const hx = D.horiz ? CELL / 2 - HT : HT * 0.8, hz = D.horiz ? HT * 0.8 : CELL / 2 - HT;
+      // as long as the sim's (MZ_HT past either end, a post where nothing else meets the corner),
+      // thinner than a hedge and its top a little lower, so a hedge meeting it hides the overlap
+      const len = CELL / 2 + HT, th = HT * 0.8;
+      const box = (y, hy, pad, ...rest) => sc.box(D.x, y, D.z, D.horiz ? len : th + pad, hy, D.horiz ? th + pad : len, 0, ...rest);
       // its sill in the floor, where it sinks to
-      sc.box(D.x, PLAT_Y + 0.02, D.z, hx + 0.05, 0.03, hz + 0.05, 0, DOOR[0] * 0.5, DOOR[1] * 0.5, DOOR[2] * 0.5, LOOK.HAZARD, 0.5);
+      box(PLAT_Y + 0.02, 0.03, 0.05, DOOR[0] * 0.5, DOOR[1] * 0.5, DOOR[2] * 0.5, LOOK.HAZARD, 0.5);
       if (up > 0.01) {
-        const dy = -(1 - up) * HIGH;
-        sc.box(D.x, yb + dy, D.z, hx, (HIGH - CAP) / 2, hz, 0, DOOR[0], DOOR[1], DOOR[2], LOOK.HAZARD, 0.5);
-        if (warn) sc.box(D.x, yt + dy, D.z, hx + 0.05, CAP / 2 + 0.02, hz + 0.05, 0, 1, 0.35 + 0.5 * flash, 0.15, LOOK.GLOW, 0.6 + 1.6 * flash, 0.4);
-        else sc.box(D.x, yt + dy, D.z, hx + 0.03, CAP / 2, hz + 0.03, 0, 0.2, 0.18, 0.15, LOOK.PLASTIC);
+        const dy = -(1 - up) * HIGH - 0.05;
+        box(yb + dy, (HIGH - CAP) / 2, 0, DOOR[0], DOOR[1], DOOR[2], LOOK.HAZARD, 0.5);
+        if (warn) box(yt + dy, CAP / 2 + 0.02, 0.05, 1, 0.35 + 0.5 * flash, 0.15, LOOK.GLOW, 0.6 + 1.6 * flash, 0.4);
+        else box(yt + dy, CAP / 2, 0.03, 0.2, 0.18, 0.15, LOOK.PLASTIC);
       } else if (warn) {
         // open, about to shut: its sill flashes
-        sc.box(D.x, PLAT_Y + 0.05, D.z, hx + 0.08, 0.04, hz + 0.08, 0, 1, 0.35 + 0.5 * flash, 0.15, LOOK.GLOW, 0.6 + 1.6 * flash, 0.4);
+        box(PLAT_Y + 0.05, 0.04, 0.08, 1, 0.35 + 0.5 * flash, 0.15, LOOK.GLOW, 0.6 + 1.6 * flash, 0.4);
       }
     }
     // the pad: a glowing disc under a beam, the room round it lit

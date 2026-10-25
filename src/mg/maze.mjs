@@ -1,6 +1,6 @@
 // MAZE RUN (MG_MAZE, prefix mz): a hedge maze over the sea, laid out from the
-// round's seed for the crowd, everyone starting round its outside edge and a
-// glowing pad in the middle. Every MZ_PERIOD ticks some of its doors slide
+// round's seed for the crowd, everyone starting the same number of cells from
+// a glowing pad in the middle. Every MZ_PERIOD ticks some of its doors slide
 // open and others shut, their tops flashing MZ_WARN ticks ahead. The first
 // onto the pad wins; the rest place by the order they got there, then by
 // how far they were along the maze's paths from the middle at the end.
@@ -27,7 +27,8 @@ export const MZ_LATE = 3750; // once the first ball is home, 30 s left (if there
 export const MZ_PAD_R = 2.2; // m round the middle a ball's centre is home
 export const MZ_BOUNCE = 0.45; // what a hedge gives back of a ball's speed into it
 export const MZ_BONK = 3; // m/s into a hedge that makes an FX
-export const MZ_SPOT = 1.05; // m off a cell's centre each of up to four balls starts, once there are more balls than ring cells
+export const MZ_SPOT = 1.05; // m off a cell's centre each of up to four balls starts, once there are more balls than start cells
+export const MZ_SPREAD = 8; // start cells at the least (or one a ball, if fewer), up to four balls a cell past that
 export const MZ_IDLE = 0.975; // rolling drag a tick with no keys: a brake for the corners
 // Edge kinds, a nibble each in MZ_CELLS: open, a hedge, or a door of group k - MZ_DOOR.
 export const MZ_OPEN = 0;
@@ -39,15 +40,20 @@ export const MZ_X0 = 4; // f32 the maze's low corner, x and z (PG_CX - MZ_HALF)
 export const MZ_HALF = 8; // f32 half its side, MZ_N * MZ_C / 2
 export const MZ_FIN = 12; // u32 balls home
 export const MZ_FIRST = 16; // u32 the tick into play the first came home (0 none yet)
+export const MZ_NST = 20; // u32 start cells in MZ_STARTS
+export const MZ_SD = 24; // u32 their distance to the middle by the first epoch's doors, MZ_SD to MZ_SD + MZ_SW - 1 cells
+export const MZ_SW = 28; // u32 (1 when there are enough cells at one distance)
 // In PG_S: the doors' table, then the maze, a byte a cell (j * MZ_N + i: x0 + i MZ_C .. x0 + (i + 1) MZ_C,
 // z the same with j), its east edge in the low nibble and its south edge in the high (an edge kind each);
 // the west and north edges are its neighbours', and the maze's rim a hedge.
 export const MZ_MASKS = 0; // u32 a group's bit set: open, for epoch e mod MZ_NE
 export const MZ_CELLS = 64;
-// In PG_BIG: the paths, worked by the confirmed world as play starts and as the doors move.
+// In PG_BIG: the paths, worked by the confirmed world at the layout (the first epoch's) and as the doors move.
 export const MZ_DIST = 0; // u16 a cell: cells along the open paths to the middle, 0xffff none
 export const MZ_QUEUE = 4096; // u16 a cell: the search's queue (and the layout's stack)
 export const MZ_SEEN = 8192; // u8 a cell: the layout's marks
+export const MZ_HIST = 12288; // u16 a distance: how many cells are that far, at the layout
+export const MZ_STARTS = 16384; // u16 a start cell, in scan order
 // PG_M: 0 racing; home, MZ_M_FIN | its place (balls home on one tick share it).
 export const MZ_M_FIN = 0x10000;
 // PG_SCORE: home, MZ_SFIN less the balls home before it; the rest, at the end,

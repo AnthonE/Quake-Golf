@@ -2,10 +2,12 @@
 ;; out from the round's PRNG as the round is: a perfect maze dug from the
 ;; middle, a room of three by three cells round the pad, a few wide halls,
 ;; and of the hedges left inside some come down for loops and some are
-;; doors. Everyone starts round the outside edge; the first onto the pad in
-;; the middle wins. The doors are in MZ_NG groups, and every MZ_PERIOD ticks
-;; a new set of groups is open (the table in PG_S, drawn at setup); the
-;; maze's own paths never need a door, so the middle is always reachable.
+;; doors. Everyone starts the same number of cells from the pad in the
+;; middle (by the doors open as play starts), as far out as there are cells
+;; enough; the first onto the pad wins. The doors are in MZ_NG groups, and
+;; every MZ_PERIOD ticks a new set of groups is open (the table in PG_S,
+;; drawn at setup); the maze's own paths never need a door, so the middle is
+;; always reachable.
 ;; Home, a ball is out of play (PF_DEAD, never back: PG_RESPAWN is past the
 ;; round), placed by the order it got there; the first home leaves the rest
 ;; MZ_LATE. At the end the rest are placed by how far along the open paths
@@ -50,10 +52,10 @@
 
 ;; ---- the layout (setup: the confirmed world, the PRNG)
 
-;; The maze for the crowd, the knobs: scored by place, nobody back, braking
-;; for the corners; bumps without bumper's kick (PGF_NOKICK: only what the
-;; balls bring), so a queue down a corridor doesn't kick itself into the
-;; hedges and jam.
+;; The maze for the crowd and where they start, the knobs: scored by place,
+;; nobody back, braking for the corners; bumps without bumper's kick
+;; (PGF_NOKICK: only what the balls bring), so a queue down a corridor
+;; doesn't kick itself into the hedges and jam.
 (func $mz_setup (param $n i32)
   (local $m i32) (local $half f32)
   (local.set $m (i32.add (i32.shl (i32.trunc_sat_f32_u (f32.mul (!madd (f32.sqrt (f32.convert_i32_u (local.get $n))) (f32.const @MZ_NK) (f32.const @MZ_N0))
@@ -72,7 +74,8 @@
   (i32.store (i32.const @(PG_H + MZ_N)) (local.get $m))
   (f32.store (i32.const @(PG_H + MZ_X0)) (f32.sub (f32.load (i32.const @PG_CX)) (local.get $half)))
   (f32.store (i32.const @(PG_H + MZ_HALF)) (local.get $half))
-  (call $mz_lay (local.get $m)))
+  (call $mz_lay (local.get $m))
+  (call $mz_starts (local.get $n)))
 
 ;; Every edge of cell c a hedge but those in keep (0x0f its east, 0xf0 its south).
 (func $mz_dig (param $c i32) (param $keep i32)
@@ -186,40 +189,78 @@
                               (i32.or (i32.and (local.get $r) (i32.const @((1 << MZ_NG) - 1)))
                                       (i32.shl (i32.const 1) (i32.rem_u (i32.shr_u (local.get $r) (i32.const 16)) (i32.const @MZ_NG))))))))
 
-;; Ball i of n round the outside edge: ring cell c of the 4 (MZ_N - 1) round
-;; it, clockwise from the low corner, as evenly round as they go; once there
-;; are more balls than ring cells, up to four to a cell, MZ_SPOT off its
-;; centre either way, each layer spread round the ring. A ball coming in
-;; late (n 1024) at a ring cell by i.
+;; Where n balls start: the paths through the first epoch's doors worked
+;; (MZ_DIST, as play starts with them), and of the cells the same way from
+;; the middle the furthest out there are enough of: the most distance D
+;; with need cells at it, need one a ball up to MZ_SPREAD and a quarter of
+;; the balls past that (four to a cell); no distance with that many, the
+;; cells at D or D + 1 (and so on, wider). Listed in MZ_STARTS in scan
+;; order. Starts by the maze's own paths alone, without the doors, would
+;; differ by as much as the doors cut: 6 to 20 cells on a 15 a side.
+(func $mz_starts (param $n i32)
+  (local $m2 i32) (local $c i32) (local $k i32) (local $max i32) (local $need i32) (local $w i32) (local $d i32) (local $s i32) (local $cnt i32)
+  (local.set $m2 (i32.mul (i32.load (i32.const @(PG_H + MZ_N))) (i32.load (i32.const @(PG_H + MZ_N)))))
+  (call $mz_bfs (call $mz_mask (i32.const 0)))
+  ;; how many cells at each distance (every cell is reached: the dug paths need no door)
+  (memory.fill (i32.const @(PG_BIG + MZ_HIST)) (i32.const 0) (i32.shl (local.get $m2) (i32.const 1)))
+  (!for $c (i32.const 0) (local.get $m2)
+    (local.set $k (!ld u16 @(PG_BIG + MZ_DIST) (local.get $c)))
+    (if (i32.lt_u (local.get $k) (local.get $m2))
+      (then
+        (!st u16 @(PG_BIG + MZ_HIST) (local.get $k) (i32.add (!ld u16 @(PG_BIG + MZ_HIST) (local.get $k)) (i32.const 1)))
+        (if (i32.gt_u (local.get $k) (local.get $max)) (then (local.set $max (local.get $k)))))))
+  (local.set $need (i32.shr_u (i32.add (local.get $n) (i32.const 3)) (i32.const 2)))
+  (local.set $k (select (local.get $n) (i32.const @MZ_SPREAD) (i32.lt_u (local.get $n) (i32.const @MZ_SPREAD))))
+  (if (i32.gt_u (local.get $k) (local.get $need)) (then (local.set $need (local.get $k))))
+  (if (i32.eqz (local.get $need)) (then (local.set $need (i32.const 1))))
+  ;; the window w distances wide, from the furthest out in (at w = max, every cell but the pad's)
+  (local.set $w (i32.const 1))
+  (block $found
+    (loop $wider
+      (local.set $d (local.get $max))
+      (loop $down
+        (local.set $s (i32.const 0))
+        (!for $k (local.get $d) (i32.add (local.get $d) (local.get $w))
+          (if (i32.le_u (local.get $k) (local.get $max)) (then (local.set $s (i32.add (local.get $s) (!ld u16 @(PG_BIG + MZ_HIST) (local.get $k)))))))
+        (br_if $found (i32.ge_u (local.get $s) (local.get $need)))
+        (local.set $d (i32.sub (local.get $d) (i32.const 1)))
+        (br_if $down (i32.ge_s (local.get $d) (i32.const 1))))
+      (!inc $w)
+      (br $wider)))
+  (!for $c (i32.const 0) (local.get $m2)
+    (if (i32.lt_u (i32.sub (!ld u16 @(PG_BIG + MZ_DIST) (local.get $c)) (local.get $d)) (local.get $w))
+      (then
+        (!st u16 @(PG_BIG + MZ_STARTS) (local.get $cnt) (local.get $c))
+        (!inc $cnt))))
+  (i32.store (i32.const @(PG_H + MZ_NST)) (local.get $cnt))
+  (i32.store (i32.const @(PG_H + MZ_SD)) (local.get $d))
+  (i32.store (i32.const @(PG_H + MZ_SW)) (local.get $w)))
+
+;; Ball i of n on its start cell: one to a cell spread evenly along the list
+;; while there are cells enough; past that up to four a cell, MZ_SPOT off
+;; its centre either way, each layer spread along it. A ball coming in late
+;; (n 1024) at a start cell by i.
 (func $mz_spawn (param $i i32) (param $n i32) (result f32 f32 f32)
-  (local $m i32) (local $ring i32) (local $c i32) (local $l i32) (local $base i32) (local $cnt i32) (local $s i32) (local $k i32)
-  (local $ci i32) (local $cj i32) (local $ox f32) (local $oz f32) (local $x0 f32)
+  (local $m i32) (local $k i32) (local $c i32) (local $l i32) (local $base i32) (local $cnt i32)
+  (local $ox f32) (local $oz f32) (local $x0 f32)
   (local.set $m (i32.load (i32.const @(PG_H + MZ_N))))
-  (local.set $ring (i32.shl (i32.sub (local.get $m) (i32.const 1)) (i32.const 2)))
-  (if (i32.le_u (local.get $n) (local.get $ring))
-    (then (local.set $c (i32.div_u (i32.mul (local.get $i) (local.get $ring)) (select (local.get $n) (i32.const 1) (local.get $n)))))
+  (local.set $k (i32.load (i32.const @(PG_H + MZ_NST))))
+  (if (i32.le_u (local.get $n) (local.get $k))
+    (then (local.set $c (i32.div_u (i32.mul (local.get $i) (local.get $k)) (select (local.get $n) (i32.const 1) (local.get $n)))))
     (else
-      (local.set $l (i32.div_u (local.get $i) (local.get $ring)))
-      (local.set $base (i32.mul (local.get $l) (local.get $ring)))
+      (local.set $l (i32.div_u (local.get $i) (local.get $k)))
+      (local.set $base (i32.mul (local.get $l) (local.get $k)))
       (local.set $cnt (i32.sub (local.get $n) (local.get $base)))
-      (if (i32.gt_u (local.get $cnt) (local.get $ring)) (then (local.set $cnt (local.get $ring))))
-      (local.set $c (i32.div_u (i32.mul (i32.sub (local.get $i) (local.get $base)) (local.get $ring)) (local.get $cnt)))
+      (if (i32.gt_u (local.get $cnt) (local.get $k)) (then (local.set $cnt (local.get $k))))
+      (local.set $c (i32.div_u (i32.mul (i32.sub (local.get $i) (local.get $base)) (local.get $k)) (local.get $cnt)))
       (local.set $l (i32.and (local.get $l) (i32.const 3)))
       (local.set $ox (select (f32.const @(-MZ_SPOT)) (f32.const @MZ_SPOT) (i32.and (local.get $l) (i32.const 1))))
       (local.set $oz (select (f32.const @(-MZ_SPOT)) (f32.const @MZ_SPOT) (i32.and (i32.xor (local.get $l) (i32.shr_u (local.get $l) (i32.const 1))) (i32.const 1))))))
-  (local.set $c (i32.rem_u (local.get $c) (local.get $ring)))
-  (local.set $s (i32.div_u (local.get $c) (i32.sub (local.get $m) (i32.const 1))))
-  (local.set $k (i32.rem_u (local.get $c) (i32.sub (local.get $m) (i32.const 1))))
-  (local.set $ci (select (local.get $k) (i32.sub (local.get $m) (i32.const 1)) (i32.eqz (local.get $s))))
-  (local.set $cj (select (i32.const 0) (local.get $k) (i32.eqz (local.get $s))))
-  (if (i32.eq (local.get $s) (i32.const 2))
-    (then (local.set $ci (i32.sub (i32.sub (local.get $m) (i32.const 1)) (local.get $k))) (local.set $cj (i32.sub (local.get $m) (i32.const 1)))))
-  (if (i32.eq (local.get $s) (i32.const 3))
-    (then (local.set $ci (i32.const 0)) (local.set $cj (i32.sub (i32.sub (local.get $m) (i32.const 1)) (local.get $k)))))
+  (local.set $c (!ld u16 @(PG_BIG + MZ_STARTS) (i32.rem_u (local.get $c) (local.get $k))))
   (local.set $x0 (f32.load (i32.const @(PG_H + MZ_X0))))
-  (f32.add (!madd (f32.add (f32.convert_i32_u (local.get $ci)) (f32.const 0.5)) (f32.const @MZ_C) (local.get $x0)) (local.get $ox))
+  (f32.add (!madd (f32.add (f32.convert_i32_u (i32.rem_u (local.get $c) (local.get $m))) (f32.const 0.5)) (f32.const @MZ_C) (local.get $x0)) (local.get $ox))
   (f32.const @PLAT_Y)
-  (f32.add (!madd (f32.add (f32.convert_i32_u (local.get $cj)) (f32.const 0.5)) (f32.const @MZ_C) (local.get $x0)) (local.get $oz)))
+  (f32.add (!madd (f32.add (f32.convert_i32_u (i32.div_u (local.get $c) (local.get $m))) (f32.const 0.5)) (f32.const @MZ_C) (local.get $x0)) (local.get $oz)))
 
 ;; ---- the paths (the confirmed world's)
 
@@ -332,9 +373,8 @@
 
 ;; ---- the hooks
 
-;; Play starts: the paths through the first epoch's doors.
-(func $mz_start
-  (call $mz_bfs (call $mz_mask (i32.const 0))))
+;; Play starts: the paths through the first epoch's doors are setup's.
+(func $mz_start)
 
 (func $mz_begin (param $p i32) (param $d i32))
 

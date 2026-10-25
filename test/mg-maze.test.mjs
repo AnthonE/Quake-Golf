@@ -88,7 +88,7 @@ const keys = (p, dx, dz) => [L.EV_INPUT, p, partyWord(dx || dz ? { yaw: yawTo(dx
 // The countdown over on the next step.
 const hurry = (g) => g.dv.setUint32(L.HDR_UNTIL, g.v.tick, true);
 
-test('the maze for 1, 8, 64 and 256: sized for the crowd, every cell on a path to the middle with every door shut, the room round the pad, the rim a hedge; every ball on a ring cell, apart, clear of the hedges', async () => {
+test('the maze for 1, 8, 64 and 256: sized for the crowd, every cell on a path to the middle with every door shut, the room round the pad, the rim a hedge; every ball on a start cell, as far from the middle as the rest, apart, clear of the hedges', async () => {
   let last = 0;
   for (const n of [1, 8, 64, 256]) {
     const g = await room(n, { play: false, seed: n });
@@ -126,14 +126,26 @@ test('the maze for 1, 8, 64 and 256: sized for the crowd, every cell on a path t
       assert.ok(maskOf(M, e) <= 0xff);
       if (e) assert.notEqual(maskOf(M, e), maskOf(M, e - 1), `epoch ${e}`);
     }
-    // the balls: one to a ring cell while they go round, up to four once there are more
-    const ring = 4 * (N - 1);
+    // the balls: on the start cells, every one the same way from the middle by the first epoch's doors
+    // (a window of MZ_SW distances, 1 when there are cells enough at one), one to a cell while there
+    // are cells enough, up to four once there are more
+    const sd = g.dv.getUint32(L.PG_H + MC.MZ_SD, true), sw = g.dv.getUint32(L.PG_H + MC.MZ_SW, true), nst = g.dv.getUint32(L.PG_H + MC.MZ_NST, true);
+    const P0 = bfs(M, maskOf(M, 0));
+    assert.ok(sw >= 1 && sw <= 2, `${n}: starts ${sd} to ${sd + sw - 1} cells out`);
+    assert.ok(nst >= Math.max(Math.ceil(n / 4), Math.min(n, MC.MZ_SPREAD)), `${n}: ${nst} start cells`);
+    let cells = 0;
+    for (let c = 0; c < N * N; c++) if (P0.dist[c] >= sd && P0.dist[c] < sd + sw) { assert.equal(g.dv.getUint16(L.PG_BIG + MC.MZ_STARTS + 2 * cells, true), c); cells++; }
+    assert.equal(cells, nst, 'the start cells are every cell in the window, in scan order');
+    // as far out as there are cells enough: no window as wide further out has as many
+    const need = Math.max(Math.ceil(n / 4), Math.min(n, MC.MZ_SPREAD), 1);
+    for (let d0 = sd + 1; d0 < N * N; d0++) assert.ok([...P0.dist].filter((d) => d >= d0 && d < d0 + sw).length < need, `${n}: none ${d0} out`);
     const spots = [];
     for (let p = 0; p < n; p++) {
       const b = g.v.partier(p);
       assert.equal(b.pos[1], PLAT_Y);
       const [i, j] = cellOf(M, b.pos[0], b.pos[2]);
-      assert.ok(i === 0 || j === 0 || i === N - 1 || j === N - 1, `${n}: P${p + 1} on the ring`);
+      const d = P0.dist[j * N + i];
+      assert.ok(d >= sd && d < sd + sw, `${n}: P${p + 1} ${d} cells out`);
       assert.ok(clearance(M, b.pos[0], b.pos[2], maskOf(M, 0)) >= B_RAD, `${n}: P${p + 1} clear of the hedges`);
       spots.push([b.pos[0], b.pos[2], j * N + i]);
     }
@@ -142,7 +154,7 @@ test('the maze for 1, 8, 64 and 256: sized for the crowd, every cell on a path t
     }
     const per = new Map();
     for (const s of spots) per.set(s[2], (per.get(s[2]) || 0) + 1);
-    assert.ok(Math.max(...per.values()) <= (n <= ring ? 1 : Math.ceil(n / ring)), `${n} balls on ${ring} ring cells`);
+    assert.ok(Math.max(...per.values()) <= (n <= nst ? 1 : Math.min(4, Math.ceil(n / nst))), `${n} balls on ${nst} start cells`);
     // play: the paths the sim works are the client's
     hurry(g);
     g.step();
@@ -300,12 +312,19 @@ test('the doors: shut or open by the table and the tick; the paths worked again 
   assert.ok(moving > 0 && open >= 0);
   const P = paths(M, e0 + 1).now;
   for (let c = 0; c < M.n * M.n; c++) assert.equal(g.dv.getUint16(L.PG_BIG + MC.MZ_DIST + 2 * c, true), P.dist[c]);
-  // as drawn: sunk or shut by the epoch, rising or sinking SLIDE ticks from the move, its top flashing for MZ_WARN before
+  // as drawn: sunk or shut by the epoch, one opening sinking from the move, its top flashing for MZ_WARN before
   const X = M.doors.find((Q) => Q.g === D.kind - MC.MZ_DOOR);
   assert.equal(doorUp(M, X, e0 * MC.MZ_PERIOD + 500), 1);
   assert.equal(doorUp(M, X, (e0 + 1) * MC.MZ_PERIOD + 500), 0);
   assert.ok(doorUp(M, X, (e0 + 1) * MC.MZ_PERIOD + 10) > 0 && doorUp(M, X, (e0 + 1) * MC.MZ_PERIOD + 10) < 1);
   assert.ok(doorWarn(M, X, (e0 + 1) * MC.MZ_PERIOD - 100) && !doorWarn(M, X, (e0 + 1) * MC.MZ_PERIOD - 400));
+  // one shutting is drawn up by the tick it turns solid, rising through the end of its warning
+  let Y = null, e1 = 0;
+  for (let e = 0; e < MC.MZ_NE && !Y; e++) { Y = M.doors.find((Q) => (maskOf(M, e) >> Q.g & 1) && !(maskOf(M, e + 1) >> Q.g & 1)); e1 = e + 1; }
+  assert.ok(Y, 'a door that shuts');
+  assert.equal(doorUp(M, Y, e1 * MC.MZ_PERIOD), 1);
+  assert.equal(doorUp(M, Y, e1 * MC.MZ_PERIOD - 100), 0);
+  assert.ok(doorUp(M, Y, e1 * MC.MZ_PERIOD - 20) > 0 && doorUp(M, Y, e1 * MC.MZ_PERIOD - 20) < 1);
 });
 
 test('a door shutting on a ball in its gap shoves it out to the nearer side', async () => {
@@ -385,14 +404,30 @@ test('everyone home ends it at once; a ball alone plays till it finds the middle
   assert.equal(h.v.party().winner, 0);
 });
 
-test('a ball joining in play falls in at the ring and races', async () => {
+test('a fair start: for 2, 16 and 256 balls on four seeds each, every ball within a cell of the rest along the paths to the middle as play starts', async () => {
+  for (const n of [2, 16, 256]) {
+    for (let seed = 1; seed <= 4; seed++) {
+      const g = await room(n, { play: false, seed: 100 * n + seed });
+      const M = mazeOf(g.v), P0 = bfs(M, maskOf(M, 0));
+      const ds = [];
+      for (let p = 0; p < n; p++) { const b = g.v.partier(p); const [i, j] = cellOf(M, b.pos[0], b.pos[2]); ds.push(P0.dist[j * M.n + i]); }
+      const lo = Math.min(...ds), hi = Math.max(...ds);
+      assert.ok(hi - lo <= 1, `${n} balls, seed ${seed}: ${lo} to ${hi} cells`);
+      assert.ok(lo >= M.n >> 1, `${n} balls, seed ${seed}: ${lo} cells out, at least half the side`);
+    }
+  }
+});
+
+test('a ball joining in play falls in at a start cell and races', async () => {
   const g = await room(2, { seed: 3 });
   const M = mazeOf(g.v);
   g.step([[L.EV_JOIN, 5]]);
   const b = g.v.partier(5);
   assert.ok(b.live && !b.out, 'in');
   const [i, j] = cellOf(M, b.pos[0], b.pos[2]);
-  assert.ok(i === 0 || j === 0 || i === M.n - 1 || j === M.n - 1, 'on the ring');
+  const sd = g.dv.getUint32(L.PG_H + MC.MZ_SD, true), sw = g.dv.getUint32(L.PG_H + MC.MZ_SW, true);
+  const d = bfs(M, maskOf(M, 0)).dist[j * M.n + i];
+  assert.ok(d >= sd && d < sd + sw, `${d} cells out, the others ${sd}`);
   for (let k = 0; k < 200; k++) g.step();
   assert.ok(g.v.partier(5).ground && g.v.partier(5).pos[1] === PLAT_Y, 'landed on the floor');
 });
