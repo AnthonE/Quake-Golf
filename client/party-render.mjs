@@ -48,7 +48,8 @@ export const SHAPE = { BOX: 0, CYL: 1, HEX: 2, SPHERE: 3 };
 //   METAL    brushed along the solid's longer side, the sky and its clouds in it
 //   HAZARD   stripes a wide (0.5 m) across the solid's own frame, its colour and black
 //   GLOW     lit by a (0 off, 1 bright, past 1 white-hot); b takes the light out to its edges, a neon panel
-//   PAINT    the paint layer (s.paint) on its top faces, over its own colour
+//   PAINT    the paint layer (s.paint) on its top faces, over its own colour (a palette alpha past 1 glows: that much
+//            more of its colour as light)
 //   CHECKER  squares a a side (1 m) in the world, its colour and the opposite; b softens the opposite toward it
 //   WOOD     planks a wide (0.32 m) along its longer side, grain, seams
 //   RUBBER   rough, a faint sheen, a fine pebbly grain
@@ -694,8 +695,9 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
     case 6u: { // PAINT: the paint layer, wet, over the solid's own colour (the tops only)
       var pc = vec4f(0.0);
       if (top && nl.y > 0.0) { pc = paintAt(m.wp.xz, px); }
-      let alb = mix(base * (0.9 + 0.15 * grain), lin(pc.rgb), pc.a);
-      c = shade(alb, n, sh, ao) + (sunSpec(n, v, 90.0, 0.5) * sh + skyLite(r) * fresnel(n, v, 0.04) * 0.4) * pc.a;
+      let pk = min(pc.a, 1.0);
+      let alb = mix(base * (0.9 + 0.15 * grain), lin(pc.rgb), pk);
+      c = shade(alb, n, sh, ao) + (sunSpec(n, v, 90.0, 0.5) * sh + skyLite(r) * fresnel(n, v, 0.04) * 0.4) * pk + lin(pc.rgb) * 1.9 * max(pc.a - 1.0, 0.0);
     }
     case 7u: { // CHECKER: squares a a side (1 m) in the world, the colour and its opposite (b softens it)
       let lum = dot(base, vec3f(0.3, 0.55, 0.15));
@@ -752,7 +754,7 @@ fn litSolid(m: MOut, fragPos: vec2f) -> vec4f {
   if (look == 5u) { c = min(c * (0.7 + 0.8 * pa), vec3f(1.0)); }
   if (look == 2u) { c = mix(c, vec3f(1.0), 0.2 + 0.5 * pa); }
   if (look == 4u) { c = select(c, vec3f(0.05), fract((m.lp.x + m.lp.z) / (2.0 * select(0.5, pa, pa > 0.0))) > 0.5); }
-  if (look == 6u) { let p = paintAt(m.wp.xz, 2.0 * u.map.z / ${MAP_N}.0); c = mix(c, p.rgb, p.a); }
+  if (look == 6u) { let p = paintAt(m.wp.xz, 2.0 * u.map.z / ${MAP_N}.0); c = mix(c, p.rgb, min(p.a, 1.0)); }
   if (look == 9u) { c *= 0.8; }
   let px = 2.0 * u.map.z / ${MAP_N}.0;
   let eg = edgeOf(m.shape, m.lp, nl, m.ext.xyz);
@@ -1396,7 +1398,7 @@ export async function createRenderer(canvas, { present = true, hudScale = 2, dev
     //      decals: [{ pos: [x, y, z], radius, width, color: [r, g, b, a], kind (DECAL) }], flat at y, glowing,
     //      paint: null | { cells: Uint8Array(n * n) (cells[j * n + i] covers x0 + (i + 0.5) * size / n, z0 + (j + 0.5) * size / n),
     //               n, origin: [x0, z0], size (the grid's side, m), palette: Float32Array(1024) (rgba 0..1, index 0..255;
-    //               alpha 0 leaves the solid's own colour), version (uploaded when it or cells changes) },
+    //               alpha 0 leaves the solid's own colour, past 1 glows), version (uploaded when it or cells changes) },
     //      rects: [[x0, y0, x1, y1, r, g, b, a]] (screen px), text: Uint32Array(COLS * rows), graph (client/netgraph.mjs), flash 0..1,
     //      big: [{ text, x, y, scale, color }] (up to MAX_BIG lines of BIG_CHARS: the HUD font scale times over, its top
     //               left at x, y in HUD pixels from the text block's corner (a cell is 4 x 6), a palette colour C.*),
