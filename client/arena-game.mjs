@@ -665,11 +665,12 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       const dist = f ? Math.round(Math.hypot(m.pos[0] - f.pos[0], m.pos[1] - f.pos[1], m.pos[2] - f.pos[2])) : 0;
       const label = String(m.label ?? '');
       const ds = `${dist}M`;
-      // one that would cover another's label or distance (two waypoints the
-      // same way, both sides' VIPs down the gulch) moves clear of them all
+      // text that would cover another's label or distance (two waypoints the
+      // same way, both sides' VIPs down the gulch) moves clear of them all;
+      // the mark stays where its target is
       const half = Math.max(label.length, f ? ds.length : 0) / 2 + 0.5;
-      y = clearOf(placed, x, y, half, 48 * s, x < 128 ? Math.min(H - 40 * s, (rows - 18) * 6) : H - 40 * s);
-      placed.push({ x, y, half });
+      const ty = clearOf(placed, x, y, half, 48 * s, x < 128 ? Math.min(H - 40 * s, (rows - 18) * 6) : H - 40 * s);
+      placed.push({ x, y: ty, half });
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
       // a diamond (a flag's pennant, a skull's dot, a hill's ring, a crown's band and points by kind)
@@ -678,7 +679,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       else if (m.kind === 'hill') { r(-4, -1, 4, 1); r(-3, -3, 3, -1, c, 0.5); r(-3, 1, 3, 3, c, 0.5); }
       else if (m.kind === 'skull') { r(-3, -4, 3, 1); r(-2, 1, 2, 3); r(-2, -2, -0.5, -0.5, [0, 0, 0]); r(0.5, -2, 2, -0.5, [0, 0, 0]); }
       else { r(-1, -4, 1, 4); r(-2.5, -2.5, 2.5, 2.5, c, 0.8); r(-4, -1, 4, 1); }
-      const col = Math.round(x / 4), row = Math.round(y / 6);
+      const col = Math.round(x / 4), row = Math.round(ty / 6);
       if (label) put(text, COLS, Math.max(0, Math.min(COLS - label.length, col - (label.length >> 1))), Math.max(0, row - 2), label, m.color ?? C.WHITE);
       if (f) put(text, COLS, Math.max(0, Math.min(COLS - ds.length, col - (ds.length >> 1))), Math.min(rows - 1, row + 1), ds, C.WHITE);
     }

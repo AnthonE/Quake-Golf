@@ -5,8 +5,8 @@
 // VIPs, or when the next is drawn, and YOU ARE THE VIP; the feed every VIP
 // drawn, killed or gone, a banner for the ones that are yours; the board's
 // VIP KILLS column is MR_POINTS.
-// The brain: the VIP keeps by its own side's fighters and out of the
-// enemy's way, at no hurry, looking round; attackers hunt the other side's
+// The brain: the VIP keeps by its own side's fighters, at no hurry, looking
+// round, and out of the enemy's way, backing off while it shoots; attackers hunt the other side's
 // VIP, hurrying in once they see it; defenders (every third of a side) keep
 // within GUARD of their own. With no VIP to hunt, the nearest enemy.
 import * as L from '../../src/layout.mjs';
@@ -19,7 +19,8 @@ import { nearestEnemy } from './slayer.mjs';
 // the renderer's crown sprite (client/arena-render.mjs, fs_splat), and its place over a VIP's feet
 export const CROWN = 10;
 const OVER = 2.15; // m: the crown's middle over a VIP's feet, its band just clear of the helmet (1.84 m)
-// m: an enemy inside THREAT of the VIP moves it on; a defender's spot is 3 m
+// m: an enemy inside THREAT of the VIP moves it on, hurrying (at 0.2 the
+// bot core fights rather than goes, and a VIP closed on enemies 35 m off); a defender's spot is 3 m
 // off its VIP, held within 4 of it, and farther than GUARD - 4 from its VIP
 // it keeps going while it shoots (at GUARD, half the time a defender was
 // fighting it was 10 to 20 m off); an attacker hurries in once it sees
@@ -175,7 +176,7 @@ export default {
         if (d < hd && off(p, fl[team]) < off(p, fl[1 - team])) { hd = d; home = p; }
       }
       if (!home) { const [x, z, top] = fl[team]; home = [x, view.stand(x, z, top), z]; }
-      if (enemies.some((e) => across(e, me.pos) < THREAT)) return { pos: away(view, me.pos, enemies, home) || home, r: 3, hurry: 0.2, hold: true };
+      if (enemies.some((e) => across(e, me.pos) < THREAT)) return { pos: away(view, me.pos, enemies, home) || home, r: 3, hurry: 0.6, hold: true };
       return { pos: across(home, me.pos) > 6 ? home : me.pos, r: 4, hurry: 0.2, hold: true };
     }
     if (ctx.role === 'defend' && mine.slot >= 0) {

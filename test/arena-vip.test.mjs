@@ -588,7 +588,7 @@ test('VIP\'s client module: the VIPs as AO has them; crowns over both but the on
   put(h, 2, 470, 530); put(h, 1, 495, 526);
   h.step();
   const me0 = w.fighter(0), run = goal(0);
-  assert.ok(Math.abs(Math.hypot(run.pos[0] - me0.pos[0], run.pos[2] - me0.pos[2]) - 12) < 1e-3 && run.hold && run.hurry === 0.2);
+  assert.ok(Math.abs(Math.hypot(run.pos[0] - me0.pos[0], run.pos[2] - me0.pos[2]) - 12) < 1e-3 && run.hold && run.hurry === 0.6);
   assert.ok(Math.hypot(run.pos[0] - 495, run.pos[2] - 526) > Math.hypot(me0.pos[0] - 495, me0.pos[2] - 526) + 6, 'away from blue 1');
   // a defender: 3 m off its VIP round by its rank, holding within 4; well off it, keeping on while it shoots
   const d = goal(4, 'defend', 2);
@@ -676,8 +676,34 @@ test('VIP with 8 and 16 AI fighters: both sides\' VIPs drawn and killed, both si
     // draws and VIP kills by the VIP's side (news), points by side (each rise of AH_SCORE)
     const draws = [0, 0], kills = [0, 0], points = [0, 0];
     let k0 = 0, was = [0, 0], n = null, all = 0;
+    // every 25 ticks of play, a VIP with an enemy inside 40 m (THREAT): its
+    // step since the last sample along the way to its nearest enemy, a
+    // step toward it or away (over half a metre either way)
+    const steps = [0, 0], last = new Map();
+    const up = (f) => f.live && !f.dead;
     const { log } = await playArena({ bytes: debug, seed: forcedSeed(L.M_VIP), bots, ticks, leaveAt: 1000,
       onTick: (tick, v) => {
+        if (v.hole().state === L.H_PLAY && tick % 25 === 0) {
+          const now = new Map();
+          for (const { slot } of vipsOf(v)) {
+            if (slot < 0 || !up(v.fighter(slot))) continue;
+            const me = v.fighter(slot);
+            let e = null, ed = Infinity;
+            for (let q = 0; q < bots; q++) {
+              const o = v.fighter(q);
+              const d = Math.hypot(o.pos[0] - me.pos[0], o.pos[2] - me.pos[2]);
+              if (up(o) && o.team !== me.team && d < ed) { ed = d; e = o; }
+            }
+            const was = last.get(slot);
+            if (was && ed < 40) {
+              const [ux, uz] = [was.e[0] - was.pos[0], was.e[2] - was.pos[2]], u = Math.hypot(ux, uz) || 1;
+              const along = ((me.pos[0] - was.pos[0]) * ux + (me.pos[2] - was.pos[2]) * uz) / u;
+              if (along > 0.5) steps[0]++; else if (along < -0.5) steps[1]++;
+            }
+            if (e) now.set(slot, { pos: me.pos, e: e.pos });
+          }
+          last.clear(); for (const [k, x] of now) last.set(k, x);
+        }
         for (let k = Math.max(k0, v.fxCount() - L.FX_MAX); k < v.fxCount(); k++) {
           const f = v.fx(k);
           if (f.kind === L.FX_KILL) all++;
@@ -691,7 +717,8 @@ test('VIP with 8 and 16 AI fighters: both sides\' VIPs drawn and killed, both si
         was = score;
         n = [v.dv.getUint32(L.AH_TEAMN, true), v.dv.getUint32(L.AH_TEAMN + 4, true)];
       } });
-    t.diagnostic(`${bots} fighters: VIPs drawn ${draws} (red, blue), killed ${kills}, points ${points}, kills ${all}`);
+    t.diagnostic(`${bots} fighters: VIPs drawn ${draws} (red, blue), killed ${kills}, points ${points}, kills ${all}; a VIP inside 40 m of an enemy stepped toward it ${steps[0]} times, away ${steps[1]}`);
+    assert.ok(steps[1] >= 2 * steps[0], `${bots}: a VIP backs away from an enemy inside THREAT, shooting or not`);
     assert.deepEqual(n, [bots / 2, bots / 2]);
     assert.ok(kills.every((k) => k >= 1) && kills[0] + kills[1] >= 6 && draws.every((k, s) => k >= kills[s]), `${bots}: both sides' VIPs die and are drawn again`);
     assert.ok(points.every((k) => k >= 1), `${bots}: both sides score`);
