@@ -691,13 +691,13 @@ the rotation, joins, the ball's roll over any stage, outs, places and points.
 bumper.wat's ball, power-ups, bumps and blasts stay; its cheese and its round
 are behind `#if !PARTY`, so bumper balls' own build is bit for bit what it was.
 Each minigame is its own file, `src/mg/<key>.wat` (its constants in
-`src/mg/<key>.mjs`, re-exported by `src/layout.mjs`), and supplies nine
-hooks under its prefix: `setup` lays the stage out for the balls in,
-`spawn` places them, `start` and `tick` run its world, `over` ends it early,
-`out` hears of a ball going out, and `begin` (one ball's own start as play
-starts), `ground` (the top of what's solid under a point) and `push`
-(kinematic hazards on one ball) run on either bank, the confirmed world or
-the prediction. The `(!mg)` macro calls the one on now.
+`src/mg/<key>.mjs`, gathered into `src/layout.mjs`'s `MG_CONSTS` for the
+assembler), and supplies nine hooks under its prefix: `setup` lays the
+stage out for the balls in, `spawn` places them, `start` and `tick` run its
+world, `over` ends it early, `out` hears of a ball going out, and `begin`
+(one ball's own start as play starts), `ground` (the top of what's solid
+under a point) and `push` (kinematic hazards on one ball) run on either bank,
+the confirmed world or the prediction. The `(!mg)` macro calls the one on now.
 State lives in 112 bytes of the header (in the prediction's copy), 7.75 KiB
 past the projectiles and the 448 KiB golf keeps its balls in, all hashed and
 in every keyframe.

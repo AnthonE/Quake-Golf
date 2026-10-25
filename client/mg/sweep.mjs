@@ -9,6 +9,7 @@
 // i32, the rim in f32, so what is drawn and what the bots steer by is what
 // the sim does.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/sweep.mjs'; // SW_*: the minigame's own constants
 import { PLAT_Y } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL } from '../party-render.mjs';
 import { C } from '../font.mjs';
@@ -18,9 +19,9 @@ const TICK = 0.008;
 const TAU = 2 * Math.PI;
 const TURN24 = 2 ** 24;
 const R = 1; // a ball's radius (no power-ups here)
-const REACH = R + L.SW_BW; // a ball's centre touches a bar's axis within this
-const AXIS = PLAT_Y + L.SW_BY;
-const BAND = Math.sqrt(REACH * REACH - (R - L.SW_BY) ** 2); // how near the axis a ball on the floor touches, across
+const REACH = R + MC.SW_BW; // a ball's centre touches a bar's axis within this
+const AXIS = PLAT_Y + MC.SW_BY;
+const BAND = Math.sqrt(REACH * REACH - (R - MC.SW_BY) ** 2); // how near the axis a ball on the floor touches, across
 const HOP_G = f(Number(L.PHYS.GP_DT)); // gravity a tick in the air
 const HUB = 5; // m from the centre in which a bar is too slow to hop
 // The AI ball's luck with a bar: it misses seeing one MISS0 plus MISS times
@@ -35,40 +36,40 @@ const BAR_COL = [1, 0.78, 0.08];
 // ---- the schedule, as $sw_f, $sw_angle, $sw_drops and $sw_rim have it
 
 // Ticks 0..t-1 of the bars' speed, in 2^-24 turn (i32, wrapping).
-const F = (t) => (Math.imul(t, L.SW_S0) + Math.imul(Math.imul(t, t - 1) >>> 1, L.SW_SK)) | 0;
+const F = (t) => (Math.imul(t, MC.SW_S0) + Math.imul(Math.imul(t, t - 1) >>> 1, MC.SW_SK)) | 0;
 // The first bar's angle on tick t into play (integer t), i32.
 export function angleAt(a0, dir, t) {
-  t = Math.max(0, Math.min(L.SW_TMAX, t | 0));
+  t = Math.max(0, Math.min(MC.SW_TMAX, t | 0));
   let a = a0 | 0;
-  if (t < L.SW_GRACE) return a;
-  let from = L.SW_GRACE;
+  if (t < MC.SW_GRACE) return a;
+  let from = MC.SW_GRACE;
   for (let k = 0; k < 3; k++) {
-    const tk = L.SW_TS[k];
+    const tk = MC.SW_TS[k];
     if (t < tk) return (a + Math.imul(dir, (F(t) - F(from)) | 0)) | 0;
     a = (a + Math.imul(dir, (F(tk) - F(from)) | 0)) | 0;
-    from = tk + L.SW_PAUSE;
+    from = tk + MC.SW_PAUSE;
     if (t < from) return a;
     dir = -dir;
   }
   return (a + Math.imul(dir, (F(t) - F(from)) | 0)) | 0;
 }
 // The rings dropped by tick t into play.
-export const dropsAt = (t) => (t < L.SW_TR0 ? 0 : Math.min(L.SW_RINGS, Math.floor((t - L.SW_TR0) / L.SW_TRI) + 1));
+export const dropsAt = (t) => (t < MC.SW_TR0 ? 0 : Math.min(MC.SW_RINGS, Math.floor((t - MC.SW_TR0) / MC.SW_TRI) + 1));
 // The rim after k drops, in f32 as the sim has it.
-export const rimOf = (r0, k) => f(r0 - f(f(r0 - L.SW_RMIN) * f(k / L.SW_RINGS)));
+export const rimOf = (r0, k) => f(r0 - f(f(r0 - MC.SW_RMIN) * f(k / MC.SW_RINGS)));
 // Is bar k solid on tick t ($sw_solid: from the tick after SW_TS[k - 1])? A
 // ghost (coming) from SW_WARN before.
-export const solidAt = (k, t) => k === 0 || t > L.SW_TS[k - 1];
-const ghostAt = (k, t) => k > 0 && t <= L.SW_TS[k - 1] && t >= L.SW_TS[k - 1] - L.SW_WARN;
+export const solidAt = (k, t) => k === 0 || t > MC.SW_TS[k - 1];
+const ghostAt = (k, t) => k > 0 && t <= MC.SW_TS[k - 1] && t >= MC.SW_TS[k - 1] - MC.SW_WARN;
 // Bars turning (solid) on tick t.
-export const barsAt = (t) => 1 + L.SW_TS.filter((tk) => t > tk).length;
+export const barsAt = (t) => 1 + MC.SW_TS.filter((tk) => t > tk).length;
 
 // This round's platform and bars, on the view's bank.
 export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
   const g = view.party();
   return {
-    r0: dv.getFloat32(L.PG_H + L.SW_RAD + o, true), a0: dv.getUint32(L.PG_H + L.SW_A0 + o, true) | 0, dir: dv.getInt32(L.PG_H + L.SW_DIR + o, true) || 1,
+    r0: dv.getFloat32(L.PG_H + MC.SW_RAD + o, true), a0: dv.getUint32(L.PG_H + MC.SW_A0 + o, true) | 0, dir: dv.getInt32(L.PG_H + MC.SW_DIR + o, true) || 1,
     cx: dv.getFloat32(L.PG_CX + o, true), start: dv.getUint32(L.HDR_START + o, true), state: g.state, tick: g.tick,
   };
 }
@@ -78,8 +79,8 @@ function radAt(st, t) {
   return ((a >>> 0) + (t - i) * ((b - a) | 0)) / TURN24 * TAU;
 }
 // How fast the bars turned into tick t, rad/s signed (+: x towards z).
-export const spinAt = (st, t) => ((angleAt(st.a0, st.dir, t) - angleAt(st.a0, st.dir, t - 1)) | 0) * L.SW_RAD_TICK;
-const quarter = (k) => L.SW_QUARTER[k] * Math.PI / 2;
+export const spinAt = (st, t) => ((angleAt(st.a0, st.dir, t) - angleAt(st.a0, st.dir, t - 1)) | 0) * MC.SW_RAD_TICK;
+const quarter = (k) => MC.SW_QUARTER[k] * Math.PI / 2;
 export const rimAt = (st, t) => rimOf(st.r0, dropsAt(t));
 // The first bar's cos and sin on tick t (the others a quarter turn or two
 // on: (c, s), (-s, c), (-c, -s), (s, -c)), remembered by tick for the round:
@@ -98,12 +99,12 @@ const QC = [[1, 0], [0, -1], [-1, 0], [0, 1]]; // (c, s) turned q quarters: c' =
 
 // Does a ball whose bottom is y over the floor, centred over (x, z), touch a bar on tick t into play?
 export function touches(st, x, z, y, t) {
-  const dy = y + R - L.SW_BY;
+  const dy = y + R - MC.SW_BY;
   if (Math.abs(dy) >= REACH) return false;
-  const i = trig(st, t), c0 = TRIG.c[i], s0 = TRIG.s[i], len = rimAt(st, t) + L.SW_OVER, dx = x - st.cx, dz = z - st.cx;
+  const i = trig(st, t), c0 = TRIG.c[i], s0 = TRIG.s[i], len = rimAt(st, t) + MC.SW_OVER, dx = x - st.cx, dz = z - st.cx;
   for (let k = 0; k < 4; k++) {
     if (!solidAt(k, t)) continue;
-    const q = QC[L.SW_QUARTER[k]], c = c0 * q[0] + s0 * q[1], s = s0 * q[0] - c0 * q[1];
+    const q = QC[MC.SW_QUARTER[k]], c = c0 * q[0] + s0 * q[1], s = s0 * q[0] - c0 * q[1];
     const along = dx * c + dz * s, h = dz * c - dx * s;
     if (along > 0 && along < len && h * h + dy * dy < REACH * REACH) return true;
   }
@@ -114,14 +115,14 @@ export function touches(st, x, z, y, t) {
 
 // A hop's bottom over the floor i ticks after it starts (as party's $b_move rolls it), till it lands.
 const HOP = (() => {
-  const v0 = L.SW_HOP;
+  const v0 = MC.SW_HOP;
   const out = [];
   let y = 0, vy = v0;
   for (;;) { vy = f(vy - HOP_G); y = f(y + f(vy * f(TICK))); if (y <= 0) break; out.push(y); }
   return out;
 })();
 // How near a bar's axis, across, the ball touches it i ticks into a hop (0 clear above it).
-const HOP_BAND = HOP.map((y) => { const dy = y + R - L.SW_BY; return dy >= REACH ? 0 : Math.sqrt(REACH * REACH - dy * dy); });
+const HOP_BAND = HOP.map((y) => { const dy = y + R - MC.SW_BY; return dy >= REACH ? 0 : Math.sqrt(REACH * REACH - dy * dy); });
 export const AIR = HOP.length + 1; // ticks a hop is in the air
 
 // From tick t0 into play, the ball rolling from (x, z) at (vx, vz) on the
@@ -136,11 +137,11 @@ function across(st, t0, x, z, vx, vz, n, drag) {
     const t = t0 + i, px = x + vx * run * TICK - st.cx, pz = z + vz * run * TICK - st.cx;
     keep *= drag;
     run += keep;
-    const j = trig(st, t), c0 = TRIG.c[j], s0 = TRIG.s[j], len = rimAt(st, t) + L.SW_OVER;
+    const j = trig(st, t), c0 = TRIG.c[j], s0 = TRIG.s[j], len = rimAt(st, t) + MC.SW_OVER;
     let best = 1e9;
     for (let k = 0; k < 4; k++) {
       if (!solidAt(k, t)) continue;
-      const q = QC[L.SW_QUARTER[k]], c = c0 * q[0] + s0 * q[1], s = s0 * q[0] - c0 * q[1];
+      const q = QC[MC.SW_QUARTER[k]], c = c0 * q[0] + s0 * q[1], s = s0 * q[0] - c0 * q[1];
       const along = px * c + pz * s;
       if (along <= 0 || along >= len) continue;
       best = Math.min(best, Math.abs(pz * c - px * s));
@@ -202,7 +203,7 @@ function plan(view, me, bot, coast) {
   const vx = bot?.vel?.[0] ?? b.vel[0], vz = bot?.vel?.[1] ?? b.vel[2];
   const rho = Math.hypot(x - st.cx, z - st.cx), k = dropsAt(t0 + SETTLE);
   const room = rho > HUB && rho < rimAt(st, t0 + SETTLE) - 3
-    && !(k < L.SW_RINGS && t0 + SETTLE >= L.SW_TR0 + k * L.SW_TRI - L.SW_RWARN && rho > rimOf(st.r0, k + 1) - 1.5);
+    && !(k < MC.SW_RINGS && t0 + SETTLE >= MC.SW_TR0 + k * MC.SW_TRI - MC.SW_RWARN && rho > rimOf(st.r0, k + 1) - 1.5);
   const nb = nextBar(st, t0, x, z, vx, vz, 140, coast && room ? view.dv.getFloat32(L.PG_IDLE + (view.bank || 0), true) : 1);
   if (!nb) return null;
   const still = coast && room && nb.meet <= SETTLE;
@@ -248,18 +249,18 @@ export default {
     const k = dropsAt(ti);
     const now = (ctx.now ?? 0) / 1000;
     // the rings, outermost first, each a disc under the next (4 mm lower): the next to go shakes and reddens
-    for (let j = 0; j <= L.SW_RINGS; j++) {
+    for (let j = 0; j <= MC.SW_RINGS; j++) {
       const rj = rimOf(st.r0, j);
-      const col = j === L.SW_RINGS ? MID_COL : RING_COL[j & 1];
+      const col = j === MC.SW_RINGS ? MID_COL : RING_COL[j & 1];
       let y = PLAT_Y - PLATE + 0.004 * j, x = st.cx, z = st.cx, alpha = 1, rr = col[0], gg = col[1], bb = col[2];
       if (j < k) {
         // gone: falling away from the moment it dropped, fading
-        const a = (t - (L.SW_TR0 + j * L.SW_TRI)) * TICK;
+        const a = (t - (MC.SW_TR0 + j * MC.SW_TRI)) * TICK;
         if (a > 1.6) continue;
         y -= 0.5 * 30 * a * a;
         alpha = 1 - a / 1.6;
-      } else if (j === k && j < L.SW_RINGS) {
-        const drop = L.SW_TR0 + j * L.SW_TRI, w = (t - (drop - L.SW_RWARN)) / L.SW_RWARN;
+      } else if (j === k && j < MC.SW_RINGS) {
+        const drop = MC.SW_TR0 + j * MC.SW_TRI, w = (t - (drop - MC.SW_RWARN)) / MC.SW_RWARN;
         if (w > 0) {
           // red, flashing faster as it goes, and shaking
           const pulse = 0.5 + 0.5 * Math.sin(now * (10 + 14 * w));
@@ -269,12 +270,12 @@ export default {
           x += sh * Math.sin(now * 37); z += sh * Math.sin(now * 29 + 1);
         }
       }
-      sc.cyl(x, y, z, rj, PLATE, rr, gg, bb, j === L.SW_RINGS ? LOOK.RUBBER : LOOK.PLASTIC, 0, 0, alpha);
+      sc.cyl(x, y, z, rj, PLATE, rr, gg, bb, j === MC.SW_RINGS ? LOOK.RUBBER : LOOK.PLASTIC, 0, 0, alpha);
     }
     // the edge to come, during a ring's warning
-    if (k < L.SW_RINGS) {
-      const drop = L.SW_TR0 + k * L.SW_TRI;
-      if (t >= drop - L.SW_RWARN) {
+    if (k < MC.SW_RINGS) {
+      const drop = MC.SW_TR0 + k * MC.SW_TRI;
+      if (t >= drop - MC.SW_RWARN) {
         const pulse = 0.5 + 0.5 * Math.sin(now * 14);
         out.decals?.push({ pos: [st.cx, PLAT_Y + 0.04, st.cx], radius: rimOf(st.r0, k + 1), width: 0.35, color: [1, 0.2, 0.1, 0.6 + 0.4 * pulse], kind: DECAL.RING });
       }
@@ -282,19 +283,19 @@ export default {
     // the post: a candy-striped pole, a steel collar where the bars meet it, a lamp on top (green turning, amber still)
     const spin = playing ? spinAt(st, ti) : 0;
     const lamp = spin ? [0.3, 1, 0.4] : [1, 0.7, 0.15];
-    const band = L.SW_POSTH / 6;
+    const band = MC.SW_POSTH / 6;
     for (let i = 0; i < 6; i++) {
       const red = i & 1;
-      sc.cyl(st.cx, PLAT_Y + band * (i + 0.5), st.cx, L.SW_POST, band / 2, red ? 0.9 : 0.97, red ? 0.16 : 0.95, red ? 0.14 : 0.9, LOOK.PLASTIC);
+      sc.cyl(st.cx, PLAT_Y + band * (i + 0.5), st.cx, MC.SW_POST, band / 2, red ? 0.9 : 0.97, red ? 0.16 : 0.95, red ? 0.14 : 0.9, LOOK.PLASTIC);
     }
-    sc.cyl(st.cx, AXIS, st.cx, L.SW_POST + 0.22, L.SW_BW + 0.12, 0.3, 0.3, 0.33, LOOK.METAL);
-    sc.cyl(st.cx, PLAT_Y + L.SW_POSTH + 0.06, st.cx, L.SW_POST + 0.12, 0.08, 0.3, 0.3, 0.33, LOOK.METAL);
-    sc.sphere(st.cx, PLAT_Y + L.SW_POSTH + 0.7, st.cx, 0.75, ...lamp, LOOK.GLOW, 1.2);
-    out.glow?.push({ pos: [st.cx, PLAT_Y + L.SW_POSTH + 0.7, st.cx], size: 3, color: [...lamp, 0.5], kind: SPRITE.FLASH });
+    sc.cyl(st.cx, AXIS, st.cx, MC.SW_POST + 0.22, MC.SW_BW + 0.12, 0.3, 0.3, 0.33, LOOK.METAL);
+    sc.cyl(st.cx, PLAT_Y + MC.SW_POSTH + 0.06, st.cx, MC.SW_POST + 0.12, 0.08, 0.3, 0.3, 0.33, LOOK.METAL);
+    sc.sphere(st.cx, PLAT_Y + MC.SW_POSTH + 0.7, st.cx, 0.75, ...lamp, LOOK.GLOW, 1.2);
+    out.glow?.push({ pos: [st.cx, PLAT_Y + MC.SW_POSTH + 0.7, st.cx], size: 3, color: [...lamp, 0.5], kind: SPRITE.FLASH });
     // the bars: solid ones hazard-striped with a glowing tip and a smear behind, coming ones a pulsing ghost
     const a = radAt(st, t);
-    const len = rimAt(st, ti) + L.SW_OVER;
-    const half = (len - L.SW_POST) / 2, mid = L.SW_POST + half;
+    const len = rimAt(st, ti) + MC.SW_OVER;
+    const half = (len - MC.SW_POST) / 2, mid = MC.SW_POST + half;
     const smear = playing ? spinAt(st, ti + 1) * 0.06 : 0; // radians the bar turns in 0.06 s
     for (let b = 0; b < 4; b++) {
       const solid = solidAt(b, ti), ghost = !solid && ghostAt(b, ti);
@@ -304,17 +305,17 @@ export default {
       if (ghost) {
         // a bar coming: a flashing ghost where it will be, and its line on the floor
         const pulse = 0.5 + 0.5 * Math.sin(now * 12);
-        sc.box(x, AXIS, z, half, L.SW_BW, L.SW_BW, ang, 1, 0.92, 0.6, LOOK.GLOW, 1 + pulse, 0.3, 0.4 + 0.3 * pulse, 30 + b);
-        sc.box(x, PLAT_Y + 0.02, z, half, 0.02, L.SW_BW + 0.9, ang, 1, 0.85, 0.3, LOOK.GLOW, 0.6 + 0.6 * pulse, 0.6, 0.3 + 0.2 * pulse, 34 + b);
+        sc.box(x, AXIS, z, half, MC.SW_BW, MC.SW_BW, ang, 1, 0.92, 0.6, LOOK.GLOW, 1 + pulse, 0.3, 0.4 + 0.3 * pulse, 30 + b);
+        sc.box(x, PLAT_Y + 0.02, z, half, 0.02, MC.SW_BW + 0.9, ang, 1, 0.85, 0.3, LOOK.GLOW, 0.6 + 0.6 * pulse, 0.6, 0.3 + 0.2 * pulse, 34 + b);
         continue;
       }
-      sc.box(x, AXIS, z, half, L.SW_BW, L.SW_BW, ang, ...BAR_COL, LOOK.HAZARD, 0.7, 0, 1, 7 + b);
+      sc.box(x, AXIS, z, half, MC.SW_BW, MC.SW_BW, ang, ...BAR_COL, LOOK.HAZARD, 0.7, 0, 1, 7 + b);
       const tx = st.cx + c * len, tz = st.cx + s * len;
-      sc.sphere(tx, AXIS, tz, L.SW_BW * 1.5, 1, 0.45, 0.15, LOOK.GLOW, 1.3);
+      sc.sphere(tx, AXIS, tz, MC.SW_BW * 1.5, 1, 0.45, 0.15, LOOK.GLOW, 1.3);
       out.glow?.push({ pos: [tx, AXIS, tz], size: 1.6, color: [1, 0.55, 0.2, 0.6], kind: SPRITE.FLASH });
       for (let i = 1; i <= 3 && Math.abs(smear) > 0.004; i++) {
         const sa = ang - smear * i, sx = st.cx + Math.cos(sa) * mid, sz = st.cx + Math.sin(sa) * mid;
-        sc.box(sx, AXIS, sz, half, L.SW_BW * 0.9, L.SW_BW * 0.9, sa, 1, 0.85, 0.5, LOOK.GLOW, 0.5, 0, 0.22 / i, 20 + b * 4 + i);
+        sc.box(sx, AXIS, sz, half, MC.SW_BW * 0.9, MC.SW_BW * 0.9, sa, 1, 0.85, 0.5, LOOK.GLOW, 0.5, 0, 0.22 / i, 20 + b * 4 + i);
       }
     }
     // under your own ball, the next bar's coming: a ring closing in, green while a hop now clears it
@@ -342,7 +343,7 @@ export default {
   fx(fx, ctx) {
     sound = ctx.sound || sound;
     const d = typeof ctx.dist === 'function' ? ctx.dist(fx.pos) : ctx.dist ?? 0;
-    if (fx.kind === L.SW_FX_HIT) {
+    if (fx.kind === MC.SW_FX_HIT) {
       const mine = fx.owner === ctx.slot;
       ctx.sound?.boing?.(Math.min(30, fx.size), mine ? 0 : d);
       if (mine || d < 40) {
@@ -350,14 +351,14 @@ export default {
         ctx.glow?.({ pos: [fx.pos[0], fx.pos[1] + 0.8, fx.pos[2]], size: 2.2, color: [1, 0.7, 0.2, 0.8], kind: SPRITE.RING, life: 380, grow: true });
       }
       if (mine) ctx.banner?.('WHACK!', C.ORANGE, 700);
-    } else if (fx.kind === L.SW_FX_BEAM) {
+    } else if (fx.kind === MC.SW_FX_BEAM) {
       ctx.banner?.(`BAR ${fx.shot + 1} COMING`, C.YELLOW, 2000);
       ctx.sound?.tick?.();
-    } else if (fx.kind === L.SW_FX_GO) {
+    } else if (fx.kind === MC.SW_FX_GO) {
       if (fx.shot & 16) ctx.banner?.(`REVERSE!  ${fx.shot & 15} BARS`, C.ORANGE, 1400);
       else ctx.banner?.('HOP THE BAR!', C.GREEN, 1400);
       ctx.sound?.count?.(0);
-    } else if (fx.kind === L.SW_FX_RING) {
+    } else if (fx.kind === MC.SW_FX_RING) {
       if (fx.shot === 0) ctx.sound?.count?.(1);
       else ctx.sound?.land?.(28);
     }
@@ -372,15 +373,15 @@ export default {
     const me = ctx.me ?? (ctx.slot >= 0 ? view.partier(ctx.slot) : null);
     const playing = me && me.live && !me.out;
     const w = Math.abs(spinAt(st, t + 1));
-    ctx.right(3, `BARS ${barsAt(t)}  ${w ? `SPEED ${(w / (L.SW_S0 * L.SW_RAD_TICK)).toFixed(1)}X` : 'STILL'}` + (playing ? `  WHACKED ${me.m}` : ''), C.GREY);
-    if (t < L.SW_GRACE) { ctx.centre(row, `HOP OVER THE BAR  IT TURNS IN ${((L.SW_GRACE - t) * TICK).toFixed(1)}`, C.YELLOW); return; }
-    for (const tk of L.SW_TS) {
-      if (t >= tk - L.SW_WARN && t < tk + L.SW_PAUSE) { ctx.centre(row, `NEW BAR  TURNING BACK IN ${((tk + L.SW_PAUSE - t) * TICK).toFixed(1)}`, C.YELLOW); break; }
+    ctx.right(3, `BARS ${barsAt(t)}  ${w ? `SPEED ${(w / (MC.SW_S0 * MC.SW_RAD_TICK)).toFixed(1)}X` : 'STILL'}` + (playing ? `  WHACKED ${me.m}` : ''), C.GREY);
+    if (t < MC.SW_GRACE) { ctx.centre(row, `HOP OVER THE BAR  IT TURNS IN ${((MC.SW_GRACE - t) * TICK).toFixed(1)}`, C.YELLOW); return; }
+    for (const tk of MC.SW_TS) {
+      if (t >= tk - MC.SW_WARN && t < tk + MC.SW_PAUSE) { ctx.centre(row, `NEW BAR  TURNING BACK IN ${((tk + MC.SW_PAUSE - t) * TICK).toFixed(1)}`, C.YELLOW); break; }
     }
     const k = dropsAt(t);
-    if (k < L.SW_RINGS) {
-      const drop = L.SW_TR0 + k * L.SW_TRI;
-      if (t >= drop - L.SW_RWARN) {
+    if (k < MC.SW_RINGS) {
+      const drop = MC.SW_TR0 + k * MC.SW_TRI;
+      if (t >= drop - MC.SW_RWARN) {
         ctx.centre(row + 1, `THE EDGE DROPS IN ${((drop - t) * TICK).toFixed(1)}`, C.ORANGE);
         if (playing && Math.hypot(me.pos[0] - st.cx, me.pos[2] - st.cx) > rimOf(st.r0, k + 1) - 0.5) ctx.centre(row + 2, 'GET IN!', C.RED);
       }
@@ -401,10 +402,10 @@ export default {
       const k = dropsAt(t), rim = rimOf(st.r0, k);
       if (rho > rim - 0.3) return 1;
       let d = 0;
-      if (k < L.SW_RINGS && t >= L.SW_TR0 + k * L.SW_TRI - L.SW_RWARN - 125 && rho > rimOf(st.r0, k + 1) - 1.5) d = 0.8;
+      if (k < MC.SW_RINGS && t >= MC.SW_TR0 + k * MC.SW_TRI - MC.SW_RWARN - 125 && rho > rimOf(st.r0, k + 1) - 1.5) d = 0.8;
       if (rho > rim - 3) d = Math.max(d, 0.5 * (1 - (rim - rho) / 3));
-      if (rho < L.SW_POST + R + 0.3) d = Math.max(d, 0.6);
-      else if (rho < HUB) d = Math.max(d, 0.2 * (1 - (rho - L.SW_POST) / (HUB - L.SW_POST)));
+      if (rho < MC.SW_POST + R + 0.3) d = Math.max(d, 0.6);
+      else if (rho < HUB) d = Math.max(d, 0.2 * (1 - (rho - MC.SW_POST) / (HUB - MC.SW_POST)));
       return d;
     },
 

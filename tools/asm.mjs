@@ -225,7 +225,7 @@ export function forbid(wat, where = 'source') {
 
 export function expand(file, { DEBUG = false, ARENA = false, BUMPER = false, PARTY = false, layout: lay = layout, macros = makeMacros, map = null } = {}) {
   if (ARENA && !map) map = compileMap();
-  const scope = { ...lay, ...lay.PHYS, ...(lay.BPHYS || {}), DEBUG: DEBUG ? 1 : 0, ...(map ? map.consts : {}) };
+  const scope = { ...lay, ...lay.PHYS, ...(lay.BPHYS || {}), ...(lay.MG_CONSTS || {}), DEBUG: DEBUG ? 1 : 0, ...(map ? map.consts : {}) };
   let src = include(file);
   // the arena's mode is a layout constant, so #if FIESTA picks its rules at build time
   src = conditionals(src, { DEBUG, ARENA, BUMPER, PARTY, FIESTA: ARENA && !!lay.FIESTA });

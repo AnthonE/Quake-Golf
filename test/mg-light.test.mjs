@@ -6,11 +6,12 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/light.mjs'; // RL_*: the minigame's own constants
 import light, { stage, when, phaseOf, fateOf, greenOf, redOf, startOf, peekOf } from '../client/mg/light.mjs';
 
 const C = L.B_CX;
 const TICK = 0.008;
-const IDLE = Math.fround(L.RL_IDLE);
+const IDLE = Math.fround(MC.RL_IDLE);
 const FWD = partyWord({ yaw: 12288, move: 1 }); // toward -z, the finish
 const NONE = partyWord({ yaw: 12288 });
 
@@ -41,12 +42,12 @@ function put(g, p, x, z, { vx = 0, vz = 0 } = {}) {
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.RL_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.RL_LEN, true);
 }
 const playT = (g) => g.v.party().t; // the tick into play the next step plays
 const fxs = (v, kind) => { const out = []; for (let k = 0; k < v.fxCount(); k++) { const f = v.fx(k); if (f.kind === kind) out.push(f); } return out; };
 // How far a ball at z has got, as $rl_progress has it: cm from the back wall.
-const progress = (st, z) => Math.max(0, Math.min(L.RL_SCORE_MAX, Math.trunc(Math.fround(Math.fround(st.zb - z) * 100))));
+const progress = (st, z) => Math.max(0, Math.min(MC.RL_SCORE_MAX, Math.trunc(Math.fround(Math.fround(st.zb - z) * 100))));
 // A cycle of the round whose green is at least `len` ticks.
 const longGreen = (st, len, from = 1) => { let c = from; while (greenOf(st, c) < len) c++; return c; };
 
@@ -57,29 +58,29 @@ test('the field for 1, 8, 64 and 256: wider for a crowd, the balls on a grid beh
     const r = g.v.party();
     const st = stage(g.v);
     assert.equal(r.game, L.MG_LIGHT);
-    const hw = Math.fround(Math.min(L.RL_W0 + L.RL_WK * n, L.RL_WMAX) * 0.5);
+    const hw = Math.fround(Math.min(MC.RL_W0 + MC.RL_WK * n, MC.RL_WMAX) * 0.5);
     assert.equal(st.hw, hw, `${n}: half-width`);
     assert.ok(hw >= last, 'wider with the crowd');
     last = hw;
-    assert.deepEqual([r.kind, r.len, r.idle, r.drag, r.hop, r.respawn, r.size], [L.PK_SCORE, L.RL_LEN, IDLE, Math.fround(Number(L.BPHYS.B_DRAG)), 0, 0x7fffffff, hw]);
-    assert.deepEqual([st.zs, st.zf], [C + L.RL_FIELD / 2, C - L.RL_FIELD / 2]);
-    const f = Math.fround, cols = Math.trunc(f(f(f(hw + hw) - f(2 * L.RL_EDGE)) / f(L.RL_SP))) + 1, rows = Math.ceil(n / cols);
+    assert.deepEqual([r.kind, r.len, r.idle, r.drag, r.hop, r.respawn, r.size], [L.PK_SCORE, MC.RL_LEN, IDLE, Math.fround(Number(L.BPHYS.B_DRAG)), 0, 0x7fffffff, hw]);
+    assert.deepEqual([st.zs, st.zf], [C + MC.RL_FIELD / 2, C - MC.RL_FIELD / 2]);
+    const f = Math.fround, cols = Math.trunc(f(f(f(hw + hw) - f(2 * MC.RL_EDGE)) / f(MC.RL_SP))) + 1, rows = Math.ceil(n / cols);
     assert.equal(st.cols, cols);
-    assert.ok(Math.abs(st.zb - (st.zs + 2 * L.RL_GRID0 + (rows - 1) * L.RL_SP)) < 1e-3, `${n}: the back wall behind ${rows} rows`);
+    assert.ok(Math.abs(st.zb - (st.zs + 2 * MC.RL_GRID0 + (rows - 1) * MC.RL_SP)) < 1e-3, `${n}: the back wall behind ${rows} rows`);
     const spots = [];
     for (let p = 0; p < n; p++) {
       const b = g.v.partier(p);
       assert.equal(b.pos[1], PLAT_Y);
-      assert.ok(Math.abs(b.pos[0] - C) <= hw - L.RL_EDGE + 1e-3, `${n}: P${p + 1} inside the rails`);
-      assert.ok(b.pos[2] >= st.zs + L.RL_GRID0 - 1e-3 && b.pos[2] <= st.zb - L.RL_GRID0 + 1e-3, `${n}: P${p + 1} on the grid`);
+      assert.ok(Math.abs(b.pos[0] - C) <= hw - MC.RL_EDGE + 1e-3, `${n}: P${p + 1} inside the rails`);
+      assert.ok(b.pos[2] >= st.zs + MC.RL_GRID0 - 1e-3 && b.pos[2] <= st.zb - MC.RL_GRID0 + 1e-3, `${n}: P${p + 1} on the grid`);
       spots.push(b.pos);
     }
     for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
-      assert.ok(Math.hypot(spots[a][0] - spots[b][0], spots[a][2] - spots[b][2]) >= L.RL_SP - 1e-3, `${n}: P${a + 1} and P${b + 1} apart`);
+      assert.ok(Math.hypot(spots[a][0] - spots[b][0], spots[a][2] - spots[b][2]) >= MC.RL_SP - 1e-3, `${n}: P${a + 1} and P${b + 1} apart`);
     }
-    if (n === 1) assert.deepEqual([spots[0][0], spots[0][2]], [C, Math.fround(st.zs + L.RL_GRID0)]);
+    if (n === 1) assert.deepEqual([spots[0][0], spots[0][2]], [C, Math.fround(st.zs + MC.RL_GRID0)]);
     // the first row is full and centred on the field
-    const front = spots.filter((s) => Math.abs(s[2] - (st.zs + L.RL_GRID0)) < 1e-3);
+    const front = spots.filter((s) => Math.abs(s[2] - (st.zs + MC.RL_GRID0)) < 1e-3);
     assert.equal(front.length, Math.min(n, cols));
     assert.ok(Math.abs(front.reduce((a, s) => a + s[0], 0) / front.length - C) < 1e-3);
   }
@@ -93,7 +94,7 @@ test('the grid puts the fewest party points in front: a newcomer in the countdow
   assert.equal(g.v.party().n0, 30);
   assert.ok(st.cols < 30 && st.cols >= 15, `${st.cols} a row`);
   const z = (p) => g.v.partier(p).pos[2];
-  const front = Math.fround(st.zs + L.RL_GRID0);
+  const front = Math.fround(st.zs + MC.RL_GRID0);
   // the newcomer's 0 and the evens' few points fill the front row from the fewest; the rest behind
   const order = [...Array(30).keys()].sort((a, b) => g.v.partier(a).pts - g.v.partier(b).pts);
   order.forEach((p, k) => {
@@ -108,14 +109,14 @@ test('the lights: green (now and then a peek) then red, their lengths from the r
   for (const seed of [7, 8, 1234]) {
     const g = await room(3, { seed });
     const st = stage(g.v);
-    assert.ok(greenOf(st, 0) >= L.RL_G0A && greenOf(st, 0) < L.RL_G0A + L.RL_G0N);
+    assert.ok(greenOf(st, 0) >= MC.RL_G0A && greenOf(st, 0) < MC.RL_G0A + MC.RL_G0N);
     let peeks = 0;
     for (let c = 1; c < 40; c++) {
       const g0 = greenOf(st, c);
-      if (g0 < L.RL_GA) { assert.ok(c >= L.RL_PEEK0 && g0 >= L.RL_PA && g0 < L.RL_PA + L.RL_PN, `a peek, ${g0} ticks`); assert.ok(peekOf(st, c)); peeks++; }
-      else assert.ok(g0 < L.RL_GA + L.RL_GN);
-      assert.ok(g0 >= L.RL_PA + 0 && g0 > L.RL_TURN + 40, 'long enough for her to turn away and back');
-      assert.ok(redOf(st, c) >= L.RL_RA && redOf(st, c) < L.RL_RA + L.RL_RN);
+      if (g0 < MC.RL_GA) { assert.ok(c >= MC.RL_PEEK0 && g0 >= MC.RL_PA && g0 < MC.RL_PA + MC.RL_PN, `a peek, ${g0} ticks`); assert.ok(peekOf(st, c)); peeks++; }
+      else assert.ok(g0 < MC.RL_GA + MC.RL_GN);
+      assert.ok(g0 >= MC.RL_PA + 0 && g0 > MC.RL_TURN + 40, 'long enough for her to turn away and back');
+      assert.ok(redOf(st, c) >= MC.RL_RA && redOf(st, c) < MC.RL_RA + MC.RL_RN);
       assert.equal(startOf(st, c + 1) - startOf(st, c), greenOf(st, c) + redOf(st, c));
     }
     assert.ok(peeks >= 3 && peeks <= 20, `${peeks} peeks in 40 greens`);
@@ -124,7 +125,7 @@ test('the lights: green (now and then a peek) then red, their lengths from the r
     g.step([[L.EV_INPUT, 0, FWD]]);
     const start = g.v.party().start;
     const w = when(st, 0);
-    assert.deepEqual([w.c, w.s, w.r0, w.j, w.w], [0, 0, greenOf(st, 0), greenOf(st, 0) + L.RL_GRACE, greenOf(st, 0) - L.RL_TURN]);
+    assert.deepEqual([w.c, w.s, w.r0, w.j, w.w], [0, 0, greenOf(st, 0), greenOf(st, 0) + MC.RL_GRACE, greenOf(st, 0) - MC.RL_TURN]);
     assert.equal(phaseOf(w, w.w - 1), 'green');
     assert.equal(phaseOf(w, w.w), 'turn');
     assert.equal(phaseOf(w, w.r0), 'grace');
@@ -141,7 +142,7 @@ test('the lights: green (now and then a peek) then red, their lengths from the r
     while (!g.v.partier(1).out) g.step();
     assert.equal((g.v.partier(1).outAt - g.v.party().start) | 0, w1.j, `seed ${seed}: the second cycle's look`);
     // and through a peek: the green over almost as it starts
-    let c = L.RL_PEEK0;
+    let c = MC.RL_PEEK0;
     while (!peekOf(st, c)) c++;
     const wp = when(st, startOf(st, c));
     at(g, wp.s);
@@ -180,12 +181,12 @@ test('on red, faster than RL_VMAX across the ground is caught; slower, or still,
     assert.equal(b.outAt, tick);
     assert.deepEqual(fateOf(b.m), { kind: 'caught', n: 2 });
     assert.equal(b.score, progress(st, b.pos[2]));
-    const f = fxs(g.v, L.RL_FX_CAUGHT).find((e) => e.owner === p);
+    const f = fxs(g.v, MC.RL_FX_CAUGHT).find((e) => e.owner === p);
     assert.ok(f && g.v.fxCount() > before);
     assert.deepEqual([f.tick, f.shot, f.pos[0], f.pos[2]], [tick, 255, b.pos[0], b.pos[2]]);
     assert.ok(Math.abs(f.size - (b.pos[2] - st.zf)) < 1e-3, 'm it had to go');
   }
-  assert.equal(g.dv.getUint32(L.PG_H + L.RL_OUT, true), 2);
+  assert.equal(g.dv.getUint32(L.PG_H + MC.RL_OUT, true), 2);
   // all through the red the slow ones stay in; then green again
   while (playT(g) < w.e + 5) { g.step(); for (const p of [1, 2, 3]) assert.ok(!g.v.partier(p).out); }
   assert.equal(g.v.hole().state, L.H_PLAY);
@@ -205,7 +206,7 @@ test('bumped into moving on red: caught, and a KO for the ball that did it', asy
   const a = g.v.partier(0), b = g.v.partier(1);
   assert.ok(a.out, 'P1 caught');
   assert.equal((a.outAt - g.v.party().start) | 0, w.j, 'as red looked');
-  const f = fxs(g.v, L.RL_FX_CAUGHT).find((e) => e.owner === 0);
+  const f = fxs(g.v, MC.RL_FX_CAUGHT).find((e) => e.owner === 0);
   assert.equal(f.shot, 1, 'P2 bumped it');
   assert.equal(b.kos, 1, 'a KO for P2');
   assert.ok(!g.v.partier(2).out);
@@ -262,21 +263,21 @@ test('the pen holds every finisher on the yard\'s floor however many there are: 
   at(g, startOf(st, longGreen(st, 400)) + 20);
   const spots = [];
   for (let k = 0; k < 400; k++) {
-    g.dv.setUint32(L.PG_H + L.RL_FIN, k, true);
+    g.dv.setUint32(L.PG_H + MC.RL_FIN, k, true);
     put(g, 0, C, st.zf + 0.05, { vz: -10 });
     g.step([[L.EV_INPUT, 0, k & 1 ? FWD : NONE]]);
     const b = g.v.partier(0);
     assert.ok(b.out && fateOf(b.m).n === k + 1, `finisher ${k + 1}`);
-    assert.ok(b.pos[2] >= st.zf - L.RL_YARD + 1 - 1e-3 && b.pos[2] <= st.zf - L.RL_PEN0 + 1e-3, `finisher ${k + 1} in the yard: ${(st.zf - b.pos[2]).toFixed(1)} m past the line`);
+    assert.ok(b.pos[2] >= st.zf - MC.RL_YARD + 1 - 1e-3 && b.pos[2] <= st.zf - MC.RL_PEN0 + 1e-3, `finisher ${k + 1} in the yard: ${(st.zf - b.pos[2]).toFixed(1)} m past the line`);
     assert.ok(Math.abs(b.pos[0] - C) <= st.hw - 1 + 1e-3, `finisher ${k + 1} inside the rails`);
     spots.push([b.pos[0], b.pos[2]]);
   }
-  const cap = L.RL_PROWS * (2 * st.cols - 1);
+  const cap = MC.RL_PROWS * (2 * st.cols - 1);
   assert.ok(cap >= L.NPLAYER && cap < 400);
   for (let i = 0; i < cap; i++) for (let j = i + 1; j < cap; j++) {
     const d = Math.hypot(spots[i][0] - spots[j][0], spots[i][1] - spots[j][1]);
-    const one = (i < L.RL_PROWS * st.cols) === (j < L.RL_PROWS * st.cols);
-    assert.ok(d >= (one ? L.RL_SP : L.RL_SP * 0.7) - 1e-3, `spots ${i} and ${j} ${d.toFixed(2)} m apart`);
+    const one = (i < MC.RL_PROWS * st.cols) === (j < MC.RL_PROWS * st.cols);
+    assert.ok(d >= (one ? MC.RL_SP : MC.RL_SP * 0.7) - 1e-3, `spots ${i} and ${j} ${d.toFixed(2)} m apart`);
   }
   assert.deepEqual(spots[cap], spots[0], 'round again');
   assert.equal(g.v.hole().state, L.H_PLAY, 'P2 still racing');
@@ -292,24 +293,24 @@ test('over the line: out of play into the pen, placed by the order they crossed 
   let b = g.v.partier(0);
   const tick = g.v.tick - 1;
   assert.ok(b.out, 'out of play');
-  assert.deepEqual([b.score, fateOf(b.m).kind, fateOf(b.m).n, b.outAt], [L.RL_SCORE_FIN, 'fin', 1, tick]);
+  assert.deepEqual([b.score, fateOf(b.m).kind, fateOf(b.m).n, b.outAt], [MC.RL_SCORE_FIN, 'fin', 1, tick]);
   assert.deepEqual([b.vel[0], b.vel[1], b.vel[2], b.pos[1]], [0, 0, 0, PLAT_Y]);
-  assert.ok(b.pos[2] < st.zf - L.RL_PEN0 + 1e-3 && Math.abs(b.pos[0] - C) < st.hw, 'in the pen past the line');
-  const f = fxs(g.v, L.RL_FX_FINISH)[0];
+  assert.ok(b.pos[2] < st.zf - MC.RL_PEN0 + 1e-3 && Math.abs(b.pos[0] - C) < st.hw, 'in the pen past the line');
+  const f = fxs(g.v, MC.RL_FX_FINISH)[0];
   assert.deepEqual([f.owner, f.shot, f.tick], [0, 1, tick]);
   assert.ok(Math.abs(f.size - (startOf(st, c) + 20) * TICK) < 1e-3, 'its time');
-  assert.equal(g.v.hole().until, tick + L.RL_RUSH, 'the clock cut');
+  assert.equal(g.v.hole().until, tick + MC.RL_RUSH, 'the clock cut');
   // two over on one tick share 2nd, a spot each in the pen
   put(g, 1, C - 3, st.zf + 0.05, { vz: -10 });
   put(g, 2, C + 3, st.zf + 0.05, { vz: -10 });
   g.step([[L.EV_INPUT, 1, FWD], [L.EV_INPUT, 2, FWD]]);
   const p1 = g.v.partier(1), p2 = g.v.partier(2);
-  assert.deepEqual([p1.score, p2.score, fateOf(p1.m).n, fateOf(p2.m).n], [L.RL_SCORE_FIN - 1, L.RL_SCORE_FIN - 1, 2, 2]);
+  assert.deepEqual([p1.score, p2.score, fateOf(p1.m).n, fateOf(p2.m).n], [MC.RL_SCORE_FIN - 1, MC.RL_SCORE_FIN - 1, 2, 2]);
   b = g.v.partier(0);
   const spots = [b.pos, p1.pos, p2.pos];
-  for (let i = 0; i < 3; i++) for (let k = i + 1; k < 3; k++) assert.ok(Math.hypot(spots[i][0] - spots[k][0], spots[i][2] - spots[k][2]) >= L.RL_SP - 1e-3);
-  assert.equal(g.dv.getUint32(L.PG_H + L.RL_FIN, true), 3);
-  assert.equal(g.v.hole().until, tick + L.RL_RUSH, 'cut once');
+  for (let i = 0; i < 3; i++) for (let k = i + 1; k < 3; k++) assert.ok(Math.hypot(spots[i][0] - spots[k][0], spots[i][2] - spots[k][2]) >= MC.RL_SP - 1e-3);
+  assert.equal(g.dv.getUint32(L.PG_H + MC.RL_FIN, true), 3);
+  assert.equal(g.v.hole().until, tick + MC.RL_RUSH, 'cut once');
   assert.equal(g.v.hole().state, L.H_PLAY, 'P4 still racing');
 });
 
@@ -365,7 +366,7 @@ test('the rails, the back wall and the yard\'s end keep every ball on the field'
   put(g, 0, C + st.hw - 3, C, { vx: 10 });
   put(g, 1, C - st.hw + 3, C - 20, { vx: -10 });
   put(g, 2, C, st.zb - 3, { vz: 10 });
-  put(g, 3, C + 8, st.zf - L.RL_YARD + 3, { vz: -10 });
+  put(g, 3, C + 8, st.zf - MC.RL_YARD + 3, { vz: -10 });
   g.step([[L.EV_INPUT, 0, partyWord({ yaw: 0, move: 1 })], [L.EV_INPUT, 1, partyWord({ yaw: 8192, move: 1 })], [L.EV_INPUT, 2, partyWord({ yaw: 4096, move: 1 })]]);
   for (let k = 0; k < 120; k++) {
     for (let p = 0; p < 3; p++) {
@@ -427,7 +428,7 @@ for (const [bots, ticks] of [[8, 8000], [64, 8000]]) {
     const r = await playParty({ bytes: partyBytes(true), seed: bots, mg: L.MG_LIGHT, bots, ticks, delay: 8, onTick: (t, sim, v) => {
       assert.equal(sim.error().code, 0, 'no trap');
       const g = v.party();
-      for (; seen < v.fxCount(); seen++) { const f = v.fx(seen); caught += f.kind === L.RL_FX_CAUGHT; finished += f.kind === L.RL_FX_FINISH; }
+      for (; seen < v.fxCount(); seen++) { const f = v.fx(seen); caught += f.kind === MC.RL_FX_CAUGHT; finished += f.kind === MC.RL_FX_FINISH; }
       if (start < 0 && g.state === L.H_PLAY) start = t;
       if (over < 0 && start >= 0 && g.state === L.H_OVER) {
         over = t;
@@ -439,7 +440,7 @@ for (const [bots, ticks] of [[8, 8000], [64, 8000]]) {
     } });
     assert.ok(over > 0, 'the round ended');
     const secs = (over - start) * TICK;
-    assert.ok(secs > 20 && secs < L.RL_LEN * TICK, `${secs.toFixed(1)} s of play`);
+    assert.ok(secs > 20 && secs < MC.RL_LEN * TICK, `${secs.toFixed(1)} s of play`);
     assert.ok(finished >= bots / 2, `${finished} of ${bots} over the line`);
     if (bots >= 64) assert.ok(caught >= 3, `${caught} caught`);
     assert.ok(fates.every((k) => k !== 'racing') || secs > 89, 'everyone over or caught, or the clock');
@@ -470,7 +471,7 @@ test('the client module: draws the countdown, every light and the result, frames
   const st = stage(g.v);
   const fr = light.frame(g.v);
   assert.equal(fr.shape, 'square');
-  assert.ok(Math.abs(fr.radius - (st.zb - st.zf + L.RL_YARD) / 2) < 1e-3);
+  assert.ok(Math.abs(fr.radius - (st.zb - st.zf + MC.RL_YARD) / 2) < 1e-3);
   assert.equal(light.facing(), -Math.PI / 2);
   const w = when(st, startOf(st, 1));
   const caught = [];
@@ -509,7 +510,7 @@ test('the client module: draws the countdown, every light and the result, frames
   assert.equal(light.brain.think(g.v, 0, bot, T + wc.s + 100).move, 1, 'rolls on early in the green');
   const off = [];
   for (let t = wc.s + 100; t < wc.j; t += 4) if (light.brain.think(g.v, 0, bot, T + t).move === 0) { off.push(t); break; }
-  assert.ok(off.length && wc.j - off[0] >= Math.log(L.RL_VMAX / 10) / Math.log(IDLE) && wc.j - off[0] < 130, `let go ${wc.j - off[0]} ticks before red looks`);
+  assert.ok(off.length && wc.j - off[0] >= Math.log(MC.RL_VMAX / 10) / Math.log(IDLE) && wc.j - off[0] < 130, `let go ${wc.j - off[0]} ticks before red looks`);
   assert.equal(light.brain.think(g.v, 0, bot, T + wc.j + 10).move, 0, 'no keys on red');
   // having let go this green, it still pushes off from rest in red's last 10 ticks, for the next green
   put(g, 0, C, C + 40);

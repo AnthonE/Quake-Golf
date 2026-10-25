@@ -6,6 +6,7 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/wall.mjs'; // WL_*: the minigame's own constants
 import wall, { table, face, sway, over, laneAt, toWall, toWorld, gapAt, blocksAt, blocked, meet, passed } from '../client/mg/wall.mjs';
 
 const C = L.B_CX;
@@ -43,18 +44,18 @@ const inW = (g, p, W) => { const b = g.v.partier(p); return toWall(table(g.v), W
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.WL_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.WL_LEN, true);
 }
 const playT = (g) => g.v.party().t; // the tick into play the step just played
 const fxs = (v, kind) => { const out = []; for (let k = 0; k < v.fxCount(); k++) { const x = v.fx(k); if (x.kind === kind) out.push(x); } return out; };
 // The half-width the stage has for n balls.
-const half = (n) => f(Math.min(f(f(f(Math.sqrt(n)) * f(L.WL_HK)) + L.WL_H0), L.WL_HMAX));
+const half = (n) => f(Math.min(f(f(f(Math.sqrt(n)) * f(MC.WL_HK)) + MC.WL_H0), MC.WL_HMAX));
 // Steps until play reaches tick t into play.
 const until = (g, t, recs) => { while (playT(g) < t) g.step(recs?.()); };
 // Only wall w on the stage from now on: the table's walls before it gone, none after it.
 function alone(g, w) {
-  g.dv.setUint32(L.PG_H + L.WL_LIVE, w, true);
-  g.dv.setUint32(L.PG_H + L.WL_NW, w + 1, true);
+  g.dv.setUint32(L.PG_H + MC.WL_LIVE, w, true);
+  g.dv.setUint32(L.PG_H + MC.WL_NW, w + 1, true);
   return table(g.v).walls[w];
 }
 
@@ -67,39 +68,39 @@ test('the stage for 1, 8, 64 and 256: a square sized for the crowd, every ball o
     assert.equal(r.game, L.MG_WALL);
     assert.equal(r.size, half(n), `${r.size} m for ${n}`);
     assert.equal(T.h, r.size);
-    assert.ok(r.size > last || r.size === L.WL_HMAX, 'grows with the crowd');
+    assert.ok(r.size > last || r.size === MC.WL_HMAX, 'grows with the crowd');
     last = r.size;
-    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.drag, r.hop, r.flags], [L.PK_OUT, L.WL_LEN, PLAT_Y, f(L.WL_IDLE), f(Number(L.BPHYS.B_DRAG)), 6, L.PGF_BUMPS]);
+    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.drag, r.hop, r.flags], [L.PK_OUT, MC.WL_LEN, PLAT_Y, f(MC.WL_IDLE), f(Number(L.BPHYS.B_DRAG)), 6, L.PGF_BUMPS]);
     for (let p = 0; p < n; p++) {
       const b = g.v.partier(p);
       assert.equal(b.pos[1], PLAT_Y);
-      assert.ok(Math.abs(b.pos[0] - C) <= L.WL_SPREAD * r.size && Math.abs(b.pos[2] - C) <= L.WL_SPREAD * r.size, `${n}: P${p + 1} on the middle of the square`);
+      assert.ok(Math.abs(b.pos[0] - C) <= MC.WL_SPREAD * r.size && Math.abs(b.pos[2] - C) <= MC.WL_SPREAD * r.size, `${n}: P${p + 1} on the middle of the square`);
       for (let q = 0; q < p; q++) {
         const o = g.v.partier(q);
         assert.ok(Math.hypot(o.pos[0] - b.pos[0], o.pos[2] - b.pos[2]) >= 4.9, `${n}: P${p + 1} and P${q + 1} apart`);
       }
     }
     // the table: walls in the order they move, their schedule, speed, gaps and sides
-    assert.ok(T.walls.length >= 25 && T.walls.length <= L.WL_NMAX, `${T.walls.length} walls`);
+    assert.ok(T.walls.length >= 25 && T.walls.length <= MC.WL_NMAX, `${T.walls.length} walls`);
     const span = f(r.size + r.size);
-    const k0 = Math.min(L.WL_KMAX, 1 + Math.floor(span / L.WL_SPAN));
+    const k0 = Math.min(MC.WL_KMAX, 1 + Math.floor(span / MC.WL_SPAN));
     T.walls.forEach((W, w) => {
       const tau = f(f(W.go) * f(0.008));
-      assert.equal(W.go, w ? T.walls[w - 1].go + Math.max(L.WL_WARN, Math.floor(f(f(f(Math.min(span, L.WL_CAD)) * f(L.WL_NEXT)) / f(T.walls[w - 1].v * f(0.008))))) : L.WL_GO0);
-      assert.ok(W.go < L.WL_LEN);
-      assert.equal(W.start, w ? W.go - L.WL_WARN : 0);
+      assert.equal(W.go, w ? T.walls[w - 1].go + Math.max(MC.WL_WARN, Math.floor(f(f(f(Math.min(span, MC.WL_CAD)) * f(MC.WL_NEXT)) / f(T.walls[w - 1].v * f(0.008))))) : MC.WL_GO0);
+      assert.ok(W.go < MC.WL_LEN);
+      assert.equal(W.start, w ? W.go - MC.WL_WARN : 0);
       assert.equal(W.end, W.go + 1 + Math.floor(f(f(span + 5.5) / f(W.v * f(0.008)))));
-      assert.equal(W.v, f(Math.min(f(f(tau * f(L.WL_VK)) + L.WL_V0), L.WL_VMAX)));
-      assert.equal(W.g, f(Math.max(f(f(L.WL_G0) - f(tau * f(L.WL_GK))), f(L.WL_GMIN))));
-      assert.equal(W.k, Math.max(1, k0 - Math.floor(f(f(f(k0 - 1) * tau) / L.WL_KEND))));
+      assert.equal(W.v, f(Math.min(f(f(tau * f(MC.WL_VK)) + MC.WL_V0), MC.WL_VMAX)));
+      assert.equal(W.g, f(Math.max(f(f(MC.WL_G0) - f(tau * f(MC.WL_GK))), f(MC.WL_GMIN))));
+      assert.equal(W.k, Math.max(1, k0 - Math.floor(f(f(f(k0 - 1) * tau) / MC.WL_KEND))));
       // gaps one to a slot, ascending, a block of WL_MARGIN at least between them and at the edges, sway and all
       const sw = span / W.k;
       W.gaps.forEach((c, j) => {
         const mid = -r.size + sw * (j + 0.5);
-        assert.ok(Math.abs(c - mid) + W.a <= Math.max(0, (sw - W.g) / 2 - L.WL_MARGIN) + 1e-4, `${n}: wall ${w} gap ${j} in its slot`);
+        assert.ok(Math.abs(c - mid) + W.a <= Math.max(0, (sw - W.g) / 2 - MC.WL_MARGIN) + 1e-4, `${n}: wall ${w} gap ${j} in its slot`);
       });
-      assert.equal(W.a > 0, (w & 1) === 1 && W.go >= L.WL_SWAY && (sw - W.g) / 2 - L.WL_MARGIN > 0, `${n}: wall ${w} sways or not`);
-      assert.ok(W.a <= f(L.WL_SWAYA));
+      assert.equal(W.a > 0, (w & 1) === 1 && W.go >= MC.WL_SWAY && (sw - W.g) / 2 - MC.WL_MARGIN > 0, `${n}: wall ${w} sways or not`);
+      assert.ok(W.a <= f(MC.WL_SWAYA));
       // never head on to a wall still on the stage; the last one's side again, or the one longest unused of the rest
       let mask = 15;
       for (let j = 0; j < w; j++) if (T.walls[j].end > W.start) mask &= ~(1 << ((T.walls[j].side + 2) & 3));
@@ -115,7 +116,7 @@ test('the stage for 1, 8, 64 and 256: a square sized for the crowd, every ball o
     });
     assert.equal(T.walls.at(-1).w + 1, T.walls.length);
     assert.equal(T.walls[0].k, k0);
-    assert.ok(T.walls.at(-1).k <= 2 && T.walls.at(-1).v === L.WL_VMAX && T.walls.at(-1).g === f(L.WL_GMIN), 'the last walls the hardest');
+    assert.ok(T.walls.at(-1).k <= 2 && T.walls.at(-1).v === MC.WL_VMAX && T.walls.at(-1).g === f(MC.WL_GMIN), 'the last walls the hardest');
     assert.ok(new Set(T.walls.map((W) => W.side)).size >= 3, `${n}: from all round`);
   }
 });
@@ -141,27 +142,27 @@ test('a wall shows at its edge, waits there WL_WARN ticks and then moves at its 
   const W = alone(g, 3), T = table(g.v);
   putW(g, 0, W, 0, W.gaps[0]);
   putW(g, 1, W, 4, W.gaps.at(-1));
-  assert.equal(face(W, W.start), f(-T.h - L.WL_LEAD));
-  assert.equal(face(W, W.go), f(-T.h - L.WL_LEAD));
+  assert.equal(face(W, W.start), f(-T.h - MC.WL_LEAD));
+  assert.equal(face(W, W.go), f(-T.h - MC.WL_LEAD));
   assert.ok(Math.abs(face(W, W.go + 125) - (face(W, W.go) + W.v)) < 1e-9, 'its speed a second');
-  assert.ok(face(W, W.end) - L.WL_T >= T.h + L.WL_PAST && face(W, W.end - 1) - L.WL_T < T.h + L.WL_PAST);
+  assert.ok(face(W, W.end) - MC.WL_T >= T.h + MC.WL_PAST && face(W, W.end - 1) - MC.WL_T < T.h + MC.WL_PAST);
   at(g, W.start - 2);
   const seen0 = g.v.fxCount();
   while (playT(g) < W.end + 2) g.step();
   const mine = (kind) => fxs(g.v, kind).filter((x) => (x.shot & 255) === W.w);
-  const [show] = mine(L.WL_FX_SHOW), [go] = mine(L.WL_FX_GO), [gone] = mine(L.WL_FX_GONE);
+  const [show] = mine(MC.WL_FX_SHOW), [go] = mine(MC.WL_FX_GO), [gone] = mine(MC.WL_FX_GONE);
   const start = g.v.party().start;
   assert.ok(g.v.fxCount() > seen0 && show && go && gone);
   assert.deepEqual([(show.tick - start) | 0, (go.tick - start) | 0, (gone.tick - start) | 0], [W.start, W.go, W.end]);
   assert.equal(show.shot, W.w | (W.side << 8));
   assert.deepEqual([show.owner, show.size, go.size], [255, W.v, W.v]);
   assert.equal(gone.size, 2, 'both balls still in');
-  const [x, z] = toWorld(T, W, -T.h - L.WL_LEAD - L.WL_T / 2, 0);
-  assert.ok(Math.abs(show.pos[0] - x) < 1e-3 && Math.abs(show.pos[2] - z) < 1e-3 && show.pos[1] === PLAT_Y + L.WL_HIGH / 2, 'at the wall\'s middle');
+  const [x, z] = toWorld(T, W, -T.h - MC.WL_LEAD - MC.WL_T / 2, 0);
+  assert.ok(Math.abs(show.pos[0] - x) < 1e-3 && Math.abs(show.pos[2] - z) < 1e-3 && show.pos[1] === PLAT_Y + MC.WL_HIGH / 2, 'at the wall\'s middle');
   // the first shows from the countdown: its FX as play starts
   const g2 = await room(2, { seed: 11, play: false });
   while (g2.v.hole().state !== L.H_PLAY) g2.step();
-  const first = fxs(g2.v, L.WL_FX_SHOW);
+  const first = fxs(g2.v, MC.WL_FX_SHOW);
   assert.equal(first.length, 1);
   assert.equal(first[0].shot, T.walls[0].side << 8);
   assert.equal(first[0].tick, g2.v.party().start);
@@ -200,7 +201,7 @@ test('a block meets a ball in its way with its face and carries it at the wall\'
   assert.equal(passed(g.v, 0), 1);
   assert.deepEqual([passed(g.v, 1), passed(g.v, 2)], [0, 0]);
   // each pinned once by it: its FX and PG_M's bit
-  const pins = fxs(g.v, L.WL_FX_PIN);
+  const pins = fxs(g.v, MC.WL_FX_PIN);
   assert.deepEqual(pins.map((x) => x.owner).sort(), [1, 2]);
   assert.ok(pins.every((x) => x.shot === 0 && Math.abs(x.size - W.v) < 1e-5));
   assert.equal(g.v.partier(1).m & 1, 1);
@@ -218,13 +219,13 @@ test('a waiting wall touches nobody, even a ball on its edge; a ball over the wa
   const b = g.v.partier(0);
   assert.deepEqual([b.pos, b.vel], [b0.pos, b0.vel], 'still where it was');
   // over the top: up and held there, the wall goes under
-  putW(g, 1, W, -T.h + 5, (blk[0] + blk[1]) / 2, { y: PLAT_Y + L.WL_HIGH + 0.01, ground: false });
+  putW(g, 1, W, -T.h + 5, (blk[0] + blk[1]) / 2, { y: PLAT_Y + MC.WL_HIGH + 0.01, ground: false });
   for (let k = 0; k < 260; k++) {
-    g.dv.setFloat32(rec(1) + L.P_PY, PLAT_Y + L.WL_HIGH + 0.01, true);
+    g.dv.setFloat32(rec(1) + L.P_PY, PLAT_Y + MC.WL_HIGH + 0.01, true);
     g.dv.setFloat32(rec(1) + L.P_VY, 0, true);
     g.step();
   }
-  assert.ok(face(W, playT(g)) - L.WL_T > -T.h + 6, 'the wall went by under it');
+  assert.ok(face(W, playT(g)) - MC.WL_T > -T.h + 6, 'the wall went by under it');
   assert.ok(Math.abs(inW(g, 1, W)[0] - (-T.h + 5)) < 1e-4, 'not shoved');
 });
 
@@ -241,7 +242,7 @@ test('a gap\'s corner turns a ball half over its edge aside into the gap; a pinn
   let k = 0, carried = 0, through = null;
   while (playT(g) < W.end && k++ < 4000) {
     const [u1, v1] = inW(g, 1, W), s = face(W, playT(g));
-    if (!through && u1 + 1 < s - L.WL_T) through = v1;
+    if (!through && u1 + 1 < s - MC.WL_T) through = v1;
     // across the face till it's over the gap, then no keys (the idle brake holds it there)
     const pushing = !through && s > u1 - 1.05 && v1 - c2 > W.g / 2 - 1.2;
     g.step([[L.EV_INPUT, 1, partyWord({ yaw: across, move: pushing ? 1 : 0 })]]);
@@ -254,14 +255,14 @@ test('a gap\'s corner turns a ball half over its edge aside into the gap; a pinn
   assert.ok(!g.v.partier(1).out, 'slid into the gap');
   assert.ok(carried > 10, `rode the face ${carried} ticks`);
   assert.ok(through !== null && Math.abs(through - c2) < W.g / 2, `through gap 2: ${through - c2}`);
-  assert.equal(fxs(g.v, L.WL_FX_PIN).filter((x) => x.shot === 0 && x.owner === 1).length, 1, 'pinned once, its FX once');
+  assert.equal(fxs(g.v, MC.WL_FX_PIN).filter((x) => x.shot === 0 && x.owner === 1).length, 1, 'pinned once, its FX once');
 });
 
 test('a wall\'s bit in PG_M goes with the wall, on the prediction\'s bank too: wall w + 32, the same bit, pins the ball again with its FX', async () => {
   const g = await room(2, { seed: 5 });
   const T = table(g.v);
   assert.ok(T.walls.length > 34);
-  const pins = (from, w) => { const out = []; for (let k = from; k < g.v.fxCount(); k++) { const x = g.v.fx(k); if (x.kind === L.WL_FX_PIN && x.owner === 0 && x.shot === w) out.push(x); } return out; };
+  const pins = (from, w) => { const out = []; for (let k = from; k < g.v.fxCount(); k++) { const x = g.v.fx(k); if (x.kind === MC.WL_FX_PIN && x.owner === 0 && x.shot === w) out.push(x); } return out; };
   // P1 in a block's way of wall 2, P2 in a gap's lane: P1 pinned, its bit set
   const W = alone(g, 2);
   at(g, W.go - 5);
@@ -274,7 +275,7 @@ test('a wall\'s bit in PG_M goes with the wall, on the prediction\'s bank too: w
   assert.equal(g.v.partier(0).m, 1 << 2);
   // off its face to the stage behind it, then still through the wall's end, predicted all the way
   const [u] = inW(g, 0, W);
-  putW(g, 0, W, u - L.WL_T - 3, (blk[0] + blk[1]) / 2);
+  putW(g, 0, W, u - MC.WL_T - 3, (blk[0] + blk[1]) / 2);
   const left = W.end - playT(g) + 20;
   assert.ok(left > 30 && left < 1200, `${left} ticks to its end`);
   assert.ok(predicted(g, Array.from({ length: left }, () => partyWord({ yaw: 0 }))) >= left);
@@ -321,7 +322,7 @@ test('balls that went off ticks apart don\'t share the win: the first is out in 
 test('the ramp: faster walls, narrower and fewer gaps, from WL_SWAY every other one swaying; a ball on a swaying wall\'s snake gets through', async () => {
   const g = await room(64, { seed: 21, play: false });
   const T = table(g.v);
-  const at40 = T.walls.find((W) => W.go >= L.WL_SWAY);
+  const at40 = T.walls.find((W) => W.go >= MC.WL_SWAY);
   assert.ok(T.walls.filter((W) => W.a > 0).length >= 5);
   assert.ok(T.walls.slice(0, at40.w).every((W) => W.a === 0));
   // the sway: still till it moves, then a sine of the tick, a sway every 512 ticks
@@ -347,7 +348,7 @@ test('the ramp: faster walls, narrower and fewer gaps, from WL_SWAY every other 
   }
   assert.equal(shoved, 0, 'the snake is the way through');
   assert.ok(!g2.v.partier(0).out && !g2.v.partier(1).out);
-  assert.ok(fxs(g2.v, L.WL_FX_PIN).some((x) => x.owner === 2), 'off it, met by a block');
+  assert.ok(fxs(g2.v, MC.WL_FX_PIN).some((x) => x.owner === 2), 'off it, met by a block');
 });
 
 test('the last ball on wins; two last balls both shoved off together share the win rather than last', async () => {
@@ -393,7 +394,7 @@ test('the prediction matches the confirmed ball bit for bit: met by a face, ridi
   const across = Math.round(Math.atan2(S.ux, -S.uz) / (2 * Math.PI) * 16384) & 16383;
   const more = Array.from({ length: 500 }, (_, k) => partyWord({ yaw: (across + ((k * 97) % 3000) - 1500) & 16383, move: k % 40 < 30 ? 1 : 0, hop: k % 90 === 0 ? 1 : 0 }));
   assert.ok(predicted(g2, more) >= 500);
-  assert.ok(fxs(g2.v, L.WL_FX_PIN).some((x) => x.owner === 0), 'it was pinned');
+  assert.ok(fxs(g2.v, MC.WL_FX_PIN).some((x) => x.owner === 0), 'it was pinned');
 });
 
 // A round of Partier balls (client/party-bot.mjs, steered by this minigame's
@@ -421,7 +422,7 @@ for (const [balls, seed] of [[8, 3], [64, 4]]) {
     const { log, stats } = await aiRound(balls, seed);
     assert.ok(stats.over > 0, 'the round ended');
     const secs = (stats.over - stats.start) * TICK;
-    assert.ok(secs > 40 && secs <= L.WL_LEN * TICK, `${secs.toFixed(1)} s of play (left every 10 s: ${stats.left})`);
+    assert.ok(secs > 40 && secs <= MC.WL_LEN * TICK, `${secs.toFixed(1)} s of play (left every 10 s: ${stats.left})`);
     assert.ok(stats.left[2] > balls / 2, `still ${stats.left[2]} of ${balls} in at 20 s`);
     assert.ok(stats.left.at(-1) < balls / 2, `${stats.left.at(-1)} of ${balls} at the last count`);
     assert.ok(stats.places.every((x) => x >= 1 && x <= balls), `places ${stats.places}`);
@@ -494,7 +495,7 @@ test('the client module: draws every phase, frames the square, writes its HUD li
   }
   assert.equal(wall.brain.danger(g.v, C + T.h + 1, C, start + 10), 1, 'off the square');
   assert.equal(meet(T, W, ...toWorld(T, W, face(W, W.go) + 10, 0), W.go).eta, 10 / W.v - 1 / W.v);
-  assert.ok(Math.abs(over(W, 0) - (W.go + (L.WL_T / 2 - W.s0) / (W.v * TICK))) < 1e-9);
+  assert.ok(Math.abs(over(W, 0) - (W.go + (MC.WL_T / 2 - W.s0) / (W.v * TICK))) < 1e-9);
 });
 // The wall on the stage that has moved furthest at t.
 function onAt(T, t) {

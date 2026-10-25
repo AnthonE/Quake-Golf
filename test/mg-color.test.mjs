@@ -5,10 +5,11 @@ import { View, partyWord, hexAt, hexCentre, PLAT_Y } from '../src/party-view.mjs
 import { replay, parseLog, encodeLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/color.mjs'; // CC_*: the minigame's own constants
 import color, { when, cycleAt, warnOf, rimOf, stage, callOf, colourOf, holds, solidAt, survived } from '../client/mg/color.mjs';
 
 const C = L.B_CX;
-const S = Math.fround(L.CC_S);
+const S = Math.fround(MC.CC_S);
 const TICK = 0.008;
 
 // A room of n balls on Color Call, on the debug build (a NaN traps).
@@ -43,7 +44,7 @@ function park(g, ps, x, z) {
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.CC_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.CC_LEN, true);
 }
 const playT = (g) => g.v.party().t; // the tick into play the next step plays
 const fxs = (v, kind) => { const out = []; for (let k = 0; k < v.fxCount(); k++) { const f = v.fx(k); if (f.kind === kind) out.push(f); } return out; };
@@ -68,15 +69,15 @@ test('the stage for 1, 8, 64 and 256: a disc of hex tiles sized for the crowd, 4
   for (const n of [1, 8, 64, 256]) {
     const g = await room(n, { play: false, seed: n });
     const r = g.v.party();
-    const rad = Math.min(L.CC_R0 + L.CC_RK * Math.sqrt(n), L.CC_RMAX);
+    const rad = Math.min(MC.CC_R0 + MC.CC_RK * Math.sqrt(n), MC.CC_RMAX);
     assert.equal(r.game, L.MG_COLOR);
     assert.ok(Math.abs(r.size - rad) < 1e-4, `${r.size} m for ${n}`);
     assert.ok(r.size > last, 'grows with the crowd');
     last = r.size;
     const st = stage(g.v);
     assert.equal(st.r0, r.size);
-    assert.equal(st.k, n > L.CC_KN5 ? 5 : 4);
-    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.drag, r.hop], [L.PK_OUT, L.CC_LEN, PLAT_Y, Math.fround(L.CC_IDLE), Math.fround(Number(L.BPHYS.B_DRAG)), 6]);
+    assert.equal(st.k, n > MC.CC_KN5 ? 5 : 4);
+    assert.deepEqual([r.kind, r.len, r.floor, r.idle, r.drag, r.hop], [L.PK_OUT, MC.CC_LEN, PLAT_Y, Math.fround(MC.CC_IDLE), Math.fround(Number(L.BPHYS.B_DRAG)), 6]);
     const tiles = tilesIn(st, st.r0);
     const area = Math.PI * r.size * r.size / (1.5 * Math.sqrt(3) * S * S);
     assert.ok(Math.abs(tiles.length / area - 1) < 0.12, `${tiles.length} tiles in a disc of ${r.size} m, about ${area.toFixed(0)}`);
@@ -88,7 +89,7 @@ test('the stage for 1, 8, 64 and 256: a disc of hex tiles sized for the crowd, 4
       const b = g.v.partier(p);
       assert.equal(b.pos[1], PLAT_Y, 'on the floor');
       assert.ok(b.ground && !b.out);
-      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) <= r.size * L.CC_SPAWN + 1e-3, 'on the middle of the disc');
+      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) <= r.size * MC.CC_SPAWN + 1e-3, 'on the middle of the disc');
       for (let q = 0; q < p; q++) {
         const o = g.v.partier(q);
         assert.ok(Math.hypot(b.pos[0] - o.pos[0], b.pos[2] - o.pos[2]) >= 2, `${n}: P${p + 1} and P${q + 1} apart`);
@@ -98,31 +99,31 @@ test('the stage for 1, 8, 64 and 256: a disc of hex tiles sized for the crowd, 4
 });
 
 test('the schedule: a rest, a warning from 2.6 s down to 1.2 s, a 1.52 s drop; sudden death\'s warning 1.6 s', () => {
-  assert.equal(L.CC_FULL, (L.CC_WARN0 - L.CC_WARN1) / L.CC_WARNK);
-  assert.equal(L.CC_SD, L.CC_SHRINK + L.CC_SHRINKN);
-  assert.equal(cycleAt(L.CC_FULL), L.CC_T_FULL);
-  assert.equal(cycleAt(L.CC_SD), L.CC_T_SD);
-  assert.equal(L.CC_FX_CALL, L.FX_MG + 4 * L.MG_COLOR);
-  assert.deepEqual([L.CC_FX_DROP, L.CC_FX_RISE], [L.CC_FX_CALL + 1, L.CC_FX_CALL + 2]);
+  assert.equal(MC.CC_FULL, (MC.CC_WARN0 - MC.CC_WARN1) / MC.CC_WARNK);
+  assert.equal(MC.CC_SD, MC.CC_SHRINK + MC.CC_SHRINKN);
+  assert.equal(cycleAt(MC.CC_FULL), MC.CC_T_FULL);
+  assert.equal(cycleAt(MC.CC_SD), MC.CC_T_SD);
+  assert.equal(MC.CC_FX_CALL, L.FX_MG + 4 * L.MG_COLOR);
+  assert.deepEqual([MC.CC_FX_DROP, MC.CC_FX_RISE], [MC.CC_FX_CALL + 1, MC.CC_FX_CALL + 2]);
   assert.deepEqual([warnOf(0), warnOf(1), warnOf(6), warnOf(7), warnOf(17), warnOf(18), warnOf(40)], [325, 300, 175, 150, 150, 200, 200]);
   let t = 0;
   for (let c = 0; c < 40; c++) {
     assert.equal(cycleAt(c), t, `cycle ${c} starts where the last ended`);
     const w = when(t);
-    assert.deepEqual(w, { c, s: t, w0: t + L.CC_REST, d0: t + L.CC_REST + warnOf(c), e: t + L.CC_REST + warnOf(c) + L.CC_DROP });
+    assert.deepEqual(w, { c, s: t, w0: t + MC.CC_REST, d0: t + MC.CC_REST + warnOf(c), e: t + MC.CC_REST + warnOf(c) + MC.CC_DROP });
     assert.equal(when(w.e - 1).c, c);
     assert.equal(when(w.d0 - 1).d0, w.d0);
     t = w.e;
   }
-  assert.ok(cycleAt(L.CC_SD) * TICK > 65 && cycleAt(L.CC_SD) * TICK < 85, `sudden death from ${cycleAt(L.CC_SD) * TICK} s`);
-  assert.ok(when(L.CC_LEN).c > L.CC_SD + 4, 'and a few of them before the clock');
+  assert.ok(cycleAt(MC.CC_SD) * TICK > 65 && cycleAt(MC.CC_SD) * TICK < 85, `sudden death from ${cycleAt(MC.CC_SD) * TICK} s`);
+  assert.ok(when(MC.CC_LEN).c > MC.CC_SD + 4, 'and a few of them before the clock');
   // the rim: the disc's own to cycle CC_SHRINK - 1, then in even steps to CC_RMIN
   const r0 = Math.fround(50);
   assert.equal(rimOf(r0, -1), r0);
-  assert.equal(rimOf(r0, L.CC_SHRINK - 1), r0);
-  for (let c = L.CC_SHRINK; c < L.CC_SD; c++) assert.ok(rimOf(r0, c) < rimOf(r0, c - 1), `shrinks at ${c}`);
-  assert.equal(rimOf(r0, L.CC_SD - 1), L.CC_RMIN);
-  assert.equal(rimOf(r0, 60), L.CC_RMIN);
+  assert.equal(rimOf(r0, MC.CC_SHRINK - 1), r0);
+  for (let c = MC.CC_SHRINK; c < MC.CC_SD; c++) assert.ok(rimOf(r0, c) < rimOf(r0, c - 1), `shrinks at ${c}`);
+  assert.equal(rimOf(r0, MC.CC_SD - 1), MC.CC_RMIN);
+  assert.equal(rimOf(r0, 60), MC.CC_RMIN);
 });
 
 test('every call is a tile still on the board through its drop, and no colour is called twice running unless every tile the drop leaves has one of the two', async () => {
@@ -159,7 +160,7 @@ test('every call is a tile still on the board through its drop, and no colour is
         assert.deepEqual([call.q, call.r], [0, 0], 'the middle tile');
       }
     }
-    assert.ok(forced > 0 && forced / odd < (n > L.CC_KN5 ? 0.004 : 0.01), `${n}: ${forced} of ${odd} odd cycles repeat`);
+    assert.ok(forced > 0 && forced / odd < (n > MC.CC_KN5 ? 0.004 : 0.01), `${n}: ${forced} of ${odd} odd cycles repeat`);
   }
   // the sim's calls are the mirror's: every odd cycle's of 300 boards, ten or so of them past the tries
   const g = await room(2, { seed: 9 });
@@ -172,7 +173,7 @@ test('every call is a tile still on the board through its drop, and no colour is
       const k0 = g.v.fxCount();
       g.step();
       const fx = [];
-      for (let k = k0; k < g.v.fxCount(); k++) if (g.v.fx(k).kind === L.CC_FX_CALL) fx.push(g.v.fx(k));
+      for (let k = k0; k < g.v.fxCount(); k++) if (g.v.fx(k).kind === MC.CC_FX_CALL) fx.push(g.v.fx(k));
       const call = callOf(st, c), [x, z] = hexCentre(call.q, call.r, S, st.cx);
       assert.equal(fx.length, 1, `seed ${s}: cycle ${c}'s call`);
       assert.deepEqual([fx[0].shot, fx[0].pos[0], fx[0].pos[2]], [call.colour | (c << 4), x, z], `seed ${s}: cycle ${c}'s call, its tile`);
@@ -225,7 +226,7 @@ test('the drop in the sim: a ball on the colour called stays up, one on another 
   assert.ok(b.out, 'out before the tiles come back');
   assert.equal(b.place, 3);
   assert.ok((playT(g) - w.d0) * TICK < 1.3, `out ${(playT(g) - w.d0) * TICK} s into the drop`);
-  const drop = fxs(g.v, L.CC_FX_DROP).find((f) => f.tick >= g.v.tick - (playT(g) - w.d0));
+  const drop = fxs(g.v, MC.CC_FX_DROP).find((f) => f.tick >= g.v.tick - (playT(g) - w.d0));
   assert.ok(drop && g.v.fxCount() > before);
   assert.deepEqual([drop.owner, drop.shot, drop.pos[0], drop.pos[1], drop.pos[2]], [255, call.colour | (c << 4), cx, PLAT_Y, cz]);
   // a ball over a dropped tile, high enough to land after the drop's end, lands on it come back
@@ -272,8 +273,8 @@ test('from cycle CC_SHRINK the ring outside the coming rim drops whatever the co
   const g = await room(3, { seed: 12 });
   const st = stage(g.v);
   // the first shrinking cycle with a tile of the colour called in the ring its drop takes
-  let c = L.CC_SHRINK, ring = null;
-  for (; c < L.CC_SD && !ring; c++) {
+  let c = MC.CC_SHRINK, ring = null;
+  for (; c < MC.CC_SD && !ring; c++) {
     const rimP = rimOf(st.r0, c - 1), rimN = rimOf(st.r0, c);
     assert.ok(rimN < rimP, `shrinks at ${c}`);
     ring = tilesIn(st, rimP).find(([q, r, x, z]) => colourOf(st, q, r, c) === callOf(st, c).colour && !holds(st, q, r, when(cycleAt(c)).d0));
@@ -289,7 +290,7 @@ test('from cycle CC_SHRINK the ring outside the coming rim drops whatever the co
   while (playT(g) < w.d0) { g.step(); assert.ok(g.v.partier(0).ground); }
   g.step();
   assert.ok(!g.v.partier(0).ground, 'dropped with the ring');
-  const fx = fxs(g.v, L.CC_FX_DROP).at(-1);
+  const fx = fxs(g.v, MC.CC_FX_DROP).at(-1);
   assert.equal(fx.size, rimN, 'the drop\'s FX: the rim it leaves');
   // the next cycle: the tile isn't there in the rest either
   while (playT(g) < w.e + 5) g.step();
@@ -297,18 +298,18 @@ test('from cycle CC_SHRINK the ring outside the coming rim drops whatever the co
   put(g, 0, ring[2], ring[3]);
   g.step();
   assert.ok(!g.v.partier(0).ground, 'gone for good');
-  const rise = fxs(g.v, L.CC_FX_RISE).at(-1);
+  const rise = fxs(g.v, MC.CC_FX_RISE).at(-1);
   assert.deepEqual([rise.shot, rise.size], [(c + 1) << 4, rimOf(st.r0, c + 1)]);
 });
 
 test('sudden death: one tile holds, the one called, with the board at its smallest', async () => {
   const g = await room(3, { seed: 13 });
   const st = stage(g.v);
-  const c = L.CC_SD + 1, w = when(cycleAt(c));
+  const c = MC.CC_SD + 1, w = when(cycleAt(c));
   at(g, w.w0 - 5);
   const call = callOf(st, c);
   const [cx, cz] = hexCentre(call.q, call.r, S, st.cx);
-  const board = tilesIn(st, L.CC_RMIN);
+  const board = tilesIn(st, MC.CC_RMIN);
   assert.equal(board.length, 7, 'the middle tile and its ring');
   const other = board.find(([q, r]) => q !== call.q || r !== call.r);
   put(g, 0, other[2], other[3]);
@@ -317,8 +318,8 @@ test('sudden death: one tile holds, the one called, with the board at its smalle
   g.step();
   assert.ok(!g.v.partier(0).ground, 'any other tile drops');
   assert.ok(g.v.partier(1).ground && g.v.partier(2).ground, 'the one called holds');
-  const callFx = fxs(g.v, L.CC_FX_CALL).at(-1);
-  assert.deepEqual([callFx.shot, callFx.pos[0], callFx.pos[2], callFx.size], [call.colour | (c << 4), cx, cz, L.CC_WARNSD]);
+  const callFx = fxs(g.v, MC.CC_FX_CALL).at(-1);
+  assert.deepEqual([callFx.shot, callFx.pos[0], callFx.pos[2], callFx.size], [call.colour | (c << 4), cx, cz, MC.CC_WARNSD]);
 });
 
 test('the last balls up all falling to one drop share the win, rather than all sharing last', async () => {
@@ -414,14 +415,14 @@ test('CC_SURV counts the calls a ball lived through; the FX mark each call, drop
       for (; k0 < g.v.fxCount(); k0++) {
         const f = g.v.fx(k0);
         const t = f.tick - g.v.party().start;
-        if (f.kind === L.CC_FX_CALL) seen.call.push([t, f.shot, f.size]);
-        if (f.kind === L.CC_FX_DROP) seen.drop.push([t, f.shot]);
-        if (f.kind === L.CC_FX_RISE) seen.rise.push([t, f.shot]);
+        if (f.kind === MC.CC_FX_CALL) seen.call.push([t, f.shot, f.size]);
+        if (f.kind === MC.CC_FX_DROP) seen.drop.push([t, f.shot]);
+        if (f.kind === MC.CC_FX_RISE) seen.rise.push([t, f.shot]);
       }
     }
   }
   g.step();
-  for (; k0 < g.v.fxCount(); k0++) { const f = g.v.fx(k0); if (f.kind === L.CC_FX_RISE) seen.rise.push([f.tick - g.v.party().start, f.shot]); }
+  for (; k0 < g.v.fxCount(); k0++) { const f = g.v.fx(k0); if (f.kind === MC.CC_FX_RISE) seen.rise.push([f.tick - g.v.party().start, f.shot]); }
   assert.deepEqual(seen.call, [0, 1, 2, 3].map((c) => [when(cycleAt(c)).w0, callOf(st, c).colour | (c << 4), warnOf(c)]));
   assert.deepEqual(seen.drop, [0, 1, 2, 3].map((c) => [when(cycleAt(c)).d0, callOf(st, c).colour | (c << 4)]));
   assert.deepEqual(seen.rise, [1, 2, 3, 4].map((c) => [cycleAt(c), c << 4]));
@@ -461,12 +462,12 @@ test('the prediction matches the confirmed ball bit for bit: held through a drop
   assert.ok(predicted(g, roll) >= roll.length);
   assert.ok(!g.v.partier(0).out, 'landed and rolled on');
   // C: sudden death, rolling round the smallest board
-  c = L.CC_SD; w = when(cycleAt(c));
+  c = MC.CC_SD; w = when(cycleAt(c));
   at(g, w.w0);
   call = callOf(st, c);
   [cx, cz] = hexCentre(call.q, call.r, S, st.cx);
   park(g, [1, 2], cx, cz);
-  const other = tilesIn(st, L.CC_RMIN).find(([q, r]) => q !== call.q || r !== call.r);
+  const other = tilesIn(st, MC.CC_RMIN).find(([q, r]) => q !== call.q || r !== call.r);
   put(g, 0, other[2], other[3]);
   const sd = Array.from({ length: 360 }, (_, k) => partyWord({ yaw: (k * 97) & 16383, move: (k >> 4) & 1, hop: k % 50 === 0 ? 1 : 0 }));
   assert.ok(predicted(g, sd) >= sd.length);
@@ -503,7 +504,7 @@ async function aiRound({ bytes, seed, balls, ticks, delay = 8 }) {
     sim.x.step();
     if (sim.error().code) break;
     const g = v.party();
-    for (; seen < v.fxCount(); seen++) if (v.fx(seen).kind === L.CC_FX_CALL) stats.calls.push(g.left);
+    for (; seen < v.fxCount(); seen++) if (v.fx(seen).kind === MC.CC_FX_CALL) stats.calls.push(g.left);
     if (stats.start < 0 && g.state === L.H_PLAY) stats.start = t;
     if (stats.over < 0 && stats.start >= 0 && g.state === L.H_OVER) {
       stats.over = t;
@@ -522,7 +523,7 @@ for (const [balls, ticks] of [[8, 13000], [64, 13000]]) {
     assert.equal(sim.error().code, 0);
     assert.ok(stats.over > 0, 'the round ended');
     const secs = (stats.over - stats.start) * TICK;
-    assert.ok(secs > 25 && secs < L.CC_LEN * TICK, `${secs.toFixed(1)} s of play`);
+    assert.ok(secs > 25 && secs < MC.CC_LEN * TICK, `${secs.toFixed(1)} s of play`);
     assert.ok(stats.calls.length >= 6, `${stats.calls.length} calls`);
     assert.ok(stats.calls[3] > balls / 2, `still ${stats.calls[3]} of ${balls} up at the fourth call (${stats.calls})`);
     assert.ok(stats.places.every((x) => x >= 1 && x <= balls), `places ${stats.places}`);
@@ -549,7 +550,7 @@ test('the client module: draws every phase, frames the board, writes its HUD lin
   const lines = [];
   const hctx = { put: (x, y, s, c) => lines.push([y, s, c]), centre: (y, s, c) => lines.push([y, s, c]), right: (y, s, c) => lines.push([y, s, c]), rows: 44, C: {}, slot: 0, now: 0 };
   const tiles = tilesIn(st, st.r0).length;
-  for (const [c, dt] of [[0, 10], [0, 200], [1, 400], [L.CC_SHRINK, 50], [L.CC_SHRINK, 300], [L.CC_SD, 50], [L.CC_SD, 140], [L.CC_SD, 360]]) {
+  for (const [c, dt] of [[0, 10], [0, 200], [1, 400], [MC.CC_SHRINK, 50], [MC.CC_SHRINK, 300], [MC.CC_SD, 50], [MC.CC_SD, 140], [MC.CC_SD, 360]]) {
     const w = when(cycleAt(c));
     at(g, w.s + dt);
     g.step();
@@ -559,13 +560,13 @@ test('the client module: draws every phase, frames the board, writes its HUD lin
     assert.ok(out.scene.count > 0 && out.scene.count <= tiles + 2, `${out.scene.count} solids`);
     for (let k = 0; k < out.scene.count * 16; k++) assert.ok(Number.isFinite(out.scene.data[k]), 'finite');
     assert.ok(out.decals.length >= 1);
-    if (c >= L.CC_SD && t >= w.w0) assert.ok(out.beams.length === 1, 'sudden death\'s beam');
+    if (c >= MC.CC_SD && t >= w.w0) assert.ok(out.beams.length === 1, 'sudden death\'s beam');
     color.hud(g.v, hctx);
     const text = lines.map((l) => l[1]).join(' | ');
-    if (t >= w.w0 && t < w.d0) assert.ok(text.includes(c >= L.CC_SD ? 'ONE TILE' : ['RED', 'YELLOW', 'GREEN', 'BLUE', 'PURPLE'][callOf(st, c).colour]), text);
+    if (t >= w.w0 && t < w.d0) assert.ok(text.includes(c >= MC.CC_SD ? 'ONE TILE' : ['RED', 'YELLOW', 'GREEN', 'BLUE', 'PURPLE'][callOf(st, c).colour]), text);
     // the rest before the first grey ring and before sudden death says what's coming
-    if (t < w.w0 && c === L.CC_SHRINK) assert.ok(text.includes('GREY TILES FALL FOR GOOD'), text);
-    if (t < w.w0 && c === L.CC_SD) assert.ok(text.includes('SUDDEN DEATH') && text.includes('ONE TILE WILL HOLD'), text);
+    if (t < w.w0 && c === MC.CC_SHRINK) assert.ok(text.includes('GREY TILES FALL FOR GOOD'), text);
+    if (t < w.w0 && c === MC.CC_SD) assert.ok(text.includes('SUDDEN DEATH') && text.includes('ONE TILE WILL HOLD'), text);
     for (const l of lines) assert.ok(l[1].length <= 80, l[1]);
     const fr = color.frame(g.v);
     assert.equal(fr.shape, 'disc');

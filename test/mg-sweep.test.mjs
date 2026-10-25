@@ -7,6 +7,7 @@ import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import { Partier } from '../client/party-bot.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/sweep.mjs'; // SW_*: the minigame's own constants
 import sweep, { angleAt, dropsAt, rimOf, rimAt, solidAt, barsAt, stage, spinAt, touches, nextBar, AIR } from '../client/mg/sweep.mjs';
 
 const C = L.B_CX;
@@ -41,14 +42,14 @@ function put(g, p, x, z, { y = PLAT_Y, vx = 0, vz = 0, ground = true } = {}) {
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.SW_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.SW_LEN, true);
 }
 const playT = (g) => g.v.party().t; // the tick into play the next step plays
 // Bar k's bearing (radians) on tick t, and the point rho out along a bearing.
-const bar = (st, k, t) => (angleAt(st.a0, st.dir, t) >>> 0) / 2 ** 24 * TAU + L.SW_QUARTER[k] * Math.PI / 2;
+const bar = (st, k, t) => (angleAt(st.a0, st.dir, t) >>> 0) / 2 ** 24 * TAU + MC.SW_QUARTER[k] * Math.PI / 2;
 const on = (st, a, rho) => [f(st.cx + Math.cos(a) * rho), f(st.cx + Math.sin(a) * rho)];
 // How fast the bars turn into tick t as the sim works it out in f32, rad/s.
-const spin32 = (st, t) => f(f((angleAt(st.a0, st.dir, t) - angleAt(st.a0, st.dir, t - 1)) | 0) * f(L.SW_RAD_TICK));
+const spin32 = (st, t) => f(f((angleAt(st.a0, st.dir, t) - angleAt(st.a0, st.dir, t - 1)) | 0) * f(MC.SW_RAD_TICK));
 // Which way the bars turn into tick t: +1 x towards z, -1 back, 0 still.
 const way = (st, t) => Math.sign(spinAt(st, t));
 const fxs = (v, kind, from = 0) => { const out = []; for (let k = from; k < v.fxCount(); k++) { const x = v.fx(k); if (x.kind === kind) out.push(x); } return out; };
@@ -60,15 +61,15 @@ test('the stage for 1, 8, 64 and 256: a platform sized for the crowd, its knobs 
   for (const n of [1, 8, 64, 256]) {
     const g = await room(n, { play: false, seed: n });
     const r = g.v.party();
-    const rad = Math.min(L.SW_R0 + L.SW_RK * Math.sqrt(n), L.SW_RMAX);
+    const rad = Math.min(MC.SW_R0 + MC.SW_RK * Math.sqrt(n), MC.SW_RMAX);
     assert.equal(r.game, L.MG_SWEEP);
     assert.ok(Math.abs(r.size - rad) < 1e-4, `${r.size} m for ${n}`);
     assert.ok(r.size >= last, 'grows with the crowd');
     last = r.size;
-    assert.deepEqual([r.kind, r.len, r.floor, r.hop, r.idle, r.drag], [L.PK_OUT, L.SW_LEN, PLAT_Y, L.SW_HOP, f(L.SW_IDLE), f(Number(L.BPHYS.B_DRAG))]);
+    assert.deepEqual([r.kind, r.len, r.floor, r.hop, r.idle, r.drag], [L.PK_OUT, MC.SW_LEN, PLAT_Y, MC.SW_HOP, f(MC.SW_IDLE), f(Number(L.BPHYS.B_DRAG))]);
     const st = stage(g.v);
     assert.equal(st.r0, r.size);
-    const h = pseed(g.v, L.SW_KSEED);
+    const h = pseed(g.v, MC.SW_KSEED);
     assert.equal(st.a0, h & 0xffffff, 'the first bar\'s angle from the round\'s seed');
     assert.equal(st.dir, h >>> 31 ? -1 : 1);
     const pos = [];
@@ -76,10 +77,10 @@ test('the stage for 1, 8, 64 and 256: a platform sized for the crowd, its knobs 
       const b = g.v.partier(p);
       assert.ok(b.ground && !b.out && b.pos[1] === PLAT_Y, 'on the floor');
       const rho = Math.hypot(b.pos[0] - C, b.pos[2] - C);
-      assert.ok(rho >= L.SW_POST + L.SW_SPAWN0 - 1e-3 && rho <= r.size * L.SW_SPAWN1 + 1e-3, `${n}: P${p + 1} ${rho.toFixed(2)} m out`);
+      assert.ok(rho >= MC.SW_POST + MC.SW_SPAWN0 - 1e-3 && rho <= r.size * MC.SW_SPAWN1 + 1e-3, `${n}: P${p + 1} ${rho.toFixed(2)} m out`);
       for (const [x, z] of pos) assert.ok(Math.hypot(b.pos[0] - x, b.pos[2] - z) >= 2, `${n}: P${p + 1} apart`);
       const [along, across] = split([b.pos[0] - C, 0, b.pos[2] - C], bar(st, 0, 0));
-      assert.ok(along < 0 || Math.abs(across) >= L.SW_CLEAR - 0.05, `${n}: P${p + 1} clear of the bar (${across.toFixed(2)} m across)`);
+      assert.ok(along < 0 || Math.abs(across) >= MC.SW_CLEAR - 0.05, `${n}: P${p + 1} clear of the bar (${across.toFixed(2)} m across)`);
       pos.push([b.pos[0], b.pos[2]]);
     }
   }
@@ -87,55 +88,55 @@ test('the stage for 1, 8, 64 and 256: a platform sized for the crowd, its knobs 
 
 test('the schedule: still for the grace, one bar turning faster and faster, a bar more at each of SW_TS after a pause, the other way each time', () => {
   const st = { a0: 0x123456, dir: 1, r0: f(30), cx: C };
-  for (let t = 0; t < L.SW_GRACE; t++) assert.equal(angleAt(st.a0, st.dir, t), st.a0, 'still in the grace');
+  for (let t = 0; t < MC.SW_GRACE; t++) assert.equal(angleAt(st.a0, st.dir, t), st.a0, 'still in the grace');
   // the speed a tick: SW_S0 plus SW_SK a tick since the start, while turning
   let dir = 1, moving = 0;
   for (let t = 1; t < 12000; t++) {
     const d = (angleAt(st.a0, st.dir, t) - angleAt(st.a0, st.dir, t - 1)) | 0;
-    const still = t <= L.SW_GRACE || L.SW_TS.some((tk) => t > tk && t <= tk + L.SW_PAUSE);
+    const still = t <= MC.SW_GRACE || MC.SW_TS.some((tk) => t > tk && t <= tk + MC.SW_PAUSE);
     if (still) { assert.equal(d, 0, `still into ${t}`); continue; }
-    if (L.SW_TS.includes(t - 1 - L.SW_PAUSE)) dir = -dir;
-    assert.equal(d, dir * (L.SW_S0 + L.SW_SK * (t - 1)), `into tick ${t}`);
+    if (MC.SW_TS.includes(t - 1 - MC.SW_PAUSE)) dir = -dir;
+    assert.equal(d, dir * (MC.SW_S0 + MC.SW_SK * (t - 1)), `into tick ${t}`);
     moving++;
   }
   assert.ok(moving > 11000);
-  assert.deepEqual([0, L.SW_TS[0], L.SW_TS[0] + 1, L.SW_TS[1] + 1, L.SW_TS[2] + 1, 15000].map(barsAt), [1, 1, 2, 3, 4, 4]);
+  assert.deepEqual([0, MC.SW_TS[0], MC.SW_TS[0] + 1, MC.SW_TS[1] + 1, MC.SW_TS[2] + 1, 15000].map(barsAt), [1, 1, 2, 3, 4, 4]);
   // a new bar is solid from its first still tick
-  assert.ok(solidAt(0, 0) && !solidAt(1, L.SW_TS[0]) && solidAt(1, L.SW_TS[0] + 1) && !solidAt(3, L.SW_TS[2]) && solidAt(3, L.SW_TS[2] + 1));
+  assert.ok(solidAt(0, 0) && !solidAt(1, MC.SW_TS[0]) && solidAt(1, MC.SW_TS[0] + 1) && !solidAt(3, MC.SW_TS[2]) && solidAt(3, MC.SW_TS[2] + 1));
   // rad/s at the start and two minutes in
-  assert.ok(Math.abs(L.SW_S0 * L.SW_RAD_TICK - 0.8) < 1e-3);
+  assert.ok(Math.abs(MC.SW_S0 * MC.SW_RAD_TICK - 0.8) < 1e-3);
   assert.ok(Math.abs(spinAt(st, 15000)) > 2 && Math.abs(spinAt(st, 15000)) < 2.4, `${spinAt(st, 15000)} rad/s at the end`);
   // the rim: in SW_RINGS steps from SW_TR0, every SW_TRI, to SW_RMIN
-  assert.deepEqual([0, L.SW_TR0 - 1, L.SW_TR0, L.SW_TR0 + L.SW_TRI - 1, L.SW_TR0 + L.SW_TRI, L.SW_TR0 + 4 * L.SW_TRI, 15000].map(dropsAt), [0, 0, 1, 1, 2, 5, 5]);
+  assert.deepEqual([0, MC.SW_TR0 - 1, MC.SW_TR0, MC.SW_TR0 + MC.SW_TRI - 1, MC.SW_TR0 + MC.SW_TRI, MC.SW_TR0 + 4 * MC.SW_TRI, 15000].map(dropsAt), [0, 0, 1, 1, 2, 5, 5]);
   assert.equal(rimOf(st.r0, 0), st.r0);
-  assert.equal(rimOf(st.r0, L.SW_RINGS), L.SW_RMIN);
-  for (let k = 1; k <= L.SW_RINGS; k++) assert.ok(rimOf(st.r0, k) < rimOf(st.r0, k - 1));
-  assert.ok((L.SW_TR0 + (L.SW_RINGS - 1) * L.SW_TRI) < L.SW_LEN - 2000, 'the last ring well before the clock');
-  assert.equal(L.SW_FX_HIT, L.FX_MG + 4 * L.MG_SWEEP);
-  assert.deepEqual([L.SW_FX_BEAM, L.SW_FX_GO, L.SW_FX_RING], [L.SW_FX_HIT + 1, L.SW_FX_HIT + 2, L.SW_FX_HIT + 3]);
+  assert.equal(rimOf(st.r0, MC.SW_RINGS), MC.SW_RMIN);
+  for (let k = 1; k <= MC.SW_RINGS; k++) assert.ok(rimOf(st.r0, k) < rimOf(st.r0, k - 1));
+  assert.ok((MC.SW_TR0 + (MC.SW_RINGS - 1) * MC.SW_TRI) < MC.SW_LEN - 2000, 'the last ring well before the clock');
+  assert.equal(MC.SW_FX_HIT, L.FX_MG + 4 * L.MG_SWEEP);
+  assert.deepEqual([MC.SW_FX_BEAM, MC.SW_FX_GO, MC.SW_FX_RING], [MC.SW_FX_HIT + 1, MC.SW_FX_HIT + 2, MC.SW_FX_HIT + 3]);
 });
 
 test('the schedule\'s moments as FX on time: the bars setting off, a bar coming, a ring shaking and going', async () => {
   const g = await room(2, { seed: 5 });
   const st = stage(g.v);
-  const seen = (t) => { at(g, t); const k = g.v.fxCount(); g.step(); return [L.SW_FX_GO, L.SW_FX_BEAM, L.SW_FX_RING].flatMap((kind) => fxs(g.v, kind, k)); };
-  let [x] = seen(L.SW_GRACE);
-  assert.deepEqual([x.kind, x.owner, x.shot, x.pos[0], x.pos[1], x.pos[2]], [L.SW_FX_GO, 255, 1, C, PLAT_Y, C]);
-  assert.equal(x.size, spin32(st, L.SW_GRACE + 1));
+  const seen = (t) => { at(g, t); const k = g.v.fxCount(); g.step(); return [MC.SW_FX_GO, MC.SW_FX_BEAM, MC.SW_FX_RING].flatMap((kind) => fxs(g.v, kind, k)); };
+  let [x] = seen(MC.SW_GRACE);
+  assert.deepEqual([x.kind, x.owner, x.shot, x.pos[0], x.pos[1], x.pos[2]], [MC.SW_FX_GO, 255, 1, C, PLAT_Y, C]);
+  assert.equal(x.size, spin32(st, MC.SW_GRACE + 1));
   for (let k = 0; k < 3; k++) {
-    [x] = seen(L.SW_TS[k] - L.SW_WARN);
-    assert.deepEqual([x.kind, x.shot, x.size], [L.SW_FX_BEAM, k + 1, L.SW_WARN + L.SW_PAUSE]);
-    [x] = seen(L.SW_TS[k] + L.SW_PAUSE);
-    assert.deepEqual([x.kind, x.shot], [L.SW_FX_GO, (k + 2) | 16]);
-    assert.equal(Math.sign(x.size), -way(st, L.SW_TS[k]), 'the other way');
-    assert.equal(x.size, spin32(st, L.SW_TS[k] + L.SW_PAUSE + 1));
+    [x] = seen(MC.SW_TS[k] - MC.SW_WARN);
+    assert.deepEqual([x.kind, x.shot, x.size], [MC.SW_FX_BEAM, k + 1, MC.SW_WARN + MC.SW_PAUSE]);
+    [x] = seen(MC.SW_TS[k] + MC.SW_PAUSE);
+    assert.deepEqual([x.kind, x.shot], [MC.SW_FX_GO, (k + 2) | 16]);
+    assert.equal(Math.sign(x.size), -way(st, MC.SW_TS[k]), 'the other way');
+    assert.equal(x.size, spin32(st, MC.SW_TS[k] + MC.SW_PAUSE + 1));
   }
-  for (let j = 0; j < L.SW_RINGS; j++) {
-    const tj = L.SW_TR0 + j * L.SW_TRI;
-    [x] = seen(tj - L.SW_RWARN);
-    assert.deepEqual([x.kind, x.shot, x.size], [L.SW_FX_RING, 0, rimOf(st.r0, j + 1)]);
+  for (let j = 0; j < MC.SW_RINGS; j++) {
+    const tj = MC.SW_TR0 + j * MC.SW_TRI;
+    [x] = seen(tj - MC.SW_RWARN);
+    assert.deepEqual([x.kind, x.shot, x.size], [MC.SW_FX_RING, 0, rimOf(st.r0, j + 1)]);
     [x] = seen(tj);
-    assert.deepEqual([x.kind, x.shot, x.size], [L.SW_FX_RING, 1, rimOf(st.r0, j + 1)]);
+    assert.deepEqual([x.kind, x.shot, x.size], [MC.SW_FX_RING, 1, rimOf(st.r0, j + 1)]);
   }
   assert.equal(seen(1000).length, 0, 'and nothing between');
 });
@@ -161,7 +162,7 @@ test('a bar meeting a ball on the floor flings it on round the way the bar turns
   while (!hit && playT(g) < t0 + 200) {
     const t = playT(g);
     g.step();
-    hit = fxs(g.v, L.SW_FX_HIT, k0).find((e) => e.owner === 0);
+    hit = fxs(g.v, MC.SW_FX_HIT, k0).find((e) => e.owner === 0);
     if (hit) {
       assert.ok(Math.abs(t - meet) <= 1, `flung on tick ${t}, the mirror says ${meet}`);
       // in the bar's own frame: along it and across it
@@ -170,10 +171,10 @@ test('a bar meeting a ball on the floor flings it on round the way the bar turns
       const [vr, vh] = split(b.vel, ang);
       const [along] = split([b.pos[0] - C, 0, b.pos[2] - C], ang);
       const u = Math.abs(spinAt(st, t)) * along;
-      const want = Math.min(L.SW_KICK * u + L.SW_KICK0, L.SW_VMAX);
+      const want = Math.min(MC.SW_KICK * u + MC.SW_KICK0, MC.SW_VMAX);
       assert.ok(dir * vh >= want - 0.05, `on round at ${vh.toFixed(2)}, the bar at ${u.toFixed(2)}`);
-      assert.ok(vr > L.SW_OUT - 0.5, `out at ${vr.toFixed(2)}`);
-      assert.equal(b.vel[1], L.SW_UP, 'up');
+      assert.ok(vr > MC.SW_OUT - 0.5, `out at ${vr.toFixed(2)}`);
+      assert.equal(b.vel[1], MC.SW_UP, 'up');
       assert.ok(!b.ground && b.pos[1] > PLAT_Y, 'off the floor');
       assert.deepEqual([hit.shot, hit.pos[0], hit.pos[1], hit.pos[2]], [0, b.pos[0], b.pos[1], b.pos[2]]);
       assert.ok(Math.abs(hit.size - want) < 0.05);
@@ -202,7 +203,7 @@ test('a hop the mirror says clears the bar clears it in the sim; one too early o
     const j = early === null ? -1 : early ? Math.max(0, nb.early - 25) : Math.round((nb.early + nb.late) / 2);
     const k0 = g.v.fxCount();
     for (let i = 0; i < nb.until + AIR + 30; i++) g.step(i === j ? [[L.EV_INPUT, 0, partyWord({ hop: 1 })]] : i === j + 1 ? [[L.EV_INPUT, 0, partyWord({})]] : []);
-    const hit = fxs(g.v, L.SW_FX_HIT, k0).some((e) => e.owner === 0);
+    const hit = fxs(g.v, MC.SW_FX_HIT, k0).some((e) => e.owner === 0);
     if (early === false) {
       assert.ok(!hit, `${rho} m: cleared, hopping ${j} ticks on (${nb.early}..${nb.late})`);
       const b = g.v.partier(0);
@@ -216,7 +217,7 @@ test('the post: a ball rolling into it bounces off at half the speed and never g
   const st = stage(g.v);
   at(g, 10); // the grace: the bar still
   const a = bar(st, 0, 10) + Math.PI / 2;
-  const [x, z] = on(st, a, L.SW_POST + 1 + 0.3);
+  const [x, z] = on(st, a, MC.SW_POST + 1 + 0.3);
   put(g, 0, x, z, { vx: -Math.cos(a) * 8, vz: -Math.sin(a) * 8 });
   put(g, 1, ...on(st, a + Math.PI, 8));
   let out = -Infinity;
@@ -224,26 +225,26 @@ test('the post: a ball rolling into it bounces off at half the speed and never g
     g.step();
     const b = g.v.partier(0);
     const d = Math.hypot(b.pos[0] - C, b.pos[2] - C);
-    assert.ok(d >= L.SW_POST + 1 - 1e-3, `outside the post: ${d}`);
+    assert.ok(d >= MC.SW_POST + 1 - 1e-3, `outside the post: ${d}`);
     out = Math.max(out, split(b.vel, a)[0]);
   }
   assert.ok(out > 3 && out <= 4.01, `bounced off at ${out.toFixed(2)} m/s`);
 });
 
 test('a still bar holds a ball off and doesn\'t fling it: in the grace, and a new bar in its pause, from the tick it comes in', async () => {
-  for (const [t0, k] of [[5, 0], [L.SW_TS[0] + 3, 1], [L.SW_TS[0], 1]]) {
+  for (const [t0, k] of [[5, 0], [MC.SW_TS[0] + 3, 1], [MC.SW_TS[0], 1]]) {
     const g = await room(2, { seed: 8 });
     const st = stage(g.v);
     at(g, t0);
     assert.equal(spinAt(st, t0 + 1), 0, 'still');
     // across the bar's axis 0.5 m, 7 m out, on the side it was turning to as it stopped
-    const a = bar(st, k, t0), side = way(st, L.SW_TS[0]);
+    const a = bar(st, k, t0), side = way(st, MC.SW_TS[0]);
     const [x, z] = on(st, a, 7);
     put(g, 0, f(x - Math.sin(a) * 0.5 * side), f(z + Math.cos(a) * 0.5 * side));
     put(g, 1, ...on(st, a + Math.PI / 2 + 0.4, 8));
     const k0 = g.v.fxCount();
     for (let i = 0; i < 60; i++) g.step();
-    assert.equal(fxs(g.v, L.SW_FX_HIT, k0).length, 0, 'not flung');
+    assert.equal(fxs(g.v, MC.SW_FX_HIT, k0).length, 0, 'not flung');
     const b = g.v.partier(0);
     const [, h] = split([b.pos[0] - C, 0, b.pos[2] - C], a);
     assert.ok(b.ground && Math.abs(h) > 1.06 && Math.abs(h) < 1.6, `held off the bar, ${h.toFixed(2)} m across it, on the floor`);
@@ -252,10 +253,10 @@ test('a still bar holds a ball off and doesn\'t fling it: in the grace, and a ne
 });
 
 test('the rings: the outer ring drops on its tick and takes a ball on it; inside the next rim stays up; at the last, SW_RMIN', async () => {
-  for (let j = 0; j < L.SW_RINGS; j += 2) {
+  for (let j = 0; j < MC.SW_RINGS; j += 2) {
     const g = await room(3, { seed: 9 + j });
     const st = stage(g.v);
-    const tj = L.SW_TR0 + j * L.SW_TRI;
+    const tj = MC.SW_TR0 + j * MC.SW_TRI;
     at(g, tj - 6);
     // somewhere no bar comes near for the next 40 ticks
     let best = null;
@@ -280,7 +281,7 @@ test('the rings: the outer ring drops on its tick and takes a ball on it; inside
     assert.ok(g.v.partier(0).falling, 'and going out');
   }
   const st = { r0: f(40) };
-  assert.equal(rimAt(st, L.SW_TR0 + (L.SW_RINGS - 1) * L.SW_TRI), L.SW_RMIN);
+  assert.equal(rimAt(st, MC.SW_TR0 + (MC.SW_RINGS - 1) * MC.SW_TRI), MC.SW_RMIN);
 });
 
 test('balls that went off ticks apart don\'t share the win: the first is out in its place, the last on wins alone (or the two that went together share it)', async () => {
@@ -367,7 +368,7 @@ test('the prediction matches the confirmed ball bit for bit: flung by a bar, hop
   put(g, 0, ...on(st, a, 5), { vx: -Math.cos(a) * 9, vz: -Math.sin(a) * 9 });
   assert.ok(predicted(g, Array(60).fill(partyWord({ yaw: Math.round(((a + Math.PI) / TAU) * 16384) & 16383, move: 1 }))) >= 60);
   // D: through the second bar's warning, the pause and the way back, rolling round
-  t0 = L.SW_TS[0] - 40;
+  t0 = MC.SW_TS[0] - 40;
   at(g, t0);
   put(g, 0, ...on(st, bar(st, 1, t0) + 0.05, 6));
   const roam = Array.from({ length: 270 }, (_, i) => partyWord({ yaw: (i * 61) & 16383, move: (i >> 5) & 1, hop: i % 45 === 0 ? 1 : 0 }));
@@ -375,7 +376,7 @@ test('the prediction matches the confirmed ball bit for bit: flung by a bar, hop
   for (; k < roam.length && !g.v.partier(0).falling; k += 30) assert.ok(predicted(g, roam.slice(k, k + 30)) >= 1);
   assert.ok(k > 150, `${k} ticks before it fell`);
   // E: on the ring as it drops, then (falling) not much longer
-  t0 = L.SW_TR0 - 20;
+  t0 = MC.SW_TR0 - 20;
   at(g, t0);
   let ok = null;
   for (let i = 0; i < 64 && !ok; i++) {
@@ -388,7 +389,7 @@ test('the prediction matches the confirmed ball bit for bit: flung by a bar, hop
   assert.ok(predicted(g, still(80)) >= 80);
   assert.ok(g.v.partier(0).falling && !g.v.partier(0).out, 'dropped with the ring');
   // F: the fast end, four bars, rolling and hopping round inside the last rim
-  t0 = L.SW_TR0 + 5 * L.SW_TRI;
+  t0 = MC.SW_TR0 + 5 * MC.SW_TRI;
   at(g, t0);
   put(g, 0, ...on(st, 1, 5));
   const words = Array.from({ length: 300 }, (_, i) => partyWord({ yaw: (i * 211) & 16383, move: (i >> 3) % 3 === 0 ? 0 : 1, hop: i % 23 === 0 ? 1 : 0 }));
@@ -401,7 +402,7 @@ async function aiRound(balls, ticks, seed) {
   let places = null, pts = null, winner = -1;
   const { log, sim } = await playParty({ bytes: partyBytes(true), seed, mg: L.MG_SWEEP, bots: balls, ticks, onTick: (t, s, v) => {
     const g = v.party();
-    for (; seen < v.fxCount(); seen++) hits += v.fx(seen).kind === L.SW_FX_HIT;
+    for (; seen < v.fxCount(); seen++) hits += v.fx(seen).kind === MC.SW_FX_HIT;
     if (start < 0 && g.state === L.H_PLAY) start = t;
     if (start >= 0 && at15 < 0 && t - start >= 15 / TICK) at15 = g.left;
     if (start >= 0 && over < 0 && g.state === L.H_OVER) {
@@ -420,7 +421,7 @@ for (const [balls, ticks, seed] of [[8, 16500, 21], [64, 16500, 22]]) {
     assert.equal(r.sim.error().code, 0);
     assert.ok(r.over > 0, 'the round ended');
     const secs = (r.over - r.start) * TICK;
-    assert.ok(secs > 20 && secs <= L.SW_LEN * TICK + 0.01, `${secs.toFixed(1)} s of play`);
+    assert.ok(secs > 20 && secs <= MC.SW_LEN * TICK + 0.01, `${secs.toFixed(1)} s of play`);
     assert.ok(r.at15 >= balls / 2, `${r.at15} of ${balls} still on 15 s in`);
     assert.ok(r.hits >= balls / 2, `${r.hits} flung`);
     assert.ok(r.places.every((x) => x >= 1 && x <= balls), `places ${r.places}`);
@@ -445,7 +446,7 @@ test('the client module: draws every phase, frames the platform, writes its HUD 
   const out = { scene: new Scene(24000), solid: [], glow: [], beams: [], decals: [], paint: null };
   const lines = [];
   const hctx = { put: (x, y, s, c) => lines.push([y, s, c]), centre: (y, s, c) => lines.push([y, s, c]), right: (y, s, c) => lines.push([y, s, c]), rows: 44, C: {}, slot: 0, now: 0 };
-  for (const t of [10, 600, L.SW_TS[0] - 100, L.SW_TS[0] + 50, L.SW_TS[2] + 400, L.SW_TR0 - 100, L.SW_TR0 + 10, L.SW_TR0 + 5 * L.SW_TRI]) {
+  for (const t of [10, 600, MC.SW_TS[0] - 100, MC.SW_TS[0] + 50, MC.SW_TS[2] + 400, MC.SW_TR0 - 100, MC.SW_TR0 + 10, MC.SW_TR0 + 5 * MC.SW_TRI]) {
     at(g, t);
     g.step();
     out.scene.clear(); out.decals.length = 0; out.glow.length = 0; lines.length = 0;
@@ -457,22 +458,22 @@ test('the client module: draws every phase, frames the platform, writes its HUD 
     for (const l of lines) assert.ok(l[1].length <= 80, l[1]);
     const text = lines.map((l) => l[1]).join(' | ');
     assert.ok(text.includes(`BARS ${barsAt(t + 1)}`), text);
-    if (t + 1 >= L.SW_TR0 - L.SW_RWARN && t + 1 < L.SW_TR0) assert.ok(text.includes('THE EDGE DROPS') && out.decals.some((d) => d.color[0] === 1 && d.color[1] === 0.2), 'the edge to come');
+    if (t + 1 >= MC.SW_TR0 - MC.SW_RWARN && t + 1 < MC.SW_TR0) assert.ok(text.includes('THE EDGE DROPS') && out.decals.some((d) => d.color[0] === 1 && d.color[1] === 0.2), 'the edge to come');
     const fr = sweep.frame(g.v);
     assert.equal(fr.shape, 'disc');
     assert.ok(Math.abs(fr.radius - (rimAt(st, playT(g)) + 1)) < 1e-3);
   }
   assert.ok(sweep.hint.length <= 70);
   // danger: off the rim, the post, the ring about to drop, and fine in between
-  at(g, L.SW_TR0 - 200);
+  at(g, MC.SW_TR0 - 200);
   g.step();
   const T = g.v.party().start;
-  const tk = T + L.SW_TR0 - 100;
+  const tk = T + MC.SW_TR0 - 100;
   assert.equal(sweep.brain.danger(g.v, C + st.r0 + 1, C, tk), 1);
   assert.ok(sweep.brain.danger(g.v, C + 1.5, C, tk) >= 0.6);
   assert.ok(sweep.brain.danger(g.v, C + (st.r0 + rimOf(st.r0, 1)) / 2, C, tk) >= 0.8);
   assert.equal(sweep.brain.danger(g.v, C + 7, C, T + 2000), 0);
-  assert.equal(sweep.brain.danger(g.v, C + rimOf(st.r0, 1) + 0.5, C, T + L.SW_TR0 + 1), 1, 'past the rim the drop left');
+  assert.equal(sweep.brain.danger(g.v, C + rimOf(st.r0, 1) + 0.5, C, T + MC.SW_TR0 + 1), 1, 'past the rim the drop left');
   // its hop over a bar, asked every 4th tick as the bot asks, clears it in the sim
   const g2 = await room(3, { seed: 42 });
   const st2 = stage(g2.v);
@@ -496,11 +497,11 @@ test('the client module: draws every phase, frames the platform, writes its HUD 
     g2.step([[L.EV_INPUT, 0, word]]);
   }
   assert.ok(hopped > 0, 'it hopped');
-  assert.equal(fxs(g2.v, L.SW_FX_HIT, k0).filter((e) => e.owner === 0).length, 0, 'and cleared the bar');
+  assert.equal(fxs(g2.v, MC.SW_FX_HIT, k0).filter((e) => e.owner === 0).length, 0, 'and cleared the bar');
   assert.ok(g2.v.partier(0).ground && !g2.v.partier(0).out);
   // and the whole AI ball (client/party-bot.mjs, its words landing 8 ticks late) alone with three bars for 10 s: it stands, hops them, stays on
   const g3 = await room(1, { seed: 43 });
-  at(g3, L.SW_TS[1] + L.SW_PAUSE + 10);
+  at(g3, MC.SW_TS[1] + MC.SW_PAUSE + 10);
   const ai = new Partier(0, 5, 1);
   const k1 = g3.v.fxCount(), late = [];
   let hops = 0, last = 0;
@@ -512,6 +513,6 @@ test('the client module: draws every phase, frames the platform, writes its HUD 
     g3.step([[L.EV_INPUT, 0, w]]);
   }
   assert.ok(hops >= 4, `${hops} hops`);
-  assert.equal(fxs(g3.v, L.SW_FX_HIT, k1).length, 0, 'never flung');
+  assert.equal(fxs(g3.v, MC.SW_FX_HIT, k1).length, 0, 'never flung');
   assert.ok(!g3.v.partier(0).out);
 });

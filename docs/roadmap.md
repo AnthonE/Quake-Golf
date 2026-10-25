@@ -87,7 +87,7 @@ only of your own body), physics sandboxes, open worlds.
    compiled (every hash still equal). Then a frame rate on a real laptop GPU.
 6. Smaller debts: Musical Pads' ground is exact only while the prediction runs
    less than 125 ticks ahead (the host predicts up to 201); bumper's and the
-   arena's pages load Party's constants through `layout.mjs`'s re-exports
+   arena's pages load Party's constants through `layout.mjs`'s `MG_CONSTS`
    (26 KB gzipped).
 7. People playing it. Everything so far is played by bots.
 

@@ -664,7 +664,7 @@ export const BPHYS = {
 // rotation, joins, the ball's move over any stage, outs, places, points),
 // which calls each minigame's hooks (src/mg/<key>.wat, named $<prefix>_<hook>)
 // through (!mg). A minigame's own constants live in src/mg/<key>.mjs, every
-// name under its prefix in capitals, and are re-exported below.
+// name under its prefix in capitals, gathered into MG_CONSTS below.
 export const MINIGAMES = [
   { key: 'thinice', prefix: 'ti', name: 'THIN ICE' },
   { key: 'color', prefix: 'cc', name: 'COLOR CALL' },
@@ -733,20 +733,27 @@ export const PG_S_SIZE = 0xe000 - 0xc100;
 export const PG_BIG = REGION + 0x10000; // big minigame state (tiles, grids), to the region's end: party has no golf balls
 export const PG_BIG_SIZE = REGION_SIZE - 0x10000;
 
-export * from './mg/thinice.mjs';
-export * from './mg/color.mjs';
-export * from './mg/sweep.mjs';
-export * from './mg/light.mjs';
-export * from './mg/bombs.mjs';
-export * from './mg/wall.mjs';
-export * from './mg/pads.mjs';
-export * from './mg/hill.mjs';
-export * from './mg/potato.mjs';
-export * from './mg/coins.mjs';
-export * from './mg/paint.mjs';
-export * from './mg/race.mjs';
-export * from './mg/chute.mjs';
-export * from './mg/tag.mjs';
+// Each minigame's own constants (src/mg/<key>.mjs), as one object the
+// assembler spreads into its scope (tools/asm.mjs) rather than as names of
+// this module: V8 keeps a namespace of more than about a thousand exports as a
+// dictionary, and every L.NAME read in the hot loops (the bot host, the relay,
+// the referee, a page's frame) took 14 times as long once these 763 joined
+// it (test/party.test.mjs holds the count down). JS reads a minigame's own file.
+import * as mg_thinice from './mg/thinice.mjs';
+import * as mg_color from './mg/color.mjs';
+import * as mg_sweep from './mg/sweep.mjs';
+import * as mg_light from './mg/light.mjs';
+import * as mg_bombs from './mg/bombs.mjs';
+import * as mg_wall from './mg/wall.mjs';
+import * as mg_pads from './mg/pads.mjs';
+import * as mg_hill from './mg/hill.mjs';
+import * as mg_potato from './mg/potato.mjs';
+import * as mg_coins from './mg/coins.mjs';
+import * as mg_paint from './mg/paint.mjs';
+import * as mg_race from './mg/race.mjs';
+import * as mg_chute from './mg/chute.mjs';
+import * as mg_tag from './mg/tag.mjs';
+export const MG_CONSTS = Object.freeze(Object.assign({}, mg_thinice, mg_color, mg_sweep, mg_light, mg_bombs, mg_wall, mg_pads, mg_hill, mg_potato, mg_coins, mg_paint, mg_race, mg_chute, mg_tag));
 
 // ---- Fireplace: every game in one module (build/fireplace/game.wasm), a
 // playlist of matches the room plays through, Mario Party style; people come

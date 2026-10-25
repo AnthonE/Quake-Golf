@@ -11,13 +11,14 @@
 // tick into play), worked out here on the prediction's clock, so the doll
 // turns as your own predicted ball rolls: what you see is what the judge sees.
 import * as L from '../../src/layout.mjs';
+import * as MC from '../../src/mg/light.mjs'; // RL_*: the minigame's own constants
 import { PLAT_Y, hash32 } from '../../src/party-view.mjs';
 import { LOOK, SPRITE, DECAL, COLS } from '../party-render.mjs';
 import { C } from '../font.mjs';
 
 const TICK = 0.008;
 const N = (k) => Math.fround(Number(L.BPHYS[k]));
-const ACC = N('B_ACC_DT'), DRAG = N('B_DRAG'), IDLE = Math.fround(L.RL_IDLE);
+const ACC = N('B_ACC_DT'), DRAG = N('B_DRAG'), IDLE = Math.fround(MC.RL_IDLE);
 const DOLL = 30; // m past the finish line to the doll
 const DOLL_K = 1.6; // her scale: her head 20 m up, over everything, seen from the start line
 const LAMPS = 25; // m between the lamps along the rails
@@ -40,23 +41,23 @@ let memo = null;
 // This round's field on the view's bank (PG_H), and its schedule as it's worked out.
 export function stage(view) {
   const dv = view.dv, o = view.bank || 0;
-  const hw = dv.getFloat32(L.PG_H + L.RL_HW + o, true), zs = dv.getFloat32(L.PG_H + L.RL_ZS + o, true);
-  const zf = dv.getFloat32(L.PG_H + L.RL_ZF + o, true), zb = dv.getFloat32(L.PG_H + L.RL_ZB + o, true);
+  const hw = dv.getFloat32(L.PG_H + MC.RL_HW + o, true), zs = dv.getFloat32(L.PG_H + MC.RL_ZS + o, true);
+  const zf = dv.getFloat32(L.PG_H + MC.RL_ZF + o, true), zb = dv.getFloat32(L.PG_H + MC.RL_ZB + o, true);
   const cx = dv.getFloat32(L.PG_CX + o, true), s = dv.getUint32(L.HDR_SEED + o, true), h = dv.getUint32(L.HDR_HOLE + o, true);
   const m = memo;
   if (m && m.hw === hw && m.zs === zs && m.zf === zf && m.zb === zb && m.cx === cx && m.s === s && m.h === h) return m;
-  memo = { hw, zs, zf, zb, cx, s, h, cols: dv.getUint32(L.PG_H + L.RL_COLS + o, true), starts: [0], last: 0 };
+  memo = { hw, zs, zf, zb, cx, s, h, cols: dv.getUint32(L.PG_H + MC.RL_COLS + o, true), starts: [0], last: 0 };
   return memo;
 }
 // Cycle c's green and red in ticks ($rl_green, $rl_red).
 export function greenOf(st, c) {
-  const h = hash32(st.s, st.h, L.RL_KG + c);
-  if (c === 0) return L.RL_G0A + h % L.RL_G0N;
-  return c >= L.RL_PEEK0 && h >>> 28 < L.RL_PEEKS ? L.RL_PA + h % L.RL_PN : L.RL_GA + h % L.RL_GN;
+  const h = hash32(st.s, st.h, MC.RL_KG + c);
+  if (c === 0) return MC.RL_G0A + h % MC.RL_G0N;
+  return c >= MC.RL_PEEK0 && h >>> 28 < MC.RL_PEEKS ? MC.RL_PA + h % MC.RL_PN : MC.RL_GA + h % MC.RL_GN;
 }
 // Is cycle c's green a peek?
-export const peekOf = (st, c) => greenOf(st, c) < L.RL_GA;
-export const redOf = (st, c) => L.RL_RA + hash32(st.s, st.h, L.RL_KR + c) % L.RL_RN;
+export const peekOf = (st, c) => greenOf(st, c) < MC.RL_GA;
+export const redOf = (st, c) => MC.RL_RA + hash32(st.s, st.h, MC.RL_KR + c) % MC.RL_RN;
 // Cycle c's first tick into play.
 export function startOf(st, c) {
   while (st.starts.length <= c) { const k = st.starts.length - 1; st.starts.push(st.starts[k] + greenOf(st, k) + redOf(st, k)); }
@@ -71,7 +72,7 @@ export function when(st, t) {
   while (startOf(st, c + 1) <= t) c++;
   st.last = c;
   const s = startOf(st, c), r0 = s + greenOf(st, c);
-  return { c, s, w: r0 - L.RL_TURN, r0, j: r0 + L.RL_GRACE, e: startOf(st, c + 1) };
+  return { c, s, w: r0 - MC.RL_TURN, r0, j: r0 + MC.RL_GRACE, e: startOf(st, c + 1) };
 }
 // green: the doll sings, its back to you; turn: it's turning round, stop; grace: red, not looking yet; red: looking.
 export const phaseOf = (w, t) => (t < w.w ? 'green' : t < w.r0 ? 'turn' : t < w.j ? 'grace' : 'red');
@@ -183,7 +184,7 @@ function plan(view, me, bot, tick) {
   const yaw = Math.atan2(-8, mem.lane - x);
   if (t >= w.r0 && t < w.e - 10) return { yaw, move: 0 };
   // on green: can it be over before red looks?
-  const look = (t < w.r0 ? w.j : startOf(st, w.c + 1) + greenOf(st, w.c + 1) + L.RL_GRACE) - t;
+  const look = (t < w.r0 ? w.j : startOf(st, w.c + 1) + greenOf(st, w.c + 1) + MC.RL_GRACE) - t;
   if (pushedDist(v, look - 2) > z - st.zf + 1.5) return { yaw, move: 1 };
   // once it has let go this green it stays off (what it reckons of its speed
   // after letting go runs low: the words in flight aren't all its last)
@@ -198,7 +199,7 @@ function plan(view, me, bot, tick) {
   // push on while a push to the next think and braking from there gets under the limit in time
   const hold = 4;
   const left = look - hold - mem.margin - follow + mem.late;
-  const ok = left > 0 && pushed(v, hold) * IDLE ** left < L.RL_VMAX * 0.92;
+  const ok = left > 0 && pushed(v, hold) * IDLE ** left < MC.RL_VMAX * 0.92;
   if (!ok && t < w.r0) mem.off = w.c;
   return { yaw, move: ok ? 1 : 0 };
 }
@@ -299,7 +300,7 @@ export default {
     } else heard = { c: -1, ph: '' };
 
     // the floor: the grid on sand, the lawn in mown stripes, the yard on sand, earth under it all
-    const z1 = zf - L.RL_YARD, wide = hw + 2.6;
+    const z1 = zf - MC.RL_YARD, wide = hw + 2.6;
     sc.box(cx, PLAT_Y - 2.2, (zb + 2 + z1) / 2, wide, 1.6, (zb + 2 - z1) / 2, 0, ...EARTH, LOOK.MATTE);
     sc.box(cx, PLAT_Y - 0.3, (zb + 2 + zs) / 2, wide, 0.3, (zb + 2 - zs) / 2, 0, ...SAND, LOOK.MATTE);
     sc.box(cx, PLAT_Y - 0.3, (zf + z1) / 2, wide, 0.3, (zf - z1) / 2, 0, ...SAND, LOOK.MATTE);
@@ -310,7 +311,7 @@ export default {
     }
     // the lines: the start, every 25 m, the finish chequered between two chequered pylons (no bar over it: nothing hides the doll)
     sc.box(cx, PLAT_Y + 0.01, zs, hw, 0.02, 0.3, 0, 0.97, 0.97, 0.95, LOOK.MATTE);
-    for (let d = LAMPS; d < L.RL_FIELD; d += LAMPS) sc.box(cx, PLAT_Y + 0.005, zs - d, hw, 0.015, 0.1, 0, 0.95, 0.95, 0.9, LOOK.MATTE, 0, 0, 0.65);
+    for (let d = LAMPS; d < MC.RL_FIELD; d += LAMPS) sc.box(cx, PLAT_Y + 0.005, zs - d, hw, 0.015, 0.1, 0, 0.95, 0.95, 0.9, LOOK.MATTE, 0, 0, 0.65);
     sc.box(cx, PLAT_Y + 0.01, zf, hw, 0.02, 1, 0, 0.97, 0.97, 0.97, LOOK.CHECKER, 1);
     for (const s of [-1, 1]) {
       sc.box(cx + s * (hw + 1), PLAT_Y + 3.5, zf, 0.7, 3.5, 0.7, 0, 0.97, 0.97, 0.97, LOOK.CHECKER, 0.7);
@@ -331,7 +332,7 @@ export default {
     // lamps along the rails in the light's colour: the whole field sees it
     const lit = ph === 'turn' ? (Math.floor(tp / 10) & 1 ? 'turn' : 'green') : ph === 'grace' || ph === 'red' ? 'red' : 'green';
     const lc = LIGHTS[lit];
-    for (let d = 0; d <= L.RL_FIELD; d += LAMPS) {
+    for (let d = 0; d <= MC.RL_FIELD; d += LAMPS) {
       for (const x of [xl, xr]) {
         sc.cyl(x, PLAT_Y + 1.6, zs - d, 0.1, 1.6, 0.55, 0.57, 0.6, LOOK.METAL);
         sc.sphere(x, PLAT_Y + 3.4, zs - d, 0.45, ...lc, LOOK.GLOW, 1.3);
@@ -348,7 +349,7 @@ export default {
     // the head comes round through the turn (easing in, snapping round at the end) and back as green starts
     let a = -Math.PI / 2, eye = 0;
     if (!w) { a = Math.PI / 2; eye = 0.6; }
-    else if (ph === 'turn') { const u = (tp - w.w) / L.RL_TURN; a = -Math.PI / 2 + Math.PI * u * u * (3 - 2 * u); }
+    else if (ph === 'turn') { const u = (tp - w.w) / MC.RL_TURN; a = -Math.PI / 2 + Math.PI * u * u * (3 - 2 * u); }
     else if (ph === 'grace' || ph === 'red') { a = Math.PI / 2; eye = ph === 'red' ? 1 : 0.5; }
     else if (w.c > 0 && tp - w.s < 40) { const u = (tp - w.s) / 40; a = Math.PI / 2 - Math.PI * u * u * (3 - 2 * u); }
     const eyes = doll(sc, out, cx, zd, a, eye);
@@ -397,7 +398,7 @@ export default {
     const pme = ctx?.pme, pv = ctx?.pview;
     if (pme && !pme.out && w && ph !== 'green') {
       const v = Math.hypot(pme.vel[0], pme.vel[2]);
-      if (v > L.RL_VMAX) {
+      if (v > MC.RL_VMAX) {
         const dt = pv ? Math.max(0, Math.min(0.05, ((ctx.ptick ?? pv.tick) - pv.tick) * TICK)) : 0;
         out.glow.push({ pos: [pme.pos[0] + pme.vel[0] * dt, pme.pos[1] + 1, pme.pos[2] + pme.vel[2] * dt], size: 1.7 + 0.25 * Math.sin(now / 50), color: [1, 0.15, 0.1, 0.8], kind: SPRITE.RING, minpx: 2 });
       }
@@ -408,7 +409,7 @@ export default {
   frame(view) {
     const st = stage(view);
     if (!(st.hw > 0)) { const g = view.party(); return { centre: [g.cx, PLAT_Y, g.cx], radius: g.size, shape: 'square' }; }
-    const z1 = st.zf - L.RL_YARD;
+    const z1 = st.zf - MC.RL_YARD;
     return { centre: [st.cx, PLAT_Y, (st.zb + z1) / 2], radius: (st.zb - z1) / 2, shape: 'square' };
   },
 
@@ -418,7 +419,7 @@ export default {
   fx(f, ctx) {
     const d = typeof ctx.dist === 'function' ? ctx.dist(f.pos) : ctx.dist ?? 0;
     const name = (p) => (ctx.name ? ctx.name(p) : `P${p + 1}`);
-    if (f.kind === L.RL_FX_CAUGHT) {
+    if (f.kind === MC.RL_FX_CAUGHT) {
       zaps.push({ pos: f.pos, born: ctx.now ?? 0 });
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 2.6, color: [1, 0.25, 0.15, 1], kind: SPRITE.FLASH, life: 450 });
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 3, color: [1, 0.3, 0.2, 0.9], kind: SPRITE.RING, life: 600, grow: true });
@@ -427,14 +428,14 @@ export default {
       ctx.feed?.(`${name(f.owner)} CAUGHT MOVING${by}`, f.owner === ctx.slot ? C.RED : f.shot === ctx.slot ? C.GREEN : C.WHITE);
       if (f.owner === ctx.slot) ctx.banner?.(`CAUGHT  ${Math.ceil(f.size)} M SHORT`, C.RED, 3500);
       else if (f.shot === ctx.slot) ctx.banner?.(`YOU GOT ${name(f.owner)} CAUGHT`, C.GREEN, 2000);
-    } else if (f.kind === L.RL_FX_FINISH) {
+    } else if (f.kind === MC.RL_FX_FINISH) {
       const n = f.shot;
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 1, f.pos[2]], size: 3.5, color: [1, 0.85, 0.3, 1], kind: SPRITE.RING, life: 700, grow: true });
       ctx.glow?.({ pos: [f.pos[0], f.pos[1] + 2, f.pos[2]], size: 1.2, color: [1, 1, 0.7, 1], kind: SPRITE.SPARK, life: 400 });
       ctx.feed?.(`${name(f.owner)} OVER THE LINE ${ordinal(n)}  ${f.size.toFixed(1)} S`, f.owner === ctx.slot ? C.YELLOW : C.WHITE);
       if (f.owner === ctx.slot) { ctx.banner?.(`OVER THE LINE  ${ordinal(n)}!`, C.YELLOW, 3500); ctx.sound?.holed?.(); }
       else {
-        if (n === 1) ctx.banner?.(`${name(f.owner)} IS OVER  ${Math.round(L.RL_RUSH / 125)} SECONDS LEFT`, C.ORANGE, 2500);
+        if (n === 1) ctx.banner?.(`${name(f.owner)} IS OVER  ${Math.round(MC.RL_RUSH / 125)} SECONDS LEFT`, C.ORANGE, 2500);
         if (d < 40) ctx.sound?.pickup?.();
       }
     }
@@ -486,7 +487,7 @@ export default {
     const mine = ctx.pme ?? me;
     if (mine?.live && !mine.out && ph !== 'green') {
       const v = Math.hypot(mine.vel[0], mine.vel[2]);
-      ctx.centre(6, v > L.RL_VMAX ? `${v.toFixed(1)} M/S  TOO FAST` : 'STILL', v > L.RL_VMAX ? C.RED : C.GREEN);
+      ctx.centre(6, v > MC.RL_VMAX ? `${v.toFixed(1)} M/S  TOO FAST` : 'STILL', v > MC.RL_VMAX ? C.RED : C.GREEN);
     } else if (mine?.live && !mine.out && w.c === 0 && t < 250) ctx.centre(6, 'LET GO OF THE KEYS TO STOP', C.WHITE);
   },
 

@@ -7,10 +7,11 @@ import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import tag, { stage, isIt } from '../client/mg/tag.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/tag.mjs'; // TG_*: the minigame's own constants
 
 const C = L.B_CX;
 const TICK = 0.008;
-const IT = L.TG_M_IT | L.TG_M_IN, FREE = L.TG_M_IN;
+const IT = MC.TG_M_IT | MC.TG_M_IN, FREE = MC.TG_M_IN;
 const N = (k) => Math.fround(Number(L.BPHYS[k]));
 
 // A room of n balls on Tag, on the debug build (a NaN traps), stepped into
@@ -24,7 +25,7 @@ async function room(n = 3, { play = true, seed = 7, clean = false } = {}) {
   const step = (recs = []) => { sim.feedPlayers(recs); sim.x.step(); assert.equal(sim.error().code, 0, 'no trap'); };
   step(Array.from({ length: n }, (_, p) => [L.EV_JOIN, p]));
   while (play && v.hole().state !== L.H_PLAY) step();
-  if (clean) dv.setUint32(L.PG_H + L.TG_NP, 0, true);
+  if (clean) dv.setUint32(L.PG_H + MC.TG_NP, 0, true);
   return { sim, v, dv, step };
 }
 const rec = (p) => L.PLAYERS + p * L.PSIZE;
@@ -45,44 +46,44 @@ const role = (g, p) => g.v.partier(p).m & IT;
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.TG_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.TG_LEN, true);
 }
 const playT = (g) => g.v.party().t;
 const fxs = (v, kind) => { const out = []; for (let k = 0; k < v.fxCount(); k++) { const f = v.fx(k); if (f.kind === kind) out.push(f); } return out; };
-const pillars = (g) => Array.from({ length: g.dv.getUint32(L.PG_H + L.TG_NP, true) }, (_, k) => [g.dv.getFloat32(L.PG_S + L.TG_PILL + 8 * k, true), g.dv.getFloat32(L.PG_S + L.TG_PILL + 8 * k + 4, true)]);
+const pillars = (g) => Array.from({ length: g.dv.getUint32(L.PG_H + MC.TG_NP, true) }, (_, k) => [g.dv.getFloat32(L.PG_S + MC.TG_PILL + 8 * k, true), g.dv.getFloat32(L.PG_S + MC.TG_PILL + 8 * k + 4, true)]);
 
 test('the stage for 1, 8, 64 and 256: a walled disc sized for the crowd, its pillars, one it in 16 in the middle, the free round them', async () => {
   let last = 0;
   for (const n of [1, 8, 64, 256]) {
     const g = await room(n, { play: false, seed: n });
     const r = g.v.party();
-    const rad = Math.min(L.TG_R0 + L.TG_RK * Math.sqrt(n), L.TG_RMAX);
+    const rad = Math.min(MC.TG_R0 + MC.TG_RK * Math.sqrt(n), MC.TG_RMAX);
     assert.equal(r.game, L.MG_TAG);
     assert.ok(Math.abs(r.size - rad) < 1e-4, `${r.size} m for ${n}`);
     assert.ok(r.size > last, 'grows with the crowd');
     last = r.size;
-    assert.deepEqual([r.kind, r.len, r.floor], [L.PK_SCORE, L.TG_LEN, PLAT_Y]);
-    assert.equal(g.dv.getFloat32(L.PG_H + L.TG_RAD, true), r.size);
+    assert.deepEqual([r.kind, r.len, r.floor], [L.PK_SCORE, MC.TG_LEN, PLAT_Y]);
+    assert.equal(g.dv.getFloat32(L.PG_H + MC.TG_RAD, true), r.size);
     const ps = pillars(g);
-    assert.equal(ps.length, Math.min(L.TG_PMAX, Math.floor(Math.fround(r.size * r.size) / L.TG_PAREA)));
+    assert.equal(ps.length, Math.min(MC.TG_PMAX, Math.floor(Math.fround(r.size * r.size) / MC.TG_PAREA)));
     for (const [x, z] of ps) {
       const d = Math.hypot(x - C, z - C);
-      assert.ok(d > r.size * L.TG_PIN - 1e-3 && d < r.size * L.TG_POUT + 1e-3, `a pillar ${d.toFixed(1)} m out`);
+      assert.ok(d > r.size * MC.TG_PIN - 1e-3 && d < r.size * MC.TG_POUT + 1e-3, `a pillar ${d.toFixed(1)} m out`);
     }
-    const its = n < 2 ? 0 : Math.max(1, Math.round(n / L.TG_PER));
-    assert.equal(g.dv.getUint32(L.PG_H + L.TG_NIT, true), its);
+    const its = n < 2 ? 0 : Math.max(1, Math.round(n / MC.TG_PER));
+    assert.equal(g.dv.getUint32(L.PG_H + MC.TG_NIT, true), its);
     let dealt = 0;
     for (let p = 0; p < n; p++) {
       const b = g.v.partier(p);
-      const it = g.v.u8[L.PG_S + L.TG_ROLE + p] === 1;
+      const it = g.v.u8[L.PG_S + MC.TG_ROLE + p] === 1;
       dealt += it;
       assert.equal(isIt(g.v, p), it, 'the client reads the deal in the countdown');
       assert.ok(b.ground && !b.out && b.pos[1] === PLAT_Y, 'on the floor');
       assert.equal(b.m, 0, 'nobody marked before play');
       const d = Math.hypot(b.pos[0] - C, b.pos[2] - C);
-      if (it) assert.ok(d <= r.size * L.TG_ITR + 1e-3, `${n}: an it in the middle (${d.toFixed(1)} m)`);
-      else assert.ok(d >= r.size * L.TG_FIN - 1e-3 && d <= r.size * L.TG_FOUT + 1e-3, `${n}: a free ball round them (${d.toFixed(1)} m)`);
-      for (const [x, z] of ps) assert.ok(Math.hypot(b.pos[0] - x, b.pos[2] - z) >= L.TG_PR + 2 - 1e-3, `${n}: P${p + 1} clear of the pillars`);
+      if (it) assert.ok(d <= r.size * MC.TG_ITR + 1e-3, `${n}: an it in the middle (${d.toFixed(1)} m)`);
+      else assert.ok(d >= r.size * MC.TG_FIN - 1e-3 && d <= r.size * MC.TG_FOUT + 1e-3, `${n}: a free ball round them (${d.toFixed(1)} m)`);
+      for (const [x, z] of ps) assert.ok(Math.hypot(b.pos[0] - x, b.pos[2] - z) >= MC.TG_PR + 2 - 1e-3, `${n}: P${p + 1} clear of the pillars`);
       for (let q = 0; q < p; q++) {
         const o = g.v.partier(q);
         assert.ok(Math.hypot(b.pos[0] - o.pos[0], b.pos[2] - o.pos[2]) >= 2.2, `${n}: P${p + 1} and P${q + 1} apart`);
@@ -91,7 +92,7 @@ test('the stage for 1, 8, 64 and 256: a walled disc sized for the crowd, its pil
     assert.equal(dealt, its, `${n}: ${its} its dealt`);
     // into play: each marked in the round, it or free as dealt
     while (g.v.hole().state !== L.H_PLAY) g.step();
-    for (let p = 0; p < n; p++) assert.equal(g.v.partier(p).m, g.v.u8[L.PG_S + L.TG_ROLE + p] ? IT : FREE);
+    for (let p = 0; p < n; p++) assert.equal(g.v.partier(p).m, g.v.u8[L.PG_S + MC.TG_ROLE + p] ? IT : FREE);
   }
 });
 
@@ -104,7 +105,7 @@ test('an it that touches a free ball makes it it: after the first second, not fo
   put(g, 1, C - 6 + 2.1, C);
   put(g, 2, C + 6, C - 6);
   put(g, 3, C + 6, C + 6);
-  at(g, L.TG_FRESH - 2);
+  at(g, MC.TG_FRESH - 2);
   g.step();
   assert.equal(role(g, 1), FREE, 'nobody tags in the first second');
   g.step();
@@ -112,18 +113,18 @@ test('an it that touches a free ball makes it it: after the first second, not fo
   const before = g.v.fxCount();
   g.step();
   const t = playT(g) - 1;
-  assert.equal(t, L.TG_FRESH);
+  assert.equal(t, MC.TG_FRESH);
   assert.equal(g.v.partier(1).m, IT | (t << 8), 'tagged on the first tick it can be');
   assert.equal(g.v.partier(0).m, IT | (t << 8), 'the tagger marked too');
   assert.equal(g.v.partier(0).kos, 1, 'a tag');
-  const f = fxs(g.v, L.TG_FX_TAG).at(-1);
+  const f = fxs(g.v, MC.TG_FX_TAG).at(-1);
   assert.ok(g.v.fxCount() > before && f);
-  assert.deepEqual([f.owner, f.shot & 255, f.shot >> 8, f.size], [1, 0, 2, Math.floor(t / L.TG_SEC)]);
+  assert.deepEqual([f.owner, f.shot & 255, f.shot >> 8, f.size], [1, 0, 2, Math.floor(t / MC.TG_SEC)]);
   // P3 a skin from the tagger, P4 a skin from the new it: neither tags for TG_FRESH
   const p0 = g.v.partier(0).pos, p1 = g.v.partier(1).pos;
   put(g, 2, p0[0], p0[2] - 2.1);
   put(g, 3, p1[0], p1[2] + 2.1);
-  for (let k = 1; k < L.TG_FRESH; k++) {
+  for (let k = 1; k < MC.TG_FRESH; k++) {
     g.step();
     assert.deepEqual([role(g, 2), role(g, 3)], [FREE, FREE], `${k} ticks after`);
   }
@@ -163,10 +164,10 @@ test('a point a second while free, frozen once it; at 2 s and every 10 s a sprin
   put(g, 1, C + 8, C - 4);
   put(g, 2, C + 8, C + 4);
   const items = () => [0, 1, 2].map((p) => g.v.partier(p).item);
-  while (playT(g) < L.TG_GIVE0) {
+  while (playT(g) < MC.TG_GIVE0) {
     g.step();
     const t = playT(g) - 1;
-    assert.equal(g.v.partier(1).score, Math.floor(t / L.TG_SEC), 'a point a second');
+    assert.equal(g.v.partier(1).score, Math.floor(t / MC.TG_SEC), 'a point a second');
     assert.equal(g.v.partier(0).score, 0, 'an it scores nothing');
     assert.deepEqual(items(), [0, 0, 0], 'nothing before 2 s');
   }
@@ -181,7 +182,7 @@ test('a point a second while free, frozen once it; at 2 s and every 10 s a sprin
   assert.ok(n > 100, `${n} ticks in the air`);
   assert.equal(fxs(g.v, L.FX_BLAST).length, 1, 'a stomp where it lands');
   // the it's dash, at 7 s: P1 dashes with it
-  at(g, L.TG_DASH0 - 1);
+  at(g, MC.TG_DASH0 - 1);
   g.step();
   assert.equal(g.v.partier(0).item, 0, 'no dash yet');
   g.step();
@@ -189,12 +190,12 @@ test('a point a second while free, frozen once it; at 2 s and every 10 s a sprin
   g.step([[L.EV_INPUT, 0, partyWord({ yaw: 8192, use: 1 })]]);
   assert.equal(g.v.partier(0).item, 0);
   assert.ok(g.v.partier(0).vel[0] < -15, 'the it dashes');
-  at(g, L.TG_GIVE0 + L.TG_GIVE - 1);
+  at(g, MC.TG_GIVE0 + MC.TG_GIVE - 1);
   g.step();
   assert.equal(g.v.partier(1).item, 0, 'not yet');
   g.step();
   assert.deepEqual(items(), [0, L.PU_SPRING, L.PU_SPRING], 'springs again at 12 s');
-  at(g, L.TG_DASH0 + L.TG_GIVE);
+  at(g, MC.TG_DASH0 + MC.TG_GIVE);
   g.step();
   assert.equal(g.v.partier(0).item, L.PU_DASH, 'a dash again at 17 s');
   // tagged: the spring goes, the points stop; a dash at the next give
@@ -206,8 +207,8 @@ test('a point a second while free, frozen once it; at 2 s and every 10 s a sprin
   assert.deepEqual([role(g, 2), g.v.partier(2).item], [IT, 0]);
   for (let k = 0; k < 300; k++) g.step();
   assert.equal(g.v.partier(2).score, s, 'frozen');
-  assert.equal(g.v.partier(1).score, Math.floor((playT(g) - 1) / L.TG_SEC));
-  at(g, L.TG_DASH0 + 2 * L.TG_GIVE);
+  assert.equal(g.v.partier(1).score, Math.floor((playT(g) - 1) / MC.TG_SEC));
+  at(g, MC.TG_DASH0 + 2 * MC.TG_GIVE);
   g.step();
   assert.equal(g.v.partier(2).item, L.PU_DASH, 'an it now: a dash');
 });
@@ -224,9 +225,9 @@ test('an it rolls 6% faster: the keys push it TG_BOOST more on the ground; in th
   for (let k = 0; k < 200; k++) g.step(k ? [] : [[L.EV_INPUT, 0, fwd], [L.EV_INPUT, 1, fwd]]);
   const a = g.v.partier(0).vel[0], b = g.v.partier(1).vel[0];
   const acc = N('B_ACC_DT');
-  assert.ok(Math.abs(a / b - (acc + L.TG_BOOST) / acc) < 1e-3, `${a.toFixed(3)} against ${b.toFixed(3)} m/s`);
+  assert.ok(Math.abs(a / b - (acc + MC.TG_BOOST) / acc) < 1e-3, `${a.toFixed(3)} against ${b.toFixed(3)} m/s`);
   // flat out: v = push / (1 - drag)
-  assert.ok(Math.abs(Math.fround(acc + Math.fround(L.TG_BOOST)) / (1 - N('B_DRAG')) - 10.6) < 0.05);
+  assert.ok(Math.abs(Math.fround(acc + Math.fround(MC.TG_BOOST)) / (1 - N('B_DRAG')) - 10.6) < 0.05);
   // the same two in the air, side by side: the same speed
   put(g, 0, C - 15, C - 3, { y: PLAT_Y + 4, vx: 5, ground: false });
   put(g, 1, C - 15, C + 3, { y: PLAT_Y + 4, vx: 5, ground: false });
@@ -242,7 +243,7 @@ test('pillars: a ball is never in one; into one it bounces back at TG_PE of its 
   for (let p = 0; p < 3; p++) mark(g, p, FREE);
   // the pillar nearest the middle, P1 rolling at it along x from 6 m off, the others far
   const [x, z] = ps.reduce((a, b) => (Math.hypot(a[0] - C, a[1] - C) < Math.hypot(b[0] - C, b[1] - C) ? a : b));
-  const clear = (px, pz) => ps.every(([ox, oz]) => Math.hypot(px - ox, pz - oz) > L.TG_PR + 1.5 || (ox === x && oz === z));
+  const clear = (px, pz) => ps.every(([ox, oz]) => Math.hypot(px - ox, pz - oz) > MC.TG_PR + 1.5 || (ox === x && oz === z));
   assert.ok(clear(x - 4, z) && clear(x - 3, z), 'a clear run at it');
   // coasting (no keys: the drag only), 1.7 m off its skin at 8 m/s
   put(g, 0, x - 4, z, { vx: 8 });
@@ -253,15 +254,15 @@ test('pillars: a ball is never in one; into one it bounces back at TG_PE of its 
     const v0 = g.v.partier(0).vel[0];
     g.step();
     const b = g.v.partier(0);
-    assert.ok(Math.hypot(b.pos[0] - x, b.pos[2] - z) >= L.TG_PR + 1 - 1e-3, 'never in it');
+    assert.ok(Math.hypot(b.pos[0] - x, b.pos[2] - z) >= MC.TG_PR + 1 - 1e-3, 'never in it');
     if (hit < 0 && b.vel[0] < 0) { hit = k; vin = Math.fround(v0 * N('B_DRAG')); out = -b.vel[0]; }
   }
   assert.ok(hit > 0, 'it came back');
   assert.ok(vin > 5, `into it at ${vin} m/s`);
-  assert.ok(Math.abs(out - (L.TG_PE * vin + L.TG_KICK)) < 0.01, `in at ${vin.toFixed(2)}, out at ${out.toFixed(2)} m/s`);
+  assert.ok(Math.abs(out - (MC.TG_PE * vin + MC.TG_KICK)) < 0.01, `in at ${vin.toFixed(2)}, out at ${out.toFixed(2)} m/s`);
   assert.equal(g.v.partier(0).vel[2], 0, 'straight back');
   // over the top of one: no bounce
-  put(g, 0, x - 1.5 - L.TG_PR, z, { y: PLAT_Y + L.TG_PH + 0.5, vx: 6, ground: false });
+  put(g, 0, x - 1.5 - MC.TG_PR, z, { y: PLAT_Y + MC.TG_PH + 0.5, vx: 6, ground: false });
   g.dv.setFloat32(rec(0) + L.P_VY, 4, true);
   g.step();
   assert.ok(g.v.partier(0).vel[0] > 5, 'over it');
@@ -299,16 +300,16 @@ test('catch the last one free and win, a point over it; it comes 2nd, the rest b
   put(g, 0, C - 10, C);
   put(g, 1, C + 8, C - 6);
   put(g, 2, C + 8, C + 6);
-  at(g, 20 * L.TG_SEC);
+  at(g, 20 * MC.TG_SEC);
   // P3 first, at 20 s
   put(g, 2, C - 10 + 2.1, C);
   g.step();
   assert.equal(role(g, 2), IT);
   assert.equal(g.v.party().state, L.H_PLAY, 'one free still');
-  const f = fxs(g.v, L.TG_FX_TAG).at(-1);
+  const f = fxs(g.v, MC.TG_FX_TAG).at(-1);
   assert.deepEqual([f.shot >> 8, f.size], [1, 20]);
   // then P2 at 35 s
-  at(g, 35 * L.TG_SEC);
+  at(g, 35 * MC.TG_SEC);
   mark(g, 0, IT, 0);
   const p0 = g.v.partier(0).pos;
   put(g, 1, p0[0], p0[2] + 2.1);
@@ -319,7 +320,7 @@ test('catch the last one free and win, a point over it; it comes 2nd, the rest b
   assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).place), [1, 2, 3]);
   assert.deepEqual([0, 1, 2].map((p) => g.v.partier(p).pts), [10, 5, 1]);
   assert.equal(r.winner, 0);
-  assert.equal(fxs(g.v, L.TG_FX_TAG).at(-1).shot, 0, 'P1 caught the last one: none left');
+  assert.equal(fxs(g.v, MC.TG_FX_TAG).at(-1).shot, 0, 'P1 caught the last one: none left');
 });
 
 test('at the clock the free share the win, a touch on its tick tagging nobody; a lone ball plays on free to it', async () => {
@@ -329,7 +330,7 @@ test('at the clock the free share the win, a touch on its tick tagging nobody; a
   put(g, 0, C - 10, C);
   put(g, 1, C + 8, C - 6);
   put(g, 2, C + 8, C + 6);
-  at(g, L.TG_LEN - 3);
+  at(g, MC.TG_LEN - 3);
   for (let k = 0; k < 4; k++) g.step();
   const r = g.v.party();
   assert.equal(r.state, L.H_OVER);
@@ -344,7 +345,7 @@ test('at the clock the free share the win, a touch on its tick tagging nobody; a
     put(h, 0, C - 10, C);
     put(h, 1, C + 8, C - 6);
     put(h, 2, C + 8, C + 6);
-    at(h, L.TG_LEN - 3);
+    at(h, MC.TG_LEN - 3);
     for (let k = 0; k < 3 - before; k++) h.step();
     put(h, 2, C - 10 + 2.1, C);
     while (h.v.party().state === L.H_PLAY) h.step();
@@ -359,7 +360,7 @@ test('at the clock the free share the win, a touch on its tick tagging nobody; a
   assert.equal(s.v.partier(0).m, FREE);
   for (let k = 0; k < 500; k++) s.step();
   assert.equal(s.v.party().state, L.H_PLAY);
-  assert.equal(s.v.partier(0).score, Math.floor((playT(s) - 1) / L.TG_SEC));
+  assert.equal(s.v.partier(0).score, Math.floor((playT(s) - 1) / MC.TG_SEC));
   assert.equal(s.v.partier(0).score, 4);
 });
 
@@ -375,13 +376,13 @@ test('a ball joining in play is it; when the its have all left, one of the free 
   const b = g.v.partier(3);
   assert.deepEqual([b.live, b.m & IT, b.score], [true, IT, 0]);
   assert.ok(b.pos[1] > PLAT_Y + 4, 'falling in');
-  let f = fxs(g.v, L.TG_FX_TAG).at(-1);
+  let f = fxs(g.v, MC.TG_FX_TAG).at(-1);
   assert.deepEqual([f.owner, f.shot & 255, f.shot >> 8], [3, 255, 2]);
   // the its leave: the PRNG deals one of P2, P3
   g.step([[L.EV_LEAVE, 0], [L.EV_LEAVE, 3]]);
   const its = [1, 2].filter((p) => role(g, p) === IT);
   assert.equal(its.length, 1, 'one of them it');
-  f = fxs(g.v, L.TG_FX_TAG).at(-1);
+  f = fxs(g.v, MC.TG_FX_TAG).at(-1);
   assert.deepEqual([f.owner, f.shot & 255, f.shot >> 8], [its[0], 254, 1]);
   assert.equal(g.v.party().state, L.H_PLAY);
 });
@@ -409,9 +410,9 @@ test('the prediction matches the confirmed ball bit for bit: into a pillar and o
   // A: free, from 6 m off the pillar nearest the middle, at it flat out; off it; on into the warning of a spring
   const [px, pz] = ps.reduce((a, b) => (Math.hypot(a[0] - C, a[1] - C) < Math.hypot(b[0] - C, b[1] - C) ? a : b));
   put(g, 0, px - 6, pz);
-  at(g, L.TG_GIVE0 - 150);
+  at(g, MC.TG_GIVE0 - 150);
   const a = run(partyWord({ yaw: yawTo(px, pz), move: 1 }), 120);
-  assert.ok(a.pill < L.TG_PR + 1.6, `against the pillar (${a.pill.toFixed(2)} m)`);
+  assert.ok(a.pill < MC.TG_PR + 1.6, `against the pillar (${a.pill.toFixed(2)} m)`);
   // B: out to the rim and along it
   const out = g.v.partier(0).pos, away = yawTo(C + (out[0] - C) * 10, C + (out[2] - C) * 10);
   const b = run((k) => partyWord({ yaw: k < 300 ? away : (away + 4096) & 16383, move: 1 }), 450);
@@ -421,14 +422,14 @@ test('the prediction matches the confirmed ball bit for bit: into a pillar and o
   const c = run((k) => partyWord({ yaw: 8192, move: 1, use: k >= 20 ? 1 : 0 }), 300);
   assert.ok(fxs(g.v, L.FX_USE).length >= 1 && g.v.partier(0).item === 0, 'it sprang');
   assert.ok(c.rim > 0);
-  assert.equal(g.v.partier(0).score, Math.floor((playT(g) - 1) / L.TG_SEC), 'its points, a second at a time');
+  assert.equal(g.v.partier(0).score, Math.floor((playT(g) - 1) / MC.TG_SEC), 'its points, a second at a time');
   // D: as an it, the push, a dash handed out and used, the pillars
   mark(g, 0, IT, 0);
   put(g, 0, px + 6, pz, { vx: -3 });
-  at(g, L.TG_DASH0 + 4 * L.TG_GIVE - 40);
+  at(g, MC.TG_DASH0 + 4 * MC.TG_GIVE - 40);
   const uses = fxs(g.v, L.FX_USE).length;
   const d = run((k) => partyWord({ yaw: k < 150 ? yawTo(px, pz) : (k * 131) & 16383, move: 1, use: k >= 60 ? 2 : 1 }), 400);
-  assert.ok(d.pill < L.TG_PR + 1.6, `an it against the pillar (${d.pill.toFixed(2)} m)`);
+  assert.ok(d.pill < MC.TG_PR + 1.6, `an it against the pillar (${d.pill.toFixed(2)} m)`);
   assert.equal(g.v.partier(0).m & IT, IT);
   assert.equal(fxs(g.v, L.FX_USE).length, uses + 1, 'it dashed');
   assert.equal(fxs(g.v, L.FX_USE).at(-1).size, L.PU_DASH);
@@ -439,7 +440,7 @@ test('the prediction across the countdown\'s end: its own ball marked as dealt f
     let g = null;
     for (let s = 1; !g; s++) {
       const r = await room(2, { play: false, seed: s });
-      if (r.v.u8[L.PG_S + L.TG_ROLE] === it) g = r;
+      if (r.v.u8[L.PG_S + MC.TG_ROLE] === it) g = r;
     }
     while (g.v.hole().until - g.v.tick > 10) g.step();
     assert.ok(predicted(g, Array(40).fill(partyWord({ yaw: 0, move: 1 }))) >= 40);
@@ -458,13 +459,13 @@ for (const [balls, ticks] of [[8, 9000], [64, 7000]]) {
     const r = await playParty({ bytes, seed: balls, mg: L.MG_TAG, bots: balls, ticks, onTick: (t, sim, v) => {
       const g = v.party();
       if (stats.start < 0 && g.state === L.H_PLAY) stats.start = t;
-      for (; seen < v.fxCount(); seen++) if (v.fx(seen).kind === L.TG_FX_TAG && (v.fx(seen).shot & 255) < 254) { stats.tags++; if (stats.first < 0) stats.first = t; }
+      for (; seen < v.fxCount(); seen++) if (v.fx(seen).kind === MC.TG_FX_TAG && (v.fx(seen).shot & 255) < 254) { stats.tags++; if (stats.first < 0) stats.first = t; }
       if (stats.over < 0 && stats.start >= 0 && g.state === L.H_OVER) { stats.over = t; stats.places = [...Array(balls).keys()].map((p) => v.partier(p).place); }
     } });
     assert.equal(r.sim.error().code, 0);
     assert.ok(stats.over > 0, 'the round ended');
     const secs = (stats.over - stats.start) * TICK;
-    assert.ok(secs > 15 && secs <= L.TG_LEN * TICK, `${secs.toFixed(1)} s of play`);
+    assert.ok(secs > 15 && secs <= MC.TG_LEN * TICK, `${secs.toFixed(1)} s of play`);
     assert.ok((stats.first - stats.start) * TICK > 1, 'nobody tagged in the first second');
     assert.ok(stats.tags >= balls / 2, `${stats.tags} tags`);
     assert.ok(stats.places.every((x) => x >= 1 && x <= balls) && stats.places.includes(1), `places ${stats.places}`);

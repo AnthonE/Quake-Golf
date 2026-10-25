@@ -6,11 +6,12 @@ import { replay, parseLog, decodeTrace } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import * as L from '../src/layout.mjs';
+import * as MC from '../src/mg/paint.mjs'; // PP_*: the minigame's own constants
 import paint, { stage, orb, cells as heldBy } from '../client/mg/paint.mjs';
 
 const C = L.B_CX;
 const f = Math.fround;
-const N = L.PP_N;
+const N = MC.PP_N;
 const TICK = 0.008;
 
 // A room of n balls on Paint Party, on the debug build (a NaN traps), stepped into play unless asked not to.
@@ -23,7 +24,7 @@ async function room(n = 2, { play = true, seed = 7 } = {}) {
   const step = (recs = []) => { sim.feedPlayers(recs); sim.x.step(); assert.equal(sim.error().code, 0, 'no trap'); };
   step(Array.from({ length: n }, (_, p) => [L.EV_JOIN, p]));
   while (play && v.hole().state !== L.H_PLAY) step();
-  return { sim, v, dv, step, grid: new Uint16Array(sim.memory.buffer, L.PG_BIG + L.PP_CELLS, N * N) };
+  return { sim, v, dv, step, grid: new Uint16Array(sim.memory.buffer, L.PG_BIG + MC.PP_CELLS, N * N) };
 }
 const rec = (p) => L.PLAYERS + p * L.PSIZE;
 // Ball p at (x, z) on the floor (or y), rolling at (vx, vz).
@@ -39,17 +40,17 @@ function put(g, p, x, z, { y = PLAT_Y, vx = 0, vz = 0, ground = true } = {}) {
 // Ball p out of everyone's way for the test: so high over the floor it is still falling at the end, painting nothing.
 const away = (g, p, k = 0) => put(g, p, C - 6 + 3 * k, C + 12, { y: PLAT_Y + 20000, ground: false });
 // Bomb j kept off the floor (it lands only on tick t into play).
-const hold = (g, j, t = 1e8) => g.dv.setUint32(L.PG_S + L.PP_ORB + j * L.PP_ORB_SIZE + 8, t, true);
+const hold = (g, j, t = 1e8) => g.dv.setUint32(L.PG_S + MC.PP_ORB + j * MC.PP_ORB_SIZE + 8, t, true);
 // The next step plays tick t into play (the clock moved; the round's end with it).
 function at(g, t) {
   const now = g.v.tick;
   g.dv.setUint32(L.HDR_START, now - t, true);
-  g.dv.setUint32(L.HDR_UNTIL, now - t + L.PP_LEN, true);
+  g.dv.setUint32(L.HDR_UNTIL, now - t + MC.PP_LEN, true);
 }
 const fxs = (v, kind) => { const out = []; for (let k = 0; k < v.fxCount(); k++) { const x = v.fx(k); if (x.kind === kind) out.push(x); } return out; };
 // The disc as the sim lays it out, in f32 as the sim works it.
 function disc(n) {
-  const rad = Math.min(f(f(f(Math.sqrt(n)) * f(L.PP_RK)) + L.PP_R0), L.PP_RMAX);
+  const rad = Math.min(f(f(f(Math.sqrt(n)) * f(MC.PP_RK)) + MC.PP_R0), MC.PP_RMAX);
   return { rad, x0: f(C - rad), cs: f(rad * f(2 / N)) };
 }
 const centre = (d, i) => f(f(f(i + 0.5) * d.cs) + d.x0);
@@ -68,7 +69,7 @@ const owned = (g, p) => { const out = new Set(); for (let c = 0; c < N * N; c++)
 function tally(g, n) {
   let painted = 0;
   const per = new Array(n).fill(0);
-  for (let c = 0; c < N * N; c++) { const v = g.grid[c]; if (v && v !== L.PP_OFF) { painted++; if (v <= n) per[v - 1]++; } }
+  for (let c = 0; c < N * N; c++) { const v = g.grid[c]; if (v && v !== MC.PP_OFF) { painted++; if (v <= n) per[v - 1]++; } }
   for (let p = 0; p < n; p++) {
     const b = g.v.partier(p);
     if (b.live) assert.equal(b.score, per[p], `P${p + 1}'s score is its cells`);
@@ -86,7 +87,7 @@ test('the stage for 1, 8, 64 and 256: a disc sized for the crowd, a grid of PP_N
     assert.equal(r.size, d.rad, `${r.size} m for ${n}`);
     assert.ok(r.size > last, 'grows with the crowd');
     last = r.size;
-    assert.deepEqual([r.kind, r.len, r.respawn, r.idle, r.floor], [L.PK_SCORE, L.PP_LEN, L.PP_RESPAWN, f(L.PP_IDLE), PLAT_Y]);
+    assert.deepEqual([r.kind, r.len, r.respawn, r.idle, r.floor], [L.PK_SCORE, MC.PP_LEN, MC.PP_RESPAWN, f(MC.PP_IDLE), PLAT_Y]);
     const st = stage(g.v);
     assert.deepEqual([st.rad, st.x0, st.cs], [d.rad, d.x0, d.cs]);
     // every cell whose centre is on the disc unpainted, the rest off
@@ -95,25 +96,25 @@ test('the stage for 1, 8, 64 and 256: a disc sized for the crowd, a grid of PP_N
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const dx = f(centre(d, i) - C), dz = f(centre(d, j) - C);
       const inside = f(f(dx * dx) + f(dz * dz)) <= r2;
-      wrong += g.grid[j * N + i] !== (inside ? 0 : L.PP_OFF);
+      wrong += g.grid[j * N + i] !== (inside ? 0 : MC.PP_OFF);
       on += inside;
     }
     assert.equal(wrong, 0, `${n}: cells on the disc unpainted, the rest off`);
     assert.equal(st.total, on);
     assert.ok(Math.abs(on / (Math.PI * N * N / 4) - 1) < 0.01, `${on} cells on the disc`);
     // the bombs: 2, one more for every 12 balls, at most 12, on the disc, landing a quarter second apart from 2 s
-    assert.equal(st.orbs, Math.min(L.PP_NORB, L.PP_ORB0 + Math.floor(n / L.PP_ORBN)));
+    assert.equal(st.orbs, Math.min(MC.PP_NORB, MC.PP_ORB0 + Math.floor(n / MC.PP_ORBN)));
     for (let j = 0; j < st.orbs; j++) {
       const b = orb(g.v, j);
-      assert.ok(Math.hypot(b.x - C, b.z - C) <= d.rad * L.PP_ORB_SPREAD + 1e-3, `bomb ${j} on the disc`);
-      assert.deepEqual([b.at, b.bursts], [L.PP_FIRST + j * L.PP_STAGGER, 0]);
+      assert.ok(Math.hypot(b.x - C, b.z - C) <= d.rad * MC.PP_ORB_SPREAD + 1e-3, `bomb ${j} on the disc`);
+      assert.deepEqual([b.at, b.bursts], [MC.PP_FIRST + j * MC.PP_STAGGER, 0]);
     }
     // every ball on the floor, apart
     const pos = [];
     for (let p = 0; p < n; p++) {
       const b = g.v.partier(p);
       assert.equal(b.pos[1], PLAT_Y);
-      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) < d.rad * L.PP_SPAWN + 1e-3, `${n}: P${p + 1} on the disc`);
+      assert.ok(Math.hypot(b.pos[0] - C, b.pos[2] - C) < d.rad * MC.PP_SPAWN + 1e-3, `${n}: P${p + 1} on the disc`);
       pos.push(b.pos);
     }
     for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) assert.ok(Math.hypot(pos[a][0] - pos[b][0], pos[a][2] - pos[b][2]) > 2.2, `${n}: P${a + 1} and P${b + 1} apart`);
@@ -124,13 +125,13 @@ test('a ball on the floor paints the cells within PP_BRUSH of its centre; nothin
   const g = await room(2, { play: false });
   for (let k = 0; k < 300; k++) g.step();
   assert.equal(g.v.hole().state, L.H_COUNT);
-  assert.ok(g.grid.every((v) => v === 0 || v === L.PP_OFF), 'nothing painted in the countdown');
+  assert.ok(g.grid.every((v) => v === 0 || v === MC.PP_OFF), 'nothing painted in the countdown');
   while (g.v.hole().state !== L.H_PLAY) g.step();
   const d = disc(2);
   away(g, 1);
   put(g, 0, C + 3.1, C - 2.3);
   g.step();
-  const want = brush(d, C + 3.1, C - 2.3, L.PP_BRUSH);
+  const want = brush(d, C + 3.1, C - 2.3, MC.PP_BRUSH);
   assert.deepEqual(owned(g, 0), want);
   assert.ok(want.size > 50, `${want.size} cells`);
   assert.equal(g.v.partier(0).score, want.size);
@@ -141,7 +142,7 @@ test('a ball on the floor paints the cells within PP_BRUSH of its centre; nothin
   let k = 0;
   for (; k < 200 && !g.v.partier(0).ground; k++) { g.step(); if (!g.v.partier(0).ground) assert.equal(owned(g, 0).size, want.size, 'nothing under a ball in the air'); }
   assert.ok(k > 40, `fell 2 m in ${k} ticks`);
-  assert.equal(owned(g, 0).size, want.size + brush(d, C - 4, C + 4, L.PP_BRUSH).size, 'painted where it landed');
+  assert.equal(owned(g, 0).size, want.size + brush(d, C - 4, C + 4, MC.PP_BRUSH).size, 'painted where it landed');
   assert.equal(g.v.partier(1).score, 0);
   tally(g, 2);
 });
@@ -153,17 +154,17 @@ test('rolling over another\'s paint takes it: its count down by the cells, yours
   put(g, 0, C, C);
   put(g, 1, C + 8, C);
   g.step();
-  const a = brush(d, C, C, L.PP_BRUSH);
+  const a = brush(d, C, C, MC.PP_BRUSH);
   assert.equal(g.v.partier(0).score, a.size);
   // P1 off elsewhere, P2 onto its paint
   put(g, 0, C - 8, C);
   put(g, 1, C + 0.5, C + 0.3);
   g.step();
-  const b = brush(d, C + 0.5, C + 0.3, L.PP_BRUSH);
+  const b = brush(d, C + 0.5, C + 0.3, MC.PP_BRUSH);
   const taken = [...a].filter((c) => b.has(c)).length;
   assert.ok(taken > 30, `${taken} taken`);
-  assert.equal(g.v.partier(0).score, a.size - taken + brush(d, C - 8, C, L.PP_BRUSH).size);
-  assert.equal(g.v.partier(1).score, brush(d, C + 8, C, L.PP_BRUSH).size + b.size);
+  assert.equal(g.v.partier(0).score, a.size - taken + brush(d, C - 8, C, MC.PP_BRUSH).size);
+  assert.equal(g.v.partier(1).score, brush(d, C + 8, C, MC.PP_BRUSH).size + b.size);
   const { painted, per } = tally(g, 3);
   assert.equal(painted, per[0] + per[1] + per[2]);
   // rolling about for a while, bumping: still so
@@ -180,7 +181,7 @@ test('two balls on one cell take turns having it: the later of the tick\'s order
   // 2.05 m apart: their brushes overlap, the balls don't touch
   put(g, 0, C - 1.025, C + 0.1);
   put(g, 1, C + 1.025, C + 0.1);
-  const both = [...brush(d, C - 1.025, C + 0.1, L.PP_BRUSH)].filter((c) => brush(d, C + 1.025, C + 0.1, L.PP_BRUSH).has(c));
+  const both = [...brush(d, C - 1.025, C + 0.1, MC.PP_BRUSH)].filter((c) => brush(d, C + 1.025, C + 0.1, MC.PP_BRUSH).has(c));
   assert.ok(both.length > 5, `${both.length} cells shared`);
   for (let k = 0; k < 6; k++) {
     g.step();
@@ -207,12 +208,12 @@ test('a fall is PP_RESPAWN ticks down, the paint staying; then back in, falling 
   const sink = fxs(g.v, L.FX_SINK).at(-1);
   assert.deepEqual([sink.owner, sink.size], [0, 0]);
   const downAt = b.outAt;
-  for (let k = 0; k < L.PP_RESPAWN - 2; k++) { g.step(); assert.ok(g.v.partier(0).out, 'still down'); assert.equal(g.v.partier(0).score, mine, 'its paint stays'); }
-  while (g.v.partier(0).out && g.v.tick < downAt + L.PP_RESPAWN + 5) g.step();
+  for (let k = 0; k < MC.PP_RESPAWN - 2; k++) { g.step(); assert.ok(g.v.partier(0).out, 'still down'); assert.equal(g.v.partier(0).score, mine, 'its paint stays'); }
+  while (g.v.partier(0).out && g.v.tick < downAt + MC.PP_RESPAWN + 5) g.step();
   const back = g.v.partier(0);
   assert.ok(!back.out && !back.ground, 'back in, in the air');
   assert.ok(back.pos[1] > PLAT_Y + 5, `${back.pos[1]} m up`);
-  assert.ok(Math.hypot(back.pos[0] - C, back.pos[2] - C) < d.rad * L.PP_SPAWN + 1e-3, 'over the disc');
+  assert.ok(Math.hypot(back.pos[0] - C, back.pos[2] - C) < d.rad * MC.PP_SPAWN + 1e-3, 'over the disc');
   assert.equal(g.v.party().state, L.H_PLAY);
   let k = 0;
   while (!g.v.partier(0).ground && k++ < 300) g.step();
@@ -234,20 +235,20 @@ test('a paint bomb lands on its tick; the first ball to it bursts it, PP_SPLAT r
   g.step();
   const t = g.v.party().t - 1;
   assert.equal(t, b0.at);
-  const land = fxs(g.v, L.PP_FX_ORB).find((x) => x.shot === 0);
+  const land = fxs(g.v, MC.PP_FX_ORB).find((x) => x.shot === 0);
   assert.deepEqual([land.owner, land.pos[0], land.pos[1], land.pos[2]], [255, b0.x, PLAT_Y, b0.z]);
-  const splat = fxs(g.v, L.PP_FX_SPLAT).find((x) => x.tick >= land.tick);
+  const splat = fxs(g.v, MC.PP_FX_SPLAT).find((x) => x.tick >= land.tick);
   assert.ok(g.v.fxCount() > before && splat, 'burst on landing');
-  assert.deepEqual([splat.owner, splat.shot, splat.pos[0], splat.pos[2], splat.size], [0, 0, b0.x, b0.z, L.PP_SPLAT]);
-  const burst = brush(d, b0.x, b0.z, L.PP_SPLAT);
+  assert.deepEqual([splat.owner, splat.shot, splat.pos[0], splat.pos[2], splat.size], [0, 0, b0.x, b0.z, MC.PP_SPLAT]);
+  const burst = brush(d, b0.x, b0.z, MC.PP_SPLAT);
   const mine = owned(g, 0);
-  for (const c of burst) if (g.grid[c] !== L.PP_OFF) assert.ok(mine.has(c), `cell ${c} of the burst`);
+  for (const c of burst) if (g.grid[c] !== MC.PP_OFF) assert.ok(mine.has(c), `cell ${c} of the burst`);
   assert.ok(mine.size > 600, `${mine.size} cells`);
   const b1 = orb(g.v, 0);
   assert.equal(b1.bursts, 1);
-  assert.equal(b1.at, t + L.PP_BACK);
+  assert.equal(b1.at, t + MC.PP_BACK);
   assert.ok(Math.hypot(b1.x - b0.x, b1.z - b0.z) > 0.5, 'somewhere else');
-  assert.ok(Math.hypot(b1.x - C, b1.z - C) <= d.rad * L.PP_ORB_SPREAD + 1e-3);
+  assert.ok(Math.hypot(b1.x - C, b1.z - C) <= d.rad * MC.PP_ORB_SPREAD + 1e-3);
   // on its new spot before it's back: nothing; as it lands, bursts again
   put(g, 0, b1.x, b1.z);
   while (g.v.party().t < b1.at) { g.step(); assert.equal(orb(g.v, 0).bursts, 1); }
@@ -268,7 +269,7 @@ test('two balls at one bomb: the first of the tick\'s order bursts it (P1 on an 
     hold(g, 0, b.at + odd);
     g.step();
     g.step();
-    const s = fxs(g.v, L.PP_FX_SPLAT);
+    const s = fxs(g.v, MC.PP_FX_SPLAT);
     assert.equal(s.length, 1);
     assert.equal(s[0].owner, odd, `tick ${b.at + odd}`);
   }
@@ -278,30 +279,30 @@ test('the rush: the last PP_RUSH ticks paint PP_RUSH_BRUSH wide and burst PP_RUS
   const g = await room(2);
   const d = disc(2);
   away(g, 1);
-  const k = L.PP_LEN - L.PP_RUSH;
+  const k = MC.PP_LEN - MC.PP_RUSH;
   hold(g, 0);
   hold(g, 1);
   at(g, k - 1);
   put(g, 0, C + 3, C + 3);
   g.step();
-  assert.deepEqual(owned(g, 0), brush(d, C + 3, C + 3, L.PP_BRUSH));
-  assert.equal(fxs(g.v, L.PP_FX_RUSH).length, 0);
+  assert.deepEqual(owned(g, 0), brush(d, C + 3, C + 3, MC.PP_BRUSH));
+  assert.equal(fxs(g.v, MC.PP_FX_RUSH).length, 0);
   put(g, 0, C - 4, C - 3);
   g.step();
-  const rush = fxs(g.v, L.PP_FX_RUSH);
+  const rush = fxs(g.v, MC.PP_FX_RUSH);
   assert.equal(rush.length, 1);
-  assert.equal(rush[0].size, f(L.PP_RUSH_BRUSH));
-  const wide = brush(d, C - 4, C - 3, L.PP_RUSH_BRUSH);
-  assert.equal(owned(g, 0).size, brush(d, C + 3, C + 3, L.PP_BRUSH).size + wide.size);
-  assert.ok(wide.size > 2 * brush(d, C - 4, C - 3, L.PP_BRUSH).size);
+  assert.equal(rush[0].size, f(MC.PP_RUSH_BRUSH));
+  const wide = brush(d, C - 4, C - 3, MC.PP_RUSH_BRUSH);
+  assert.equal(owned(g, 0).size, brush(d, C + 3, C + 3, MC.PP_BRUSH).size + wide.size);
+  assert.ok(wide.size > 2 * brush(d, C - 4, C - 3, MC.PP_BRUSH).size);
   // a bomb in the rush
   const b = orb(g.v, 1);
   hold(g, 1, g.v.party().t);
   put(g, 0, b.x, b.z);
   g.step();
-  const s = fxs(g.v, L.PP_FX_SPLAT).at(-1);
-  assert.deepEqual([s.owner, s.shot, s.size], [0, 1, L.PP_RUSH_SPLAT]);
-  for (const c of brush(d, b.x, b.z, L.PP_RUSH_SPLAT)) if (g.grid[c] !== L.PP_OFF) assert.equal(g.grid[c], 1);
+  const s = fxs(g.v, MC.PP_FX_SPLAT).at(-1);
+  assert.deepEqual([s.owner, s.shot, s.size], [0, 1, MC.PP_RUSH_SPLAT]);
+  for (const c of brush(d, b.x, b.z, MC.PP_RUSH_SPLAT)) if (g.grid[c] !== MC.PP_OFF) assert.equal(g.grid[c], 1);
   tally(g, 2);
 });
 
@@ -336,17 +337,17 @@ test('the lead\'s FX: owner the new leader, shot the last, 0xffff for none (255 
   for (let p = 0; p < 3; p++) away(g, p, p);
   at(g, 1000);
   // a count as the sim keeps it, PG_SCORE with it (else the slot reads as new, and is wiped)
-  const cnt = (p, c) => { g.dv.setUint16(L.PG_S + L.PP_CNT + 2 * p, c, true); g.dv.setUint16(rec(p) + L.PG_SCORE, c, true); };
-  const told = () => fxs(g.v, L.PP_FX_LEAD).at(-1);
+  const cnt = (p, c) => { g.dv.setUint16(L.PG_S + MC.PP_CNT + 2 * p, c, true); g.dv.setUint16(rec(p) + L.PG_SCORE, c, true); };
+  const told = () => fxs(g.v, MC.PP_FX_LEAD).at(-1);
   // the first lead of the round: from nobody
-  g.dv.setUint32(L.PG_H + L.PP_LEAD, 0, true);
+  g.dv.setUint32(L.PG_H + MC.PP_LEAD, 0, true);
   cnt(0, 5);
   g.step();
   assert.deepEqual([told().owner, told().shot, told().size], [0, 0xffff, 5]);
-  assert.equal(g.dv.getUint32(L.PG_H + L.PP_LEAD, true), 1);
+  assert.equal(g.dv.getUint32(L.PG_H + MC.PP_LEAD, true), 1);
   // last told slot 255, gone since: P2 takes it from slot 255
-  g.dv.setUint32(L.PG_H + L.PP_LEAD, 256, true);
-  g.dv.setUint32(L.PG_H + L.PP_LEADT, g.v.party().t - L.PP_LEADGAP, true);
+  g.dv.setUint32(L.PG_H + MC.PP_LEAD, 256, true);
+  g.dv.setUint32(L.PG_H + MC.PP_LEADT, g.v.party().t - MC.PP_LEADGAP, true);
   cnt(1, 9);
   g.step();
   assert.deepEqual([told().owner, told().shot, told().size], [1, 255, 9]);
@@ -358,7 +359,7 @@ test('the end, on the clock: placed by cells, most first, ties sharing; 10 point
   g.step();
   // the counts as the last tick finds them (nobody on the floor to change them)
   // (and in PG_SCORE, as every tick leaves it: else the slot looks new and its paint is wiped)
-  [500, 300, 300, 20].forEach((c, p) => { g.dv.setUint16(L.PG_S + L.PP_CNT + 2 * p, c, true); g.dv.setUint16(rec(p) + L.PG_SCORE, c, true); });
+  [500, 300, 300, 20].forEach((c, p) => { g.dv.setUint16(L.PG_S + MC.PP_CNT + 2 * p, c, true); g.dv.setUint16(rec(p) + L.PG_SCORE, c, true); });
   g.dv.setUint32(L.HDR_UNTIL, g.v.tick, true);
   g.step();
   const r = g.v.party();
@@ -424,12 +425,12 @@ test('the prediction matches the confirmed ball bit for bit (all but PG_SCORE): 
 
 for (const [balls, leaveAt] of [[8, 0], [64, 3000]]) {
   test(`a round of ${balls} AI balls on the debug build: no trap, every count the grid's, ended by the clock and placed; equal on 1 and 4 threads`, async () => {
-    const ticks = L.P_COUNT + L.PP_LEN + 200;
+    const ticks = L.P_COUNT + MC.PP_LEN + 200;
     let start = -1, over = -1, places = null, pts = null, scores = null, splats = 0, seen = 0, checked = 0;
-    const grid = (sim) => new Uint16Array(sim.memory.buffer, L.PG_BIG + L.PP_CELLS, N * N);
+    const grid = (sim) => new Uint16Array(sim.memory.buffer, L.PG_BIG + MC.PP_CELLS, N * N);
     const { log, sim } = await playParty({ bytes: partyBytes(true), mg: L.MG_PAINT, seed: balls, bots: balls, ticks, leaveAt, onTick: (t, s, v) => {
       const h = v.hole();
-      for (; seen < v.fxCount(); seen++) splats += v.fx(seen).kind === L.PP_FX_SPLAT;
+      for (; seen < v.fxCount(); seen++) splats += v.fx(seen).kind === MC.PP_FX_SPLAT;
       if (start < 0 && h.state === L.H_PLAY) start = t;
       if (start >= 0 && over < 0 && t % 500 === 0) { tally({ grid: grid(s), v }, balls); checked++; }
       if (over < 0 && start >= 0 && h.state === L.H_OVER) {
@@ -441,9 +442,9 @@ for (const [balls, leaveAt] of [[8, 0], [64, 3000]]) {
     } });
     assert.equal(sim.error().code, 0);
     assert.ok(over > 0, 'the round ended');
-    assert.equal(over - start, L.PP_LEN, 'on the clock');
+    assert.equal(over - start, MC.PP_LEN, 'on the clock');
     assert.ok(checked > 10);
-    const total = new View(sim.memory.buffer).dv.getUint32(L.PG_H + L.PP_TOTAL, true);
+    const total = new View(sim.memory.buffer).dv.getUint32(L.PG_H + MC.PP_TOTAL, true);
     const painted = scores.reduce((a, b) => a + b, 0);
     assert.ok(painted > 0.6 * total, `${(100 * painted / total).toFixed(0)}% of the floor painted`);
     assert.ok(Math.max(...scores) < 4 * total / balls, `nobody runs away with it: ${scores}`);
@@ -479,7 +480,7 @@ test('the client module: the floor drawn with the grid as its paint layer, the b
   const pl = out.paint, M = 2 * N;
   assert.ok(pl && pl.n === M && pl.cells.length === M * M);
   assert.deepEqual([pl.origin[0], pl.origin[1], pl.size], [d.x0, d.x0, d.cs * N]);
-  const id = (i, j) => { const v = g.grid[Math.min(N - 1, Math.max(0, j)) * N + Math.min(N - 1, Math.max(0, i))]; return v === 0 || v === L.PP_OFF ? 0 : v; };
+  const id = (i, j) => { const v = g.grid[Math.min(N - 1, Math.max(0, j)) * N + Math.min(N - 1, Math.max(0, i))]; return v === 0 || v === MC.PP_OFF ? 0 : v; };
   let wrong = 0, painted = 0;
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const q = [pl.cells[2 * j * M + 2 * i], pl.cells[2 * j * M + 2 * i + 1], pl.cells[(2 * j + 1) * M + 2 * i], pl.cells[(2 * j + 1) * M + 2 * i + 1]];
