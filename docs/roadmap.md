@@ -7,8 +7,8 @@ not measured yet, it says so.
 ## Where it is
 
 24 games, each gated online at 256 players: golf, bumper balls, the arena's
-eight modes (Fiesta, Infection, gun game, Juggernaut, and red against blue:
-Team Slayer, Capture the Flag, Oddball, King of the Hill) and Party's 14
+eight modes (Grab Bag, Zombies, gun game, Juggernaut, and red against blue:
+Team Deathmatch, Capture the Flag, Keep Away, King of the Hill) and Party's 14
 minigames. Fireplace plays them in turn.
 
 What a page downloads, gzipped, everything it imports included:
@@ -16,7 +16,7 @@ What a page downloads, gzipped, everything it imports included:
 | Page | Files | Gzipped |
 | --- | --- | --- |
 | `client/party.html` | 54 | 275 KB (wasm 29 KB) |
-| `client/fireplace.html` | 72 | 436 KB (wasm 85 KB, 68 KB of it Blood Gulch's height map) |
+| `client/fireplace.html` | 72 | 436 KB (wasm 85 KB, 68 KB of it Box Canyon's height map) |
 | `client/bumper.html` | 38 | 114 KB |
 | `client/arena.html` | 44 | 190 KB (the team modes: 6 files and 31 KB of it) |
 
@@ -163,8 +163,11 @@ The wrapper, ours first:
 
 1. List Party and Fireplace as free titles with `play_url` on these pages
    (the listing rules ask for the source to be public). Fireplace has its
-   row (on the coming-soon shelf, in alpha, until people play it) and its
-   board lane, `fireplace-pr`, in scry-forge since 2026-10-25; `elo.json`
+   row and its board lane, `fireplace-pr`, in scry-forge since 2026-10-25.
+   Its page says coming soon, with no play link: the play link comes back
+   once nothing a player sees is named after Halo or Quake (the modes, guns,
+   medals and map shown are renamed; the repo's own name is left) and the
+   room pool is on the game box (scry-forge's NOW row 23). `elo.json`
    lands on the row once its steward signs it (`sign_manifest.py --game
    fireplace --seq 1`, scry-forge's `docs/store/GAME-REPO.md`).
 2. Sign-in: the page calls `Elo.signIn({nonce})` with a nonce from the relay's

@@ -22,7 +22,7 @@
 // instantiate) and mutable globals (per-thread state the region never sees).
 // A passive segment is only bytes until init copies it out with memory.init:
 // the arena's map (tools/map.mjs; QG_MAP=name or --map name picks one of
-// maps/, Blood Gulch by default) goes in as one, through (!mapdata).
+// maps/, Box Canyon by default) goes in as one, through (!mapdata).
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

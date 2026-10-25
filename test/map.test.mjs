@@ -21,9 +21,9 @@ test('PNGs round-trip: 16-bit grey, 8-bit grey, RGB', () => {
   }
 });
 
-test('Blood Gulch compiles: two bases, one the other turned about, a cave, teleporters, spawns', () => {
+test('Box Canyon compiles: two bases, one the other turned about, a cave, teleporters, spawns', () => {
   const m = compileMap();
-  assert.equal(m.name, 'Blood Gulch');
+  assert.equal(m.name, 'Box Canyon');
   const [red, blue] = m.groups;
   assert.equal(red.count, blue.count);
   // turned half round about x = 512: the same boxes mirrored
@@ -44,7 +44,7 @@ function stand(v, m, x, z, top) {
   return floor;
 }
 
-test('Blood Gulch\'s objectives: a flag on each base\'s floor, the skull mid-field, six hills by turns either side, each standing where it should', async () => {
+test('Box Canyon\'s objectives: a flag on each base\'s floor, the skull mid-field, six hills by turns either side, each standing where it should', async () => {
   const m = compileMap();
   const G = -1000;
   assert.deepEqual(m.flags, [[392, 512, G], [632, 512, G]]);
