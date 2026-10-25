@@ -2,7 +2,7 @@
 // returns WAT text; the assembler re-scans the output, so macros may nest.
 // Layout constants stay as @NAME here and are folded after expansion.
 import * as layout from './layout.mjs';
-import { ARMS, FP_MATCHES, GAMES, MINIGAMES } from './layout.mjs';
+import { AM, ARMS, FP_MATCHES, GAMES, MINIGAMES } from './layout.mjs';
 
 const SHIFT = { f32: 2, i32: 2, i64: 3, u16: 1, u8: 0, v128: 2 };
 const LOAD = { f32: 'f32.load', i32: 'i32.load', i64: 'i64.load', u16: 'i32.load16_u', u8: 'i32.load8_u', v128: 'v128.load' };
@@ -115,6 +115,22 @@ export function makeMacros({ DEBUG }) {
       const call = (k) => `(call $${MINIGAMES[k].prefix}_${hook}${args.map((a) => ` ${a}`).join('')})`;
       let out = call(MINIGAMES.length - 1);
       for (let k = MINIGAMES.length - 2; k >= 0; k--) out = `(if${r} (i32.eq (i32.load (i32.const @PG_GAME)) (i32.const ${k})) (then ${call(k)}) (else ${out}))`;
+      return out;
+    },
+
+    // The arena: (!am type hook args...), the team mode on now (AH_MODE)
+    // running its hook, $<prefix>_<hook> args: an if-chain over AM, and for a
+    // mode not in AM nothing (0 for each result). type as (!mg)'s.
+    am: (...words) => {
+      const types = [];
+      while (['none', 'i32', 'f32', 'i64', 'f64'].includes(words[0])) types.push(words.shift());
+      const [hook, ...args] = words;
+      if (!hook) throw new Error('(!am) without a hook');
+      const vals = types.filter((t) => t !== 'none');
+      const r = vals.length ? ` (result ${vals.join(' ')})` : '';
+      const call = (k) => `(call $${AM[k].prefix}_${hook}${args.map((a) => ` ${a}`).join('')})`;
+      let out = vals.map((t) => `(${t}.const 0)`).join(' ') || '(nop)';
+      for (let k = AM.length - 1; k >= 0; k--) out = `(if${r} (i32.eq (i32.load (i32.const @AH_MODE)) (i32.const ${AM[k].mode})) (then ${call(k)}) (else ${out}))`;
       return out;
     },
 

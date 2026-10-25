@@ -14,8 +14,10 @@
 ;; A match plays one of the modes (layout.mjs, M_*; the last section here),
 ;; picked at run time as its countdown starts. A Fiesta leaves every mode
 ;; field at 0; the others put fighters on sides (P_FL's PF_ZOMBIE, PF_JUGG,
-;; which the prediction reads for a zombie's legs) and keep a record per
-;; fighter in MODE_REC.
+;; PF_BLUE, which the prediction reads for a zombie's legs or a carrier's
+;; swing) and keep a record per fighter in MODE_REC. The team modes are a
+;; kit: the core here (sides, spawns, scores, the end, carrying) and each
+;; mode's objective in its own file, src/am/<key>.wat.
 
 ;; ---- the map, built from maps/<name>/ by tools/map.mjs into this passive
 ;; segment: its head, its structures (boxes in groups), its height and
@@ -66,13 +68,19 @@
     (f32.store offset=4 (local.get $a) (call $stand (local.get $sx) (local.get $sz) (f32.load (i32.add (i32.const @MAP_SPAWNY) (i32.shl (local.get $i) (i32.const 2))))))
     (f32.store offset=8 (local.get $a) (local.get $sz)))
 #if !FIESTA
-  (!for $i (i32.const 0) (i32.load (i32.const @MAP_NPAD))
-    (local.set $a (i32.add (i32.const @MAP_PADS) (i32.shl (local.get $i) (i32.const 4))))
-    (call $pad (local.get $i) (i32.load offset=12 (local.get $a)) (f32.load (local.get $a)) (f32.load offset=4 (local.get $a)) (f32.load offset=8 (local.get $a))))
+  (call $pads)
 #endif
   (f32.store (i32.const @HDR_TEE) (f32.const 512))
   (f32.store (i32.const @(HDR_TEE + 8)) (f32.const 512))
   (f32.store (i32.const @HDR_DIR) (f32.const 1)))
+
+;; The map's weapon pads laid out, each with its gun there: at init in slayer
+;; (FIESTA 0), and in Fiesta's build as a match of a mode with pads is picked.
+(func $pads
+  (local $i i32) (local $a i32)
+  (!for $i (i32.const 0) (i32.load (i32.const @MAP_NPAD))
+    (local.set $a (i32.add (i32.const @MAP_PADS) (i32.shl (local.get $i) (i32.const 4))))
+    (call $pad (local.get $i) (i32.load offset=12 (local.get $a)) (f32.load (local.get $a)) (f32.load offset=4 (local.get $a)) (f32.load offset=8 (local.get $a)))))
 
 (func $pad (param $k i32) (param $w i32) (param $x f32) (param $z f32) (param $top f32)
   (local $a i32)
@@ -246,22 +254,47 @@
 
 ;; Slot p comes (back) into the fight at the spawn point farthest from the
 ;; nearest enemy (for a zombie, the one nearest 25 m from it), of four
-;; drawn at random: full shields and health, two frags, and in Fiesta two
-;; different guns drawn at random (in slayer an assault rifle out and a
-;; magnum on the back). The match's mode may say otherwise: a zombie has the
-;; sword and nothing else, Infection's humans a shotgun and a magnum, gun
-;; game the gun of the fighter's rung.
+;; drawn at random (in a team mode from its side's half of them): full
+;; shields and health, two frags, and in Fiesta two different guns drawn at
+;; random (in slayer an assault rifle out and a magnum on the back). The
+;; match's mode may say otherwise: a zombie has the sword and nothing else,
+;; Infection's humans a shotgun and a magnum, gun game the gun of the
+;; fighter's rung, a team mode slayer's rifle and magnum. A side (PF_ZOMBIE,
+;; PF_BLUE) lasts through it; a flag or the skull doesn't.
 (func $a_spawn (param $p i32)
   (local $pb i32) (local $k i32) (local $i i32) (local $q i32) (local $qb i32) (local $in i32)
   (local $best i32) (local $bestd f32) (local $md f32) (local $sx f32) (local $sz f32) (local $dx f32) (local $dz f32) (local $h f32)
-  (local $g0 i32) (local $g1 i32) (local $mode i32) (local $zed i32)
+  (local $g0 i32) (local $g1 i32) (local $mode i32) (local $zed i32) (local $fl i32) (local $team i32) (local $side i32) (local $n i32) (local $j i32)
   (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
   (local.set $mode (i32.load (i32.const @AH_MODE)))
+  (local.set $team (i32.and (i32.shl (i32.const 1) (local.get $mode)) (i32.const @TEAMED)))
   ;; a zombie stays one; a juggernaut that died is anyone again
-  (local.set $zed (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_ZOMBIE)))
-  (local.set $bestd (select (f32.const -1e30) (f32.const -1) (local.get $zed)))
+  (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
+  (local.set $zed (i32.and (local.get $fl) (i32.const @PF_ZOMBIE)))
+  (local.set $bestd (select (f32.const -1e30) (f32.const -1) (i32.or (local.get $zed) (local.get $team))))
+  ;; a team mode's fighter starts on its own half: n spawns to draw from, side -1 for all of them
+  (local.set $n (i32.load (i32.const @MAP_NSPAWN)))
+  (local.set $side (i32.const -1))
+  (if (local.get $team)
+    (then
+      (local.set $side (call $a_team (local.get $p)))
+      (local.set $n (i32.const 0))
+      (!for $j (i32.const 0) (i32.load (i32.const @MAP_NSPAWN))
+        (if (i32.eq (call $a_spawn_half (local.get $j)) (local.get $side)) (then (!inc $n))))
+      ;; tools/map.mjs sees each half has one; a map that somehow hasn't draws from all
+      (if (i32.eqz (local.get $n)) (then (local.set $side (i32.const -1)) (local.set $n (i32.load (i32.const @MAP_NSPAWN)))))))
   (!for $k (i32.const 0) (i32.const 4)
-    (local.set $i (i32.rem_u (call $rand) (i32.load (i32.const @MAP_NSPAWN))))
+    (local.set $i (i32.rem_u (call $rand) (local.get $n)))
+    (if (i32.ge_s (local.get $side) (i32.const 0))
+      (then
+        ;; the i-th of the side's own, in order
+        (block $found
+          (!for $j (i32.const 0) (i32.load (i32.const @MAP_NSPAWN))
+            (if (i32.eq (call $a_spawn_half (local.get $j)) (local.get $side))
+              (then
+                (br_if $found (i32.eqz (local.get $i)))
+                (local.set $i (i32.sub (local.get $i) (i32.const 1)))))))
+        (local.set $i (local.get $j))))
     (local.set $sx (f32.load (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 4)))))
     (local.set $sz (f32.load offset=8 (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 4)))))
     (local.set $md (f32.const 1e9))
@@ -288,7 +321,7 @@
   (!put f32 @(PLAYERS + P_VX) (local.get $pb) (f32.const 0))
   (!put f32 @(PLAYERS + P_VY) (local.get $pb) (f32.const 0))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (f32.const 0))
-  (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.or (i32.const @(PF_LIVE | PF_GROUND)) (local.get $zed)))
+  (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.or (i32.const @(PF_LIVE | PF_GROUND)) (i32.and (local.get $fl) (i32.const @(PF_ZOMBIE | PF_BLUE)))))
   ;; a shot, melee or throw already asked for doesn't happen on arrival
   (!put u8 @(PLAYERS + P_FIRED) (local.get $pb) (i32.and (i32.shr_u (local.get $in) (i32.const @AW_SHOT)) (i32.const 3)))
   (!put u8 @(PLAYERS + A_ACT) (local.get $pb) (i32.and (i32.shr_u (local.get $in) (i32.const @AW_MELEE)) (i32.const 7)))
@@ -317,6 +350,7 @@
       (local.set $g0 (i32.load8_u offset=@(MODE_REC + MR_RUNG) (i32.shl (local.get $p) (i32.const 3))))
       (local.set $g0 (!tab LADDER (local.get $g0)))
       (local.set $g1 (local.get $g0))))
+  (if (local.get $team) (then (local.set $g0 (i32.const @W_AR)) (local.set $g1 (i32.const @W_MAGNUM))))
   (call $a_arm (local.get $p) (local.get $g0) (local.get $g1))
   (!put u8 @(PLAYERS + A_GRENS) (local.get $pb) (select (i32.const 0) (i32.const 2) (local.get $zed)))
   (!put u16 @(PLAYERS + A_COOL) (local.get $pb) (i32.const 0))
@@ -379,12 +413,23 @@
             (i32.and (i32.shr_u (local.get $in) (i32.const @AW_MELEE)) (i32.const @(AB_MELEE | AB_GREN))))))
 
 ;; One live fighter's weapons for this tick, before it moves: swapping guns,
-;; reloading, melee, grenades and the trigger. No shots in the countdown.
+;; reloading, melee, grenades and the trigger. No shots in the countdown. A
+;; flag's or the skull's carrier (PF_CARRY, read from its own bank) has no
+;; hands for them: its frags stay on its belt, no reload or burst runs, and
+;; a new press of the trigger or of melee swings what it carries; the
+;; counters follow the word all the same, so nothing waits for the drop.
 (func $a_shoot (param $p i32) (param $d i32) (param $in i32) (param $s f32) (param $c f32)
   (local $pb i32) (local $act i32) (local $slot i32) (local $w i32) (local $re i32) (local $rl i32) (local $cool i32)
   (local $ctr i32) (local $mag i32) (local $res i32) (local $take i32) (local $state i32) (local $u i32) (local $bit i32)
+  (local $carry i32) (local $go i32)
   (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
   (call $a_frame (local.get $pb) (local.get $d) (local.get $in))
+  (local.set $carry (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_CARRY)))
+  ;; a carrier's reload (a frame may just have asked for one) and burst stop
+  (if (local.get $carry)
+    (then
+      (!put u8 @(PLAYERS + A_RELOAD) (local.get $pb) (i32.const 0))
+      (!put u8 @(PLAYERS + A_BURST) (local.get $pb) (i32.const 0))))
   (local.set $act (!at u8 @(PLAYERS + A_ACT) (local.get $pb)))
   (local.set $slot (i32.and (i32.shr_u (local.get $in) (i32.const @AW_SLOT)) (i32.const 1)))
   (local.set $re (!at u16 @(PLAYERS + P_REFIRE) (local.get $pb)))
@@ -424,26 +469,32 @@
       (!put u16 @(PLAYERS + A_COOL) (local.get $pb) (local.get $cool))
       (return)))
   (local.set $u (i32.shl (i32.sub (i32.and (i32.shr_u (local.get $in) (i32.const @AW_PITCH)) (i32.const 0x3ff)) (i32.const 512)) (i32.const 3)))
-  ;; melee: the sword swings, anything else is a rifle butt
+  ;; melee: the sword swings, anything else is a rifle butt; a carrier swings
+  ;; what it carries, at a new trigger press too
   (local.set $bit (i32.and (i32.shr_u (local.get $in) (i32.const @AW_MELEE)) (i32.const 1)))
-  (if (i32.ne (local.get $bit) (i32.and (local.get $act) (i32.const @AB_MELEE)))
+  (local.set $go (i32.ne (local.get $bit) (i32.and (local.get $act) (i32.const @AB_MELEE))))
+  (if (local.get $go) (then (local.set $act (i32.xor (local.get $act) (i32.const @AB_MELEE)))))
+  (if (local.get $carry)
     (then
-      (local.set $act (i32.xor (local.get $act) (i32.const @AB_MELEE)))
-      (if (i32.eqz (local.get $cool))
-        (then
-          (!put u16 @(PLAYERS + P_SHOTS) (local.get $pb) (i32.add (!at u16 @(PLAYERS + P_SHOTS) (local.get $pb)) (i32.const 1)))
-          (call $a_melee (local.get $p) (local.get $d) (local.get $s) (local.get $c) (i32.eq (local.get $w) (i32.const @W_SWORD)))
-          (local.set $cool (i32.const @COOL_TICKS))
-          (!put u8 @(PLAYERS + A_BURST) (local.get $pb) (i32.const 0))
-          (!put u8 @(PLAYERS + A_RELOAD) (local.get $pb) (i32.const 0))
-          (if (i32.lt_u (local.get $re) (i32.const @(COOL_TICKS / 2)))
-            (then (local.set $re (i32.const @(COOL_TICKS / 2))) (!put u16 @(PLAYERS + P_REFIRE) (local.get $pb) (local.get $re))))))))
-  ;; a frag: thrown along the view, a little up
+      (local.set $go (i32.or (local.get $go) (i32.ne (local.get $ctr) (!at u8 @(PLAYERS + P_FIRED) (local.get $pb)))))
+      (!put u8 @(PLAYERS + P_FIRED) (local.get $pb) (local.get $ctr))))
+  (if (i32.and (local.get $go) (i32.eqz (local.get $cool)))
+    (then
+      (!put u16 @(PLAYERS + P_SHOTS) (local.get $pb) (i32.add (!at u16 @(PLAYERS + P_SHOTS) (local.get $pb)) (i32.const 1)))
+      (call $a_melee (local.get $p) (local.get $d) (local.get $s) (local.get $c)
+                     (select (i32.const 2) (i32.eq (local.get $w) (i32.const @W_SWORD)) (local.get $carry)))
+      (local.set $cool (i32.const @COOL_TICKS))
+      (!put u8 @(PLAYERS + A_BURST) (local.get $pb) (i32.const 0))
+      (!put u8 @(PLAYERS + A_RELOAD) (local.get $pb) (i32.const 0))
+      (if (i32.lt_u (local.get $re) (i32.const @(COOL_TICKS / 2)))
+        (then (local.set $re (i32.const @(COOL_TICKS / 2))) (!put u16 @(PLAYERS + P_REFIRE) (local.get $pb) (local.get $re))))))
+  ;; a frag: thrown along the view, a little up (never by a carrier)
   (local.set $bit (i32.and (i32.shr_u (local.get $in) (i32.const @AW_GREN)) (i32.const 1)))
   (if (i32.ne (local.get $bit) (i32.and (i32.shr_u (local.get $act) (i32.const 1)) (i32.const 1)))
     (then
       (local.set $act (i32.xor (local.get $act) (i32.const @AB_GREN)))
-      (if (i32.and (i32.eqz (local.get $cool)) (i32.ne (!at u8 @(PLAYERS + A_GRENS) (local.get $pb)) (i32.const 0)))
+      (if (i32.and (i32.and (i32.eqz (local.get $cool)) (i32.eqz (local.get $carry)))
+                   (i32.ne (!at u8 @(PLAYERS + A_GRENS) (local.get $pb)) (i32.const 0)))
         (then
           (!put u8 @(PLAYERS + A_GRENS) (local.get $pb) (i32.sub (!at u8 @(PLAYERS + A_GRENS) (local.get $pb)) (i32.const 1)))
           (!put u16 @(PLAYERS + P_SHOTS) (local.get $pb) (i32.add (!at u16 @(PLAYERS + P_SHOTS) (local.get $pb)) (i32.const 1)))
@@ -451,6 +502,8 @@
           (local.set $cool (i32.const @COOL_TICKS))))))
   (!put u8 @(PLAYERS + A_ACT) (local.get $pb) (local.get $act))
   (!put u16 @(PLAYERS + A_COOL) (local.get $pb) (local.get $cool))
+  ;; a carrier's trigger swung above, or did nothing
+  (if (local.get $carry) (then (return)))
   (if (i32.or (local.get $re) (!at u8 @(PLAYERS + A_RELOAD) (local.get $pb))) (then (return)))
   ;; the rest of a burst fires on its own, four ticks apart
   (if (!at u8 @(PLAYERS + A_BURST) (local.get $pb))
@@ -761,15 +814,18 @@
   (local.get $who)
   (local.get $best))
 
-;; A melee: a rifle butt reaches 2.4 m, a sword 5 m and kills. Either lunges
-;; at what it reaches (on both banks, so your own lunge is predicted); a butt
-;; to the back kills.
+;; A melee (sword: 0 a rifle butt, 1 the sword, 2 a carrier's flag or skull;
+;; FX_MELEE's size says which): a butt reaches 2.4 m, a sword 5 m and kills,
+;; a carrier's swing a butt's reach and kills. Each lunges at what it
+;; reaches (on both banks, so your own lunge is predicted); a butt to the
+;; back kills.
 (func $a_melee (param $p i32) (param $d i32) (param $s f32) (param $c f32) (param $sword i32)
   (local $pb i32) (local $q i32) (local $dist f32) (local $qb i32) (local $dx f32) (local $dz f32) (local $lunge f32)
-  (local $qs f32) (local $qc f32) (local $x f32) (local $y f32) (local $z f32)
+  (local $qs f32) (local $qc f32) (local $x f32) (local $y f32) (local $z f32) (local $blade i32)
   (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
+  (local.set $blade (i32.eq (local.get $sword) (i32.const 1)))
   (call $a_reach (local.get $p) (local.get $d) (local.get $s) (local.get $c)
-                 (select (f32.const 5) (f32.const 2.4) (local.get $sword)) (select (f32.const 0.9) (f32.const 0.77) (local.get $sword)))
+                 (select (f32.const 5) (f32.const 2.4) (local.get $blade)) (select (f32.const 0.9) (f32.const 0.77) (local.get $blade)))
   (local.set $dist) (local.set $q)
   (local.set $x (!madd (local.get $c) (f32.const 1.2) (!at f32 @(PLAYERS + P_PX) (local.get $pb))))
   (local.set $y (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (f32.const 1.2)))
@@ -777,7 +833,7 @@
   (call $fx (local.get $d) (i32.const @FX_MELEE) (local.get $p) (!at u16 @(PLAYERS + P_SHOTS) (local.get $pb)) (local.get $x) (local.get $y) (local.get $z)
             (f32.convert_i32_u (local.get $sword)))
   (if (i32.lt_s (local.get $q) (i32.const 0)) (then (return)))
-  (local.set $lunge (select (f32.const 14) (f32.const 5) (local.get $sword)))
+  (local.set $lunge (select (f32.const 14) (f32.const 5) (local.get $blade)))
   (!put f32 @(PLAYERS + P_VX) (local.get $pb) (!madd (local.get $c) (local.get $lunge) (!at f32 @(PLAYERS + P_VX) (local.get $pb))))
   (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (!madd (local.get $s) (local.get $lunge) (!at f32 @(PLAYERS + P_VZ) (local.get $pb))))
   (if (local.get $d) (then (return)))
@@ -786,7 +842,8 @@
   (local.set $y (f32.add (!at f32 @(PLAYERS + P_PY) (local.get $qb)) (f32.const 1.2)))
   (local.set $z (!at f32 @(PLAYERS + P_PZ) (local.get $qb)))
   (if (local.get $sword)
-    (then (call $a_hurt (local.get $q) (local.get $p) (i32.const 255) (i32.const 2) (i32.const @W_SWORD) (local.get $x) (local.get $y) (local.get $z)) (return)))
+    (then (call $a_hurt (local.get $q) (local.get $p) (i32.const 255) (i32.const 2) (select (i32.const @W_SWORD) (i32.const @KILL_CARRY) (local.get $blade))
+                        (local.get $x) (local.get $y) (local.get $z)) (return)))
   ;; from behind: they face away from you, within 60 degrees
   (call $sincos (i32.shl (i32.and (!at i32 @(PLAYERS + P_IN) (local.get $qb)) (i32.const 0x7ff)) (i32.const 3)))
   (local.set $qc) (local.set $qs)
@@ -973,10 +1030,12 @@
 
 ;; Walking over a pad: ammo for a gun you carry, or with a use, its gun in
 ;; place of the one in your hands. A pad comes back 30 s after (60 s for the
-;; sniper, the rocket and the sword).
+;; sniper, the rocket and the sword). A flag's or the skull's carrier has no
+;; hands for one, and leaves it.
 (func $a_pickup (param $p i32)
   (local $pb i32) (local $k i32) (local $a i32) (local $w i32) (local $slot i32) (local $have i32) (local $dx f32) (local $dz f32) (local $took i32)
   (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+  (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_CARRY)) (then (return)))
   (!for $k (i32.const 0) (i32.const @NPAD)
     (local.set $a (i32.add (i32.const @PAD) (i32.shl (local.get $k) (i32.const 4))))
     (local.set $w (i32.load8_u offset=12 (local.get $a)))
@@ -1019,14 +1078,16 @@
 
 ;; The match, at the end of every tick: where everyone stood (for the
 ;; shots of the next 31 ticks), respawns, shields and health coming back,
-;; needles falling out, pickups, and the clock: a countdown, play until the
-;; time is up (or in slayer someone has FRAG_LIMIT kills, or the mode says
-;; so), the scoreboard, again.
+;; needles falling out, pickups, a team mode's sides counted, and the clock:
+;; a countdown, play until the time is up (or in slayer someone has
+;; FRAG_LIMIT kills, or the mode says so), the scoreboard, again.
 (func $arena
   (local $p i32) (local $pb i32) (local $fl i32) (local $live i32) (local $best i32) (local $t i32) (local $state i32)
   (local $h i32) (local $n i32) (local $k i32) (local $a i32) (local $mode i32) (local $over i32)
+  (local $team i32) (local $blue i32)
   (local.set $t (i32.load (i32.const @HDR_TICK)))
   (local.set $state (i32.load (i32.const @HDR_STATE)))
+  (local.set $team (i32.and (i32.shl (i32.const 1) (i32.load (i32.const @AH_MODE))) (i32.const @TEAMED)))
   (local.set $h (i32.add (i32.const @HIST) (i32.mul (i32.and (local.get $t) (i32.const 31)) (i32.const @HIST_TICK))))
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
@@ -1037,6 +1098,7 @@
     (if (i32.and (local.get $fl) (i32.const @PF_LIVE))
       (then
         (!inc $live)
+        (if (i32.and (local.get $fl) (i32.const @PF_BLUE)) (then (!inc $blue)))
         (if (i32.gt_u (!at u16 @(PLAYERS + A_KILLS) (local.get $pb)) (local.get $best)) (then (local.set $best (!at u16 @(PLAYERS + A_KILLS) (local.get $pb)))))
         (if (i32.and (local.get $fl) (i32.const @PF_DEAD))
           (then
@@ -1070,6 +1132,11 @@
     (if (i32.load16_u offset=14 (local.get $a))
       (then (i32.store16 offset=14 (local.get $a) (i32.sub (i32.load16_u offset=14 (local.get $a)) (i32.const 1))))))
   (i32.store (i32.const @HDR_LIVE) (local.get $live))
+  ;; a team mode's sides, everyone in the room, every tick it is on
+  (if (local.get $team)
+    (then
+      (i32.store (i32.const @AH_TEAMN) (i32.sub (local.get $live) (local.get $blue)))
+      (i32.store (i32.const @(AH_TEAMN + 4)) (local.get $blue))))
   (if (i32.eqz (local.get $live))
     (then (i32.store (i32.const @HDR_STATE) (i32.const @H_IDLE)) (return)))
   (if (i32.eq (local.get $state) (i32.const @H_COUNT))
@@ -1083,7 +1150,9 @@
           ;; Infection's zombies, one for every ten (at least one); the juggernaut
           (if (i32.eq (local.get $mode) (i32.const @M_INFECTION))
             (then (call $a_draw (select (i32.div_u (local.get $live) (i32.const 10)) (i32.const 1) (i32.ge_u (local.get $live) (i32.const 20))))))
-          (if (i32.eq (local.get $mode) (i32.const @M_JUGGERNAUT)) (then (call $a_draw (i32.const 1))))))
+          (if (i32.eq (local.get $mode) (i32.const @M_JUGGERNAUT)) (then (call $a_draw (i32.const 1))))
+          ;; a team mode lays its objective out
+          (!am none start)))
       (return)))
   (if (i32.eq (local.get $state) (i32.const @H_PLAY))
     (then
@@ -1095,20 +1164,42 @@
       (if (local.get $mode) (then (local.set $over (i32.or (local.get $over) (call $a_mode_play)))))
       (if (local.get $over)
         (then
+          ;; however a team match ends (its target, its mode, the clock, a cut
+          ;; to it), the side ahead wins it, or it's a draw
+          (if (local.get $team)
+            (then
+              (local.set $n (call $a_lead))
+              (local.set $n (select (local.get $n) (i32.const 3) (local.get $n)))
+              (i32.store (i32.const @AH_TEAMWIN) (local.get $n))
+              (call $a_news (i32.const @MX_TEAMWIN) (i32.const 0) (local.get $n))))
           (if (local.get $mode) (then (call $a_places)))
           (i32.store (i32.const @HDR_STATE) (i32.const @H_OVER))
           (i32.store (i32.const @HDR_UNTIL) (i32.add (local.get $t) (i32.const @OVER_TICKS)))))
       (return)))
   (if (i32.and (i32.eq (local.get $state) (i32.const @H_OVER)) (i32.ge_u (local.get $t) (i32.load (i32.const @HDR_UNTIL))))
     (then
-      ;; a new match, its mode picked: scores cleared, sides gone, everyone respawned, every pad back
+      ;; a new match, its mode picked: scores cleared, sides gone (and in a
+      ;; team mode dealt anew, in slot order red, blue, red..., before anyone
+      ;; respawns, so each spawns on its half), everyone respawned, every pad back
       (i32.store (i32.const @HDR_HOLE) (i32.add (i32.load (i32.const @HDR_HOLE)) (i32.const 1)))
       (call $a_mode_pick)
+      (local.set $team (i32.and (i32.shl (i32.const 1) (i32.load (i32.const @AH_MODE))) (i32.const @TEAMED)))
+      (local.set $n (i32.const 0))
+      (!for $p (i32.const 0) (i32.const @NPLAYER)
+        (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+        (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
+        (if (i32.and (local.get $fl) (i32.const @PF_LIVE))
+          (then
+            (local.set $fl (i32.and (local.get $fl) (i32.const @(255 ^ (PF_ZOMBIE | PF_JUGG | PF_BLUE | PF_CARRY)))))
+            (if (local.get $team)
+              (then
+                (if (i32.and (local.get $n) (i32.const 1)) (then (local.set $fl (i32.or (local.get $fl) (i32.const @PF_BLUE)))))
+                (!inc $n)))
+            (!put u8 @(PLAYERS + P_FL) (local.get $pb) (local.get $fl)))))
       (!for $p (i32.const 0) (i32.const @NPLAYER)
         (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
         (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @PF_LIVE))
           (then
-            (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(255 ^ (PF_ZOMBIE | PF_JUGG)))))
             (!put u16 @(PLAYERS + A_KILLS) (local.get $pb) (i32.const 0))
             (!put u16 @(PLAYERS + A_DEATHS) (local.get $pb) (i32.const 0))
             (call $a_spawn (local.get $p)))))
@@ -1124,7 +1215,10 @@
 
 ;; The mode of the match about to count down (match HDR_HOLE of the room): the
 ;; rotation's, or the seed's if its top byte is FORCE_MODE (one past the
-;; modes is a Fiesta). Every mode's state starts from zero.
+;; modes is a Fiesta). Every mode's state starts from zero: the header's mode
+;; fields, the records, a team mode's objective; and in Fiesta's build the
+;; map's pads are laid for a mode that has them, none for one that hasn't
+;; (so a Fiesta's are all 0, as they always were).
 (func $a_mode_pick
   (local $seed i32) (local $k i32) (local $m i32)
   (local.set $seed (i32.load (i32.const @HDR_SEED)))
@@ -1133,28 +1227,54 @@
   (if (i32.eq (i32.shr_u (local.get $seed) (i32.const 24)) (i32.const @FORCE_MODE))
     (then (local.set $m (i32.and (i32.shr_u (local.get $seed) (i32.const 16)) (i32.const 0xff)))))
   (if (i32.ge_u (local.get $m) (i32.const @(MODES.length))) (then (local.set $m (i32.const @M_FIESTA))))
-  (memory.fill (i32.const @AH_MODE) (i32.const 0) (i32.const @(AH_WINNER + 4 - AH_MODE)))
+  (memory.fill (i32.const @AH_MODE) (i32.const 0) (i32.const @(AH_END - AH_MODE)))
   (i32.store (i32.const @AH_MODE) (local.get $m))
-  (memory.fill (i32.const @MODE_REC) (i32.const 0) (i32.const @(NPLAYER * MR_SIZE))))
+  (memory.fill (i32.const @MODE_REC) (i32.const 0) (i32.const @(NPLAYER * MR_SIZE)))
+#if FIESTA
+  (memory.fill (i32.const @PAD) (i32.const 0) (i32.const @(NPAD * PAD_SIZE)))
+  (if (i32.and (i32.shl (i32.const 1) (local.get $m)) (i32.const @PAD_MODES)) (then (call $pads)))
+#endif
+  (memory.fill (i32.const @AO) (i32.const 0) (i32.const @AO_SIZE)))
 
 ;; Slot p joins (its record cleared, live). A join that starts the countdown
-;; picks the match's mode first; a join into Infection's play is a zombie.
+;; picks the match's mode first; a join into Infection's play is a zombie; a
+;; join into a team mode goes to the side with fewer in the room, red on a
+;; tie (nobody is moved as others leave).
 (func $a_join (param $p i32)
+  (local $q i32) (local $n i32) (local $fl i32)
   (if (i32.eq (i32.load (i32.const @HDR_STATE)) (i32.const @H_IDLE)) (then (call $a_mode_pick)))
   (memory.fill (i32.add (i32.const @MODE_REC) (i32.shl (local.get $p) (i32.const 3))) (i32.const 0) (i32.const @MR_SIZE))
   (if (i32.and (i32.eq (i32.load (i32.const @AH_MODE)) (i32.const @M_INFECTION)) (i32.eq (i32.load (i32.const @HDR_STATE)) (i32.const @H_PLAY)))
     (then (!put u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6)) (i32.const @(PF_LIVE | PF_ZOMBIE)))))
+  (if (i32.and (i32.shl (i32.const 1) (i32.load (i32.const @AH_MODE))) (i32.const @TEAMED))
+    (then
+      ;; n: blue less red, the others in the room
+      (!for $q (i32.const 0) (i32.const @NPLAYER)
+        (local.set $fl (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $q) (i32.const 6))))
+        (if (i32.and (i32.ne (local.get $q) (local.get $p)) (i32.ne (i32.and (local.get $fl) (i32.const @PF_LIVE)) (i32.const 0)))
+          (then (local.set $n (i32.add (local.get $n) (select (i32.const 1) (i32.const -1) (i32.and (local.get $fl) (i32.const @PF_BLUE))))))))
+      (if (i32.lt_s (local.get $n) (i32.const 0))
+        (then (!put u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))
+                (i32.or (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @PF_BLUE)))))))
   (call $a_spawn (local.get $p)))
 
 ;; 1 if slots p and q are on one side in a mode that has sides (TEAM_MODES):
-;; Infection's humans, or its zombies; everyone but the juggernaut. Never p and p.
+;; Infection's humans, or its zombies; everyone but the juggernaut; red, or
+;; blue. Never p and p. Every check against hurting your own side asks this
+;; (damage, splash and frags through $a_hurt; melee's target, an
+;; assassination and the sword's lunge through $a_reach; a needle's homing
+;; and sticking, and so the supercombine). What it leaves alone, as Infection
+;; always had it: a bullet still stops on a teammate (no damage, no hit), a
+;; rocket goes off on one and a bolt or needle is spent on one ($hit_player
+;; skips only the owner), a blast still pushes one, and your own frag or
+;; rocket hurts you.
 (func $a_ally (param $p i32) (param $q i32) (result i32)
   (if (i32.or (i32.eq (local.get $p) (local.get $q))
               (i32.eqz (i32.and (i32.shl (i32.const 1) (i32.load (i32.const @AH_MODE))) (i32.const @TEAM_MODES))))
     (then (return (i32.const 0))))
   (i32.eqz (i32.and (i32.xor (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6)))
                              (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $q) (i32.const 6))))
-                    (i32.const @(PF_ZOMBIE | PF_JUGG)))))
+                    (i32.const @(PF_ZOMBIE | PF_JUGG | PF_BLUE)))))
 
 ;; 1 if slot q is alive and on no side yet.
 (func $a_free (param $q i32) (result i32)
@@ -1229,11 +1349,19 @@
 ;; How slot p stands under the match's mode, higher is better (unsigned).
 ;; Infection: a human still alive above everyone, then ticks lived as a
 ;; human, then infections. Gun game: the rung, then kills. Juggernaut:
-;; points, then kills.
+;; points, then kills. A team mode: the winning side above everyone (nobody
+;; on a draw), then the objective's points, then kills.
 (func $a_key (param $p i32) (result i32)
   (local $m i32) (local $r i32) (local $n i32)
   (local.set $m (i32.load (i32.const @AH_MODE)))
   (local.set $r (i32.shl (local.get $p) (i32.const 3)))
+  (if (i32.and (i32.shl (i32.const 1) (local.get $m)) (i32.const @TEAMED))
+    (then
+      (local.set $n (!at u16 @(MODE_REC + MR_POINTS) (local.get $r)))
+      (return (i32.or (i32.or (select (i32.const 0x80000000) (i32.const 0)
+                                      (i32.eq (i32.load (i32.const @AH_TEAMWIN)) (i32.add (call $a_team (local.get $p)) (i32.const 1))))
+                              (i32.shl (select (local.get $n) (i32.const 0x7fff) (i32.lt_u (local.get $n) (i32.const 0x7fff))) (i32.const 16)))
+                      (!at u16 @(PLAYERS + A_KILLS) (i32.shl (local.get $p) (i32.const 6)))))))
   (if (i32.eq (local.get $m) (i32.const @M_INFECTION))
     (then
       (if (i32.eqz (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @PF_ZOMBIE)))
@@ -1246,13 +1374,24 @@
                    (i32.const 16))
           (!at u16 @(PLAYERS + A_KILLS) (i32.shl (local.get $p) (i32.const 6)))))
 
-;; A tick of play under the match's mode, after everyone's own. Gun game
-;; finds its leader; Juggernaut draws a juggernaut if there is none (it
-;; died by its own hand, or left); Infection draws a zombie if they all left,
-;; and counts its sides. 1 if that ends the match: a winner, or no human left.
+;; A tick of play under the match's mode, after everyone's own. A team mode
+;; runs its objective (its tick hook), and is over when that says so or a
+;; side's score reaches the target (AH_TARGET 0: none). Gun game finds its
+;; leader; Juggernaut draws a juggernaut if there is none (it died by its
+;; own hand, or left); Infection draws a zombie if they all left, and counts
+;; its sides. 1 if that ends the match: a winner, or no human left.
 (func $a_mode_play (result i32)
   (local $m i32) (local $p i32) (local $h i32) (local $z i32) (local $last i32) (local $key i32) (local $best i32) (local $lead i32)
+  (local $done i32) (local $target i32)
   (local.set $m (i32.load (i32.const @AH_MODE)))
+  (if (i32.and (i32.shl (i32.const 1) (local.get $m)) (i32.const @TEAMED))
+    (then
+      (local.set $done (!am i32 tick))
+      (local.set $target (i32.load (i32.const @AH_TARGET)))
+      (return (i32.or (local.get $done)
+                      (i32.and (i32.ne (local.get $target) (i32.const 0))
+                               (i32.or (i32.ge_u (i32.load (i32.const @AH_SCORE)) (local.get $target))
+                                       (i32.ge_u (i32.load (i32.const @(AH_SCORE + 4))) (local.get $target))))))))
   (if (i32.eq (local.get $m) (i32.const @M_GUNGAME))
     (then
       ;; the highest rung, then the most kills, then the lowest slot
@@ -1307,15 +1446,22 @@
                     (select (local.get $rank) (i32.const 255) (i32.lt_u (local.get $rank) (i32.const 255))))))))
 
 ;; A kill under the match's mode (from $a_kill: the confirmed world, in play).
-;; Infection: a human who dies is a zombie, an infection for the zombie that
-;; did it, and a zombie comes back sooner. Gun game: an assassination moves
-;; its victim down a rung; any kill of another moves the killer up one, its
-;; new gun in its hands at once; the first kill with the sword wins.
-;; Juggernaut: whoever kills the juggernaut becomes it; its kills are points.
+;; A team mode: its kill hook (which puts down what q carried), then q
+;; carries nothing. Infection: a human who dies is a zombie, an infection for
+;; the zombie that did it, and a zombie comes back sooner. Gun game: an
+;; assassination moves its victim down a rung; any kill of another moves the
+;; killer up one, its new gun in its hands at once; the first kill with the
+;; sword wins. Juggernaut: whoever kills the juggernaut becomes it; its
+;; kills are points.
 (func $a_mode_kill (param $q i32) (param $a i32) (param $cause i32)
   (local $m i32) (local $qb i32) (local $ab i32) (local $r i32) (local $by i32) (local $w i32)
   (local.set $m (i32.load (i32.const @AH_MODE)))
   (local.set $qb (i32.shl (local.get $q) (i32.const 6)))
+  (if (i32.and (i32.shl (i32.const 1) (local.get $m)) (i32.const @TEAMED))
+    (then
+      (!am none kill (local.get $q) (local.get $a) (local.get $cause))
+      (!put u8 @(PLAYERS + P_FL) (local.get $qb) (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $qb)) (i32.const @(255 ^ PF_CARRY))))
+      (return)))
   (local.set $ab (i32.shl (local.get $a) (i32.const 6)))
   (local.set $by (i32.ne (local.get $a) (local.get $q)))
   (if (i32.eq (local.get $m) (i32.const @M_INFECTION))
@@ -1373,3 +1519,89 @@
         (then
           (i32.store (i32.const @AH_WINNER) (i32.add (local.get $a) (i32.const 1)))
           (call $a_news (i32.const @MX_WIN) (local.get $a) (local.get $q)))))))
+
+;; ---- the team modes (TEAMED: M_SLAYER and after). Red against blue: PF_BLUE
+;; in P_FL (red is the bit clear), dealt as a match is picked and at each
+;; join; each side spawns on its half of the map (the spawns nearer its flag)
+;; with slayer's rifle and magnum, the map's pads laid. The scores are
+;; AH_SCORE; $arena ends a match when a side reaches AH_TARGET, when the mode
+;; says so, or at the clock, and sets AH_TEAMWIN. Each mode is the kit's: its
+;; objective in src/am/<key>.wat (its state in AO, its constants in .mjs),
+;; three hooks called through (!am) while it is on, all on the confirmed
+;; world, serial, in slot order where they loop:
+;;   $<prefix>_start: play begins (after the core's own start): lay the
+;;     objective out in AO, set AH_TARGET.
+;;   $<prefix>_tick (result i32): every tick of play, after every fighter's
+;;     own tick and the core's (respawns, AH_TEAMN): run the objective; 1
+;;     ends the match now.
+;;   $<prefix>_kill (q a cause): q died at a's hand (its own if a == q), in
+;;     play; PF_CARRY is still set if q carried (the core clears it after).
+;; The helpers below are theirs. A flag's or the skull's carrier (PF_CARRY,
+;; set and cleared on the confirmed world only, by $a_carry) has no guns or
+;; frags and swings what it carries ($a_shoot, $a_melee).
+
+;; Slot p's side: 0 red, 1 blue.
+(func $a_team (param $p i32) (result i32)
+  (i32.ne (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @PF_BLUE)) (i32.const 0)))
+
+;; n points for a side (0 red, 1 blue); n may be negative, a score never goes below 0.
+(func $a_score (param $team i32) (param $n i32)
+  (local $a i32) (local $s i32)
+  (local.set $a (i32.add (i32.const @AH_SCORE) (i32.shl (local.get $team) (i32.const 2))))
+  (local.set $s (i32.add (i32.load (local.get $a)) (local.get $n)))
+  (i32.store (local.get $a) (select (local.get $s) (i32.const 0) (i32.gt_s (local.get $s) (i32.const 0)))))
+
+;; The side ahead on the scores: 1 red, 2 blue, 0 level.
+(func $a_lead (result i32)
+  (local $r i32) (local $b i32)
+  (local.set $r (i32.load (i32.const @AH_SCORE)))
+  (local.set $b (i32.load (i32.const @(AH_SCORE + 4))))
+  (select (i32.const 1) (select (i32.const 2) (i32.const 0) (i32.gt_u (local.get $b) (local.get $r))) (i32.gt_u (local.get $r) (local.get $b))))
+
+;; Slot p takes up (on 1) or puts down (0) a flag or the skull: PF_CARRY on
+;; the confirmed record. Taking one up stops a burst or a reload under way.
+(func $a_carry (param $p i32) (param $on i32)
+  (local $pb i32)
+  (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+  (!put u8 @(PLAYERS + P_FL) (local.get $pb)
+    (i32.or (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(255 ^ PF_CARRY))) (select (i32.const @PF_CARRY) (i32.const 0) (local.get $on))))
+  (if (local.get $on)
+    (then
+      (!put u8 @(PLAYERS + A_BURST) (local.get $pb) (i32.const 0))
+      (!put u8 @(PLAYERS + A_RELOAD) (local.get $pb) (i32.const 0)))))
+
+;; 1 if slot p is in the fight: in the room and not dead.
+(func $a_alive (param $p i32) (result i32)
+  (i32.eq (i32.and (!at u8 @(PLAYERS + P_FL) (i32.shl (local.get $p) (i32.const 6))) (i32.const @(PF_LIVE | PF_DEAD))) (i32.const @PF_LIVE)))
+
+;; 1 if slot p's feet are within r metres across of (x, z), and within h up
+;; or down of y.
+(func $a_near (param $p i32) (param $x f32) (param $y f32) (param $z f32) (param $r f32) (param $h f32) (result i32)
+  (local $pb i32) (local $dx f32) (local $dz f32)
+  (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
+  (local.set $dx (f32.sub (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (local.get $x)))
+  (local.set $dz (f32.sub (!at f32 @(PLAYERS + P_PZ) (local.get $pb)) (local.get $z)))
+  (i32.and (f32.lt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz))) (f32.mul (local.get $r) (local.get $r)))
+           (f32.lt (f32.abs (f32.sub (!at f32 @(PLAYERS + P_PY) (local.get $pb)) (local.get $y))) (local.get $h))))
+
+;; Whose half of the map (x, z) is on: 0 red's if strictly nearer red's flag
+;; than blue's (MAP_FLAGS), else 1 blue's. tools/map.mjs's half() mirrors it.
+(func $a_half (param $x f32) (param $z f32) (result i32)
+  (local $dx f32) (local $dz f32) (local $r f32)
+  (local.set $dx (f32.sub (local.get $x) (f32.load (i32.const @MAP_FLAGS))))
+  (local.set $dz (f32.sub (local.get $z) (f32.load (i32.const @(MAP_FLAGS + 4)))))
+  (local.set $r (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz))))
+  (local.set $dx (f32.sub (local.get $x) (f32.load (i32.const @(MAP_FLAGS + 16)))))
+  (local.set $dz (f32.sub (local.get $z) (f32.load (i32.const @(MAP_FLAGS + 20)))))
+  (f32.ge (local.get $r) (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dz) (local.get $dz)))))
+
+;; The half spawn point i is on.
+(func $a_spawn_half (param $i i32) (result i32)
+  (local $a i32)
+  (local.set $a (i32.add (i32.const @SPAWNS) (i32.shl (local.get $i) (i32.const 4))))
+  (call $a_half (f32.load (local.get $a)) (f32.load offset=8 (local.get $a))))
+
+#include "am/slayer.wat"
+#include "am/ctf.wat"
+#include "am/oddball.wat"
+#include "am/hill.wat"
