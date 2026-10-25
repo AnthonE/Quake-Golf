@@ -8,7 +8,7 @@ import { compileMap } from '../tools/map.mjs';
 import { replay, parseLog, decodeTrace, newMemory, instantiate, Sim } from '../harness/core.mjs';
 import { startWorkers } from '../harness/run-node.mjs';
 import { AMC, SIDE_RGB } from '../client/am/index.mjs';
-import { territories, push, deal, onIt } from '../client/am/territories.mjs';
+import { territories, push, deal, onIt, thin } from '../client/am/territories.mjs';
 import { Fighter } from '../client/arena-bot.mjs';
 import { C } from '../client/font.mjs';
 import * as L from '../src/layout.mjs';
@@ -428,7 +428,7 @@ test('Territories: nothing is barred to spawns: red respawns onto its roof\'s te
   assert.ok([0, 1, 2].every((h) => used.has(`${h}:3`)), `the roof's spawn used whoever holds it: ${[...used]}`);
 });
 
-test('Territories: a fighter\'s own runs over two territories as its side takes and scores, predicted from every tick, keep up bit for bit; the gauges and time on are the confirmed world\'s', async () => {
+test('Territories: a fighter\'s own runs across mid-field and back as its side takes it and scores, predicted from every tick, keep up bit for bit; the gauges and time on are the confirmed world\'s', async () => {
   const g = await room(L.M_TERRITORY, 3);
   away(g, all(3));
   for (let k = 0; k < N; k++) setT(g, k, 0, 0);
@@ -511,13 +511,25 @@ test('Territories\' client module: each territory a disc in its holder\'s colour
   assert.deepEqual([rim(4).length, rim(5).length > 6], [0, true], 'none round E, 164 m off the camera');
   assert.ok(rim(3).length >= 6 && rim(3).length < 12, `the cave's walls drop some of its rim (${rim(3).length})`);
   assert.deepEqual(out.beams.length, N, 'a pillar each, far off');
-  // red's 2, off them all: DEFEND on A (blue outnumbers red there), none on B, TAKE on the rest in their holder's colour
+  // red's 2, off them all, facing +x: DEFEND on A (blue outnumbers red there), none on B, TAKE on the nearest
+  // of the rest in their holder's colour, three at most: D (54 m, just off the right edge), F (88 m, behind)
   const marks = (o) => o.markers.map((m) => [m.label, m.color]);
-  assert.deepEqual(marks(out), [['DEFEND A', C.YELLOW], ['TAKE C', C.WHITE], ['TAKE D', C.WHITE], ['TAKE E', C.CYAN], ['TAKE F', C.CYAN]]);
+  assert.deepEqual(marks(out), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE], ['TAKE F', C.CYAN]]);
   assert.ok(out.markers.every((m) => m.kind === 'hill'));
+  // turned round to face -x (B, red's own, ahead): A, E and F off the one edge, C and D off the other, one each
+  g.dv.setUint32(rec(2) + L.P_IN, arenaWord({ yaw: 8192 }), true);
+  assert.deepEqual(marks(draw(2)), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE]]);
+  g.dv.setUint32(rec(2) + L.P_IN, 0, true);
+  // the thinning: the nearest first, none within 0.2 rad of one kept, one off each edge, three at most
+  const mk = (d, a) => ({ d, m: { pos: [d * Math.cos(a), 0, d * Math.sin(a)], label: `${d}` } });
+  const kept = (want, yaw = 0) => thin(want, [0, 0, 0], yaw).map((m) => m.label);
+  assert.deepEqual(kept([mk(20, 0.1), mk(10, 0), mk(30, 0.5), mk(50, -2.5), mk(40, -2), mk(60, 0.3)]), ['10', '30', '40']);
+  assert.deepEqual(kept([mk(20, 0.19), mk(10, 0), mk(60, 0.4)]), ['10', '60']);
+  assert.deepEqual(kept([mk(10, 1), mk(20, 1.5), mk(30, -1), mk(40, -3)]), ['10', '30']);
+  assert.deepEqual(kept([mk(10, 1), mk(20, 1.5), mk(30, -1), mk(40, -3)], 1.2), ['10', '20', '30'], 'facing between the first two, both on the screen');
   // red's 0 on C: none over its own head; blue's 1 on A; a spectator as the one it watches, and none watching nobody
-  assert.deepEqual(marks(draw(0)), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE], ['TAKE E', C.CYAN], ['TAKE F', C.CYAN]]);
-  assert.deepEqual(marks(draw(1)), [['TAKE B', C.RED], ['TAKE C', C.WHITE], ['TAKE D', C.WHITE]]);
+  assert.deepEqual(marks(draw(0)), [['DEFEND A', C.YELLOW], ['TAKE D', C.WHITE], ['TAKE F', C.CYAN]]);
+  assert.deepEqual(marks(draw(1)), [['TAKE D', C.WHITE], ['TAKE B', C.RED], ['TAKE C', C.WHITE]]);
   assert.deepEqual([marks(draw(-1, 0, undefined, 1)), draw(-1, 0, undefined, -1).markers, draw(-1, 0, undefined, -1).zone.length], [marks(draw(1)), [], N]);
   const m = draw(2, 0, [512 + 120, 30, 512]).markers[0];
   assert.deepEqual([m.pos[0], m.pos[2], m.pos[1] - ts[0].pos[1]], [512, 512, 8], 'the waypoint higher further off');
@@ -562,12 +574,12 @@ test('Territories\' client module: each territory a disc in its holder\'s colour
   g.dv.setUint16(L.MODE_REC + L.MR_POINTS, 83, true);
   assert.deepEqual([kit.cols.map((c) => c.head), kit.cols[0].get(g.v.fighter(0))], [['TIME ON'], '1:23']);
   assert.deepEqual(kit.state(g.v).hold, [1, 1, 0, 0, 2, 2]);
-  // the next match's countdown: the map's points drawn neutral and named, no goal yet
+  // the next match's countdown: the map's points drawn neutral, the nearest three to take marked, no goal yet
   endMatch(g);
   while (g.v.hole().state !== L.H_COUNT) g.step();
   out = draw(2);
   assert.deepEqual([territories(g.v), out.zone.map((z) => [z.x, z.z, z.color]), marks(out).length, kit.goal(g.v, g.v.fighter(2), {}), kit.state(g.v)],
-    [[], MAP.hills.map(([x, z]) => [Math.fround(x), Math.fround(z), grey]), N, null, null]);
+    [[], MAP.hills.map(([x, z]) => [Math.fround(x), Math.fround(z), grey]), 3, null, null]);
 });
 
 test('Territories\' AI fighters: dealt a territory each, the nearest counting a spread, attackers among those their side doesn\'t hold, defenders among those it does', async () => {

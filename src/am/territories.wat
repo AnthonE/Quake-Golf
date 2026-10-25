@@ -17,7 +17,7 @@
 ;; AH_TARGET or the clock. Nothing is barred to spawns, and a death leaves
 ;; a territory as a step off it does.
 
-;; Territory k's record in AO.
+;; Territory k's record in AO (TR_TSIZE, 32 bytes, apart).
 (func $tr_rec (param $k i32) (result i32)
   (i32.add (i32.const @(AO + TR_T)) (i32.shl (local.get $k) (i32.const 5))))
 

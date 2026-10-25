@@ -4,8 +4,9 @@
 // in the map's order. It is a disc on the ground or a roof in its holder's
 // colour (grey for nobody's), a ring of lights round its rim filling with
 // its gauge in the colour of the side it leans to, a pillar of light that
-// reads across the map, and a waypoint on it: TAKE on one your side doesn't
-// hold, DEFEND on one of yours the other side outnumbers you on. The HUD has
+// reads across the map, and waypoints: DEFEND on one of yours the other side
+// outnumbers you on, TAKE on the nearest your side doesn't hold, three at
+// most and none that would land on a nearer one's label. The HUD has
 // the letters over who holds each (R, B or -, on a chip filled to its gauge)
 // and how many are your side's, and how the one you stand on goes; the feed
 // says each one taken and lost; the board's TIME ON is each fighter's time
@@ -100,10 +101,29 @@ function rimOf(view, t) {
   return rim;
 }
 
+// The waypoints worth drawing, at most MARKS: those to defend, then the
+// nearest to take, leaving out one that would land on a nearer one's label:
+// within NEAR radians of it as the camera at cam, facing yaw, sees them, or
+// both off the screen's same edge (the HUD pulls those in to one spot).
+// want: [{ d (to sort by), m (the marker) }].
+const MARKS = 3, NEAR = 0.2, EDGE = 0.68; // the screen's half width is 0.68 rad (focal 0.62 of its width)
+export function thin(want, cam, yaw) {
+  const kept = [];
+  for (const { m } of want.sort((a, b) => a.d - b.d)) {
+    if (kept.length >= MARKS) break;
+    let a = Math.atan2(m.pos[2] - cam[2], m.pos[0] - cam[0]) - yaw;
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    const off = Math.abs(a) > EDGE ? Math.sign(a) : 0;
+    if (kept.some((k) => Math.abs(Math.atan2(Math.sin(a - k.a), Math.cos(a - k.a))) < NEAR || (off && off === k.off))) continue;
+    kept.push({ m, a, off });
+  }
+  return kept.map((k) => k.m);
+}
+
 // Each side's hand: its live fighters in slot order, slot -> the index of the
-// territory it's dealt. Dealt once a tick for both sides and kept for that
-// tick (each bot asks on its own tick of 8, so the hand is dealt at most
-// twice a tick for the whole room).
+// territory it's dealt. Dealt for both sides at once and kept for the tick:
+// each bot asks on its own tick of 8, and the first to ask on a tick deals
+// for the whole room.
 let dealt = { view: null, tick: -1, hand: null };
 export function deal(view, ts = territories(view)) {
   if (dealt.view === view && dealt.tick === view.tick && dealt.hand) return dealt.hand;
@@ -111,14 +131,14 @@ export function deal(view, ts = territories(view)) {
   const b = (p) => L.PLAYERS + p * L.PSIZE;
   for (const s of [0, 1]) {
     const load = ts.map(() => 0);
+    const mine = ts.filter((t) => t.hold === s + 1), rest = ts.filter((t) => t.hold !== s + 1);
+    const pools = { defend: mine.length ? mine : rest, attack: rest.length ? rest : mine };
     let rank = 0;
     for (let p = 0; p < L.NPLAYER; p++) {
       const fl = view.u8[b(p) + L.P_FL];
       if (!(fl & L.PF_LIVE) || (fl & L.PF_BLUE ? 1 : 0) !== s) continue;
-      const role = rank++ % 3 === 2 ? 'defend' : 'attack';
+      const pool = pools[rank++ % 3 === 2 ? 'defend' : 'attack'];
       if (fl & L.PF_DEAD) continue;
-      const mine = ts.filter((t) => t.hold === s + 1), rest = ts.filter((t) => t.hold !== s + 1);
-      const pool = role === 'defend' ? (mine.length ? mine : rest) : rest.length ? rest : mine;
       const x = view.dv.getFloat32(b(p) + L.P_PX, true), z = view.dv.getFloat32(b(p) + L.P_PZ, true);
       let best = -1, bc = Infinity;
       for (const t of pool) {
@@ -201,6 +221,7 @@ export default {
     const eye = ctx.shown >= 0 ? view.fighter(ctx.shown) : null;
     const me = eye?.live && !eye.dead ? eye : null;
     const team = eye?.live && view.teamed() ? eye.team : -1;
+    const want = [];
     out.zone = [];
     for (const t of ts) {
       const [x, y, z] = t.pos;
@@ -225,9 +246,11 @@ export default {
       // fighter shown while it stands on it
       if (team < 0 || (me && onIt(t, me.pos))) continue;
       const up = Math.min(8, Math.max(3, d / 10));
-      if (t.hold !== team + 1) out.markers.push({ pos: [x, y + up, z], label: `TAKE ${LETTER[t.k]}`, color: t.hold ? SIDE_C[t.hold - 1] : C.WHITE, kind: 'hill' });
-      else if (t.on[1 - team] > t.on[team]) out.markers.push({ pos: [x, y + up, z], label: `DEFEND ${LETTER[t.k]}`, color: C.YELLOW, kind: 'hill' });
+      const pos = [x, y + up, z];
+      if (t.hold !== team + 1) want.push({ d, m: { pos, label: `TAKE ${LETTER[t.k]}`, color: t.hold ? SIDE_C[t.hold - 1] : C.WHITE, kind: 'hill' } });
+      else if (t.on[1 - team] > t.on[team]) want.push({ d: d - 1e4, m: { pos, label: `DEFEND ${LETTER[t.k]}`, color: C.YELLOW, kind: 'hill' } });
     }
+    out.markers.push(...thin(want, ctx.cam, eye?.yaw ?? 0));
   },
 
   cols: [{ head: 'TIME ON', get: (o) => clock(o.points) }],
