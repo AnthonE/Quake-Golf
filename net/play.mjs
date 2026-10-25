@@ -7,7 +7,9 @@
 // and xemu on its native door, 4434: the browsers play another sim.
 // --arena runs the room on the arena's sim (build/arena/game.wasm), the
 // deathmatch, with --bots AI fighters in it (net/bot-host.mjs --arena); its
-// matches play the modes in turn, or with --mode k only mode k (layout.mjs, M_*).
+// matches play the modes in turn, or with --mode k only mode k (layout.mjs, M_*:
+// 0 Fiesta, 1 Infection, 2 gun game, 3 Juggernaut, and red against blue: 4 Team
+// Slayer, 5 Capture the Flag, 6 Oddball, 7 King of the Hill).
 // --bumper runs it on bumper balls' sim (build/bumper/game.wasm), with --bots
 // AI balls in it (net/bot-host.mjs --bumper); up to 256 in the room.
 // --party runs it on Party's sim (build/party/game.wasm): a minigame a round,
