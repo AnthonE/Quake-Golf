@@ -218,8 +218,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       case L.FX_KILL: {
         const name = (p) => (p === slot ? 'YOU' : `P${p + 1}`);
         const md = view.mode();
-        // a flag's or the skull's carrier swung it
-        const cause = f.size === L.KILL_CARRY ? (AMC[md.mode]?.carry === 'skull' ? 'SKULL' : 'FLAG') : SHORT[f.size] || '?';
+        // what a carrier carries (its kit module's carry: a flag, the skull, the bomb) swung by it, or the bomb going off
+        const cause = f.size === L.KILL_CARRY ? (AMC[md.mode]?.carry ?? 'flag').toUpperCase() : SHORT[f.size] || '?';
         const infected = md.mode === L.M_INFECTION && f.owner !== f.shot && view.fighter(f.owner).zombie;
         // a team mode's lines in the killer's side's colour, but for your own
         const other = md.teamed ? SIDE_C[sideOf(view, f.owner)] : C.WHITE;
@@ -307,9 +307,10 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     return ARMS[f.weapon]?.zoom || 1;
   }
 
-  // What a carrier holds in place of a gun, as rectangles at 320x200: the flag
-  // (in the colour of the side it was taken from) on its pole over the
-  // shoulder, or the skull held out. It bobs and lunges as a gun would.
+  // What a carrier holds in place of a gun (its kit module's carry), as
+  // rectangles at 320x200: the flag (in the colour of the side it was taken
+  // from) on its pole over the shoulder, the skull held out, or the bomb held
+  // out, its light blinking. It bobs and lunges as a gun would.
   function carryRects(kind, color, now, moving) {
     const out = [];
     const s = W / 320;
@@ -325,6 +326,17 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       rect(244, 152, 258, 164, dark); rect(270, 152, 284, 164, dark); rect(262, 168, 266, 176, dark);
       for (let k = 0; k < 4; k++) rect(250 + k * 8, 184, 252 + k * 8, 192, [0.5, 0.48, 0.42]);
       rect(250, 196, 300, 214, [0.55, 0.42, 0.32]);
+    } else if (kind === 'bomb') {
+      // a dark ball lit from above in rows, a steel band round it, a cap with its red light blinking twice a second
+      const cx = 264, cy = 168, r = 28;
+      for (let y = -r; y < r; y += 4) {
+        const w = Math.sqrt(Math.max(0, r * r - (y + 2) ** 2)), lit = 0.42 - 0.3 * (y + r) / (2 * r);
+        rect(cx - w, cy + y, cx + w, cy + y + 4, [lit, lit, lit * 1.08]);
+      }
+      rect(cx - r + 1, cy - 3, cx + r - 1, cy + 3, [0.55, 0.55, 0.5]);
+      rect(cx - 6, cy - r - 6, cx + 6, cy - r + 2, [0.48, 0.48, 0.45]);
+      rect(cx - 3, cy - r - 11, cx + 3, cy - r - 6, now % 500 < 250 ? [1, 0.15, 0.1] : [0.35, 0.06, 0.05]);
+      rect(250, 194, 300, 214, [0.55, 0.42, 0.32]);
     } else {
       // the pole up from the bottom right, the cloth hanging off its top in folds
       for (let k = 0; k < 14; k++) { const y = 214 - k * 8, x = 296 - k * 2.2; rect(x - 2.5, y - 8, x + 2.5, y, [0.78, 0.78, 0.74]); }
@@ -616,7 +628,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
     const playing = st === 2 && f?.live;
     if (playing) {
       const moving = Math.hypot(f.vel[0], f.vel[2]) > 1 && f.ground;
-      // a carrier's hands hold the flag or the skull (a flag in the colour of the side it was taken from)
+      // a carrier's hands hold what its kit module carries (a flag in the colour of the side it was taken from)
       if (!WATCH && !f.dead) rects = f.carry ? carryRects(kit?.carry, SIDE_RGB[f.team === 0 ? 1 : 0], now, moving) : gunRects(f.weapon, now, moving);
       if (!f.dead) { const hr = hudRects(f, now); rects.push(...hr.rects); blips = hr.blips; tracker = hr.tracker; }
     }
@@ -756,7 +768,7 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       if (f.dead) centre(Math.floor(rows / 2) + 2, `RESPAWN IN ${Math.ceil(f.respawn / 125)}`, C.YELLOW);
       else if (f.carry) {
         // a carrier has no guns or frags, only a swing that kills (a spectator's click turns to the next fighter)
-        centre(rows - 3, `CARRYING THE ${kit?.carry === 'skull' ? 'SKULL' : 'FLAG'}`, C.YELLOW);
+        centre(rows - 3, `CARRYING THE ${(kit?.carry ?? 'flag').toUpperCase()}`, C.YELLOW);
         if (!WATCH) centre(rows - 2, 'NO GUNS  CLICK OR Q SWINGS', C.WHITE);
       } else {
         const arm = ARMS[f.weapon];
