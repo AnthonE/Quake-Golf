@@ -4,7 +4,7 @@
 ;; rings an end: each ball in then, in slot order, scores by the ring its
 ;; centre is in (BE_PTS: 5 the bull down to 1 the blue; twice that the last
 ;; BE_DOUBLE ends), and from the next tick a shove wave runs out from the
-;; middle and slides every ball in the house out past its edge, so each end
+;; middle and carries every ball in the house out past its edge, so each end
 ;; opens with a rush back in. The ice barely grips (PG_ACC, PG_DRAG,
 ;; PG_IDLE: balls slide and coast), a hard bump kicks the harder the
 ;; harder it hits (BE_KICKK), and a ball off the edge is down BE_RESPAWN and
@@ -12,7 +12,7 @@
 ;; the round.
 ;;
 ;; The wave is a function of the tick into play and the ball's own place,
-;; worked in push on either bank, so the prediction slides your ball out of
+;; worked in push on either bank, so the prediction carries your ball out of
 ;; the house exactly as the confirmed world will. The scores and the bumps'
 ;; kick are the confirmed world's (tick; the kicks' ticks in PG_S), a round
 ;; trip late on a page as any bump is.
@@ -24,7 +24,7 @@
 
 ;; The ice for the crowd, and the house on it.
 (func $be_setup (param $n i32)
-  (local $rn f32) (local $hs f32) (local $r4 f32) (local $rad f32)
+  (local $rn f32) (local $hs f32) (local $r4 f32) (local $rad f32) (local $r f32) (local $a i32)
   (local.set $rn (f32.sqrt (f32.convert_i32_u (local.get $n))))
   (local.set $hs (f32.max (f32.const 1) (f32.mul (local.get $rn) (f32.const @BE_HS))))
   (local.set $r4 (f32.mul (f32.const @BE_R4) (local.get $hs)))
@@ -42,7 +42,36 @@
   (f32.store (i32.const @(PG_H + BE_RING)) (f32.mul (f32.const @BE_R1) (local.get $hs)))
   (f32.store (i32.const @(PG_H + BE_RING + 4)) (f32.mul (f32.const @BE_R2) (local.get $hs)))
   (f32.store (i32.const @(PG_H + BE_RING + 8)) (f32.mul (f32.const @BE_R3) (local.get $hs)))
-  (f32.store (i32.const @(PG_H + BE_RING + 12)) (local.get $r4)))
+  (f32.store (i32.const @(PG_H + BE_RING + 12)) (local.get $r4))
+  ;; how long the wave carries: a ball dead on the middle, carried out at
+  ;; $be_wave's speed from the bell's next tick and coasting each tick after
+  ;; (PG_IDLE), is past the house's edge by BE_CLR after a ticks
+  (local.set $a (i32.const 1))
+  (block $out
+    (loop $go
+      (br_if $out (f32.gt (local.get $r) (f32.add (local.get $r4) (f32.const @BE_CLR))))
+      (local.set $r (!madd (call $be_wave (local.get $r4) (local.get $r)) (f32.const @BE_WSTEP) (local.get $r)))
+      (!inc $a)
+      (br $go)))
+  (i32.store (i32.const @(PG_H + BE_WT)) (i32.add (local.get $a) (i32.const @BE_WTM))))
+
+;; The wave's speed out at r m from the middle of a house r4 m across: BE_WK
+;; times (r4 + BE_WM - r), at most BE_WMAX. It falls as the ball goes out, so
+;; it leaves the house slow enough to stop on the ice; and being a speed for
+;; each place, a ball the wave carries never catches the one it carries
+;; ahead of it.
+(func $be_wave (param $r4 f32) (param $r f32) (result f32)
+  (f32.min (f32.const @BE_WMAX) (f32.mul (f32.const @BE_WK) (f32.sub (f32.add (local.get $r4) (f32.const @BE_WM)) (local.get $r)))))
+
+;; Whether tick t into play is in a wave, on bank d: 1..BE_WT ticks after
+;; end k's bell, k from 1, the last one's ending the round; a ticks after
+;; the bell, or 0.
+(func $be_after (param $d i32) (param $t i32) (result i32)
+  (local $k i32) (local $a i32)
+  (local.set $k (i32.div_u (local.get $t) (i32.const @BE_END)))
+  (local.set $a (i32.sub (local.get $t) (i32.mul (local.get $k) (i32.const @BE_END))))
+  (if (i32.or (i32.eqz (local.get $k)) (i32.ge_u (local.get $k) (i32.const @BE_ENDS))) (then (return (i32.const 0))))
+  (select (local.get $a) (i32.const 0) (i32.le_u (local.get $a) (i32.load offset=@(PG_H + BE_WT) (local.get $d)))))
 
 ;; Ball i of n on a sunflower spiral over the ice round the house (from
 ;; BE_SPAWN past its edge to BE_SPAWN in from the rim), so the first end
@@ -81,32 +110,26 @@
     (then (f32.const @PLAT_Y))
     (else (f32.const -1000))))
 
-;; The shove wave, on bank d: a ticks after end k's bell (k from 1, the last
-;; one's ending the round) its front is a BE_WAVEDT out from the middle;
-;; ball p within BE_BAND inside it, and not past the house's edge by more
-;; than BE_CLR, goes out at least BE_WK (edge + BE_WM - its distance) m/s,
-;; its way round kept, and is popped off the ice (once: in the air it isn't
-;; popped again). Dead on the middle it goes out its slot's way round.
+;; The shove wave, on bank d: a ticks after a bell (1..BE_WT) its front is
+;; a BE_WAVEDT out from the middle, and every ball inside it and not past
+;; the house's edge by more than BE_CLR is carried out at $be_wave's speed
+;; for where it is: its speed out set to that every tick, its way round
+;; kept, so neither pushing back nor a bump turns it in. Dead on the middle
+;; it goes out its slot's way round.
 (func $be_push (param $p i32) (param $d i32)
-  (local $pb i32) (local $fl i32) (local $t i32) (local $k i32) (local $a i32)
-  (local $f f32) (local $lo f32) (local $r4 f32) (local $dx f32) (local $dz f32) (local $r2 f32) (local $r f32)
-  (local $nx f32) (local $nz f32) (local $vx f32) (local $vz f32) (local $vo f32) (local $w f32)
+  (local $pb i32) (local $a i32)
+  (local $f f32) (local $r4 f32) (local $dx f32) (local $dz f32) (local $r2 f32) (local $r f32)
+  (local $nx f32) (local $nz f32) (local $vx f32) (local $vz f32) (local $dv f32)
   (local.set $pb (i32.add (i32.shl (local.get $p) (i32.const 6)) (local.get $d)))
-  (local.set $fl (!at u8 @(PLAYERS + P_FL) (local.get $pb)))
-  (if (i32.and (local.get $fl) (i32.const @(PF_DEAD | PF_FALL))) (then (return)))
-  (local.set $t (call $p_t (local.get $d)))
-  (local.set $k (i32.div_u (local.get $t) (i32.const @BE_END)))
-  (local.set $a (i32.sub (local.get $t) (i32.mul (local.get $k) (i32.const @BE_END))))
-  (if (i32.or (i32.or (i32.eqz (local.get $k)) (i32.ge_u (local.get $k) (i32.const @BE_ENDS))) (i32.eqz (local.get $a))) (then (return)))
+  (if (i32.and (!at u8 @(PLAYERS + P_FL) (local.get $pb)) (i32.const @(PF_DEAD | PF_FALL))) (then (return)))
+  (local.set $a (call $be_after (local.get $d) (call $p_t (local.get $d))))
+  (if (i32.eqz (local.get $a)) (then (return)))
   (local.set $f (f32.mul (f32.convert_i32_u (local.get $a)) (f32.const @BE_WAVEDT)))
-  (local.set $lo (f32.sub (local.get $f) (f32.const @BE_BAND)))
   (local.set $r4 (f32.load offset=@(PG_H + BE_RING + 12) (local.get $d)))
-  (if (f32.gt (local.get $lo) (f32.add (local.get $r4) (f32.const @BE_CLR))) (then (return)))
   (call $be_off (local.get $d) (!at f32 @(PLAYERS + P_PX) (local.get $pb)) (!at f32 @(PLAYERS + P_PZ) (local.get $pb)))
   (local.set $dz) (local.set $dx)
   (local.set $r2 (!madd (local.get $dx) (local.get $dx) (f32.mul (local.get $dz) (local.get $dz))))
-  (if (f32.gt (local.get $r2) (f32.mul (local.get $f) (local.get $f))) (then (return)))
-  (if (i32.and (f32.gt (local.get $lo) (f32.const 0)) (f32.lt (local.get $r2) (f32.mul (local.get $lo) (local.get $lo)))) (then (return)))
+  (if (f32.ge (local.get $r2) (f32.mul (local.get $f) (local.get $f))) (then (return)))
   (local.set $r (f32.sqrt (local.get $r2)))
   (if (f32.gt (local.get $r) (f32.add (local.get $r4) (f32.const @BE_CLR))) (then (return)))
   (if (f32.lt (local.get $r) (f32.const 0.01))
@@ -116,22 +139,17 @@
     (else
       (local.set $nx (f32.div (local.get $dx) (local.get $r)))
       (local.set $nz (f32.div (local.get $dz) (local.get $r)))))
-  (local.set $w (f32.mul (f32.const @BE_WK) (f32.sub (f32.add (local.get $r4) (f32.const @BE_WM)) (local.get $r))))
   (local.set $vx (!at f32 @(PLAYERS + P_VX) (local.get $pb)))
   (local.set $vz (!at f32 @(PLAYERS + P_VZ) (local.get $pb)))
-  (local.set $vo (!madd (local.get $vx) (local.get $nx) (f32.mul (local.get $vz) (local.get $nz))))
-  (if (f32.lt (local.get $vo) (local.get $w))
-    (then
-      (local.set $vx (!madd (local.get $nx) (f32.sub (local.get $w) (local.get $vo)) (local.get $vx)))
-      (local.set $vz (!madd (local.get $nz) (f32.sub (local.get $w) (local.get $vo)) (local.get $vz)))
-      (!chk (local.get $vx) 121 (local.get $p))
-      (!chk (local.get $vz) 121 (local.get $p))
-      (!put f32 @(PLAYERS + P_VX) (local.get $pb) (local.get $vx))
-      (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz))))
-  (if (i32.and (local.get $fl) (i32.const @PF_GROUND))
-    (then
-      (!put f32 @(PLAYERS + P_VY) (local.get $pb) (f32.max (!at f32 @(PLAYERS + P_VY) (local.get $pb)) (f32.const @BE_POP)))
-      (!put u8 @(PLAYERS + P_FL) (local.get $pb) (i32.and (local.get $fl) (i32.const @(255 ^ PF_GROUND)))))))
+  ;; what its speed out lacks of the wave's (or has over it)
+  (local.set $dv (f32.sub (call $be_wave (local.get $r4) (local.get $r))
+                          (!madd (local.get $vx) (local.get $nx) (f32.mul (local.get $vz) (local.get $nz)))))
+  (local.set $vx (!madd (local.get $nx) (local.get $dv) (local.get $vx)))
+  (local.set $vz (!madd (local.get $nz) (local.get $dv) (local.get $vz)))
+  (!chk (local.get $vx) 121 (local.get $p))
+  (!chk (local.get $vz) 121 (local.get $p))
+  (!put f32 @(PLAYERS + P_VX) (local.get $pb) (local.get $vx))
+  (!put f32 @(PLAYERS + P_VZ) (local.get $pb) (local.get $vz)))
 
 ;; End k's bell: every ball in (not down, not going down), in slot order,
 ;; scores by the ring its centre is in, doubled for the last BE_DOUBLE ends;
@@ -180,11 +198,15 @@
 ;; at BE_KMIN m/s or more (the speed they met at, the bounce given back),
 ;; and neither of them kicked in the last BE_KGAP ticks, is kicked BE_KICKK
 ;; times that speed more apart, at most BE_KMAX, shared by weight. A ball
-;; that met two on one tick keeps only its last.
+;; that met two on one tick keeps only its last. In a wave nothing is
+;; kicked: the balls it carries only bounce.
 (func $be_tick
   (local $t i32) (local $now i32) (local $p i32) (local $pb i32) (local $q i32) (local $qb i32)
   (local $dx f32) (local $dz f32) (local $dd f32) (local $up f32) (local $uq f32) (local $s f32) (local $kick f32)
   (local.set $now (i32.load (i32.const @HDR_TICK)))
+  (local.set $t (call $p_t (i32.const 0)))
+  (if (i32.eqz (call $be_after (i32.const 0) (local.get $t)))
+    (then
   (!for $p (i32.const 0) (i32.const @NPLAYER)
     (local.set $pb (i32.shl (local.get $p) (i32.const 6)))
     (local.set $q (!at u8 @(PLAYERS + B_HITBY) (local.get $pb)))
@@ -216,8 +238,7 @@
                     (!put f32 @(PLAYERS + P_VX) (local.get $qb) (!madd (local.get $dx) (f32.mul (local.get $kick) (local.get $uq)) (!at f32 @(PLAYERS + P_VX) (local.get $qb))))
                     (!put f32 @(PLAYERS + P_VZ) (local.get $qb) (!madd (local.get $dz) (f32.mul (local.get $kick) (local.get $uq)) (!at f32 @(PLAYERS + P_VZ) (local.get $qb))))
                     (!st i32 @(PG_S + BE_KAT) (local.get $p) (local.get $now))
-                    (!st i32 @(PG_S + BE_KAT) (local.get $q) (local.get $now)))))))))))
-  (local.set $t (call $p_t (i32.const 0)))
+                    (!st i32 @(PG_S + BE_KAT) (local.get $q) (local.get $now)))))))))))))
   (if (i32.and (i32.ne (local.get $t) (i32.const 0)) (i32.eqz (i32.rem_u (local.get $t) (i32.const @BE_END))))
     (then
       (if (i32.le_u (i32.div_u (local.get $t) (i32.const @BE_END)) (i32.const @BE_ENDS))

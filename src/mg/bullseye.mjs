@@ -2,7 +2,7 @@
 // painted in its middle, the house: the bull and three rings. Every BE_END
 // the bell rings an end: every ball then in the house scores by its ring
 // (BE_PTS, twice that the last BE_DOUBLE ends), and a shove wave runs out
-// from the middle and slides the house clear for the next. The ice barely
+// from the middle and carries every ball in the house out past its edge. The ice barely
 // grips, a bump kicks harder the harder it hits, and a ball off the edge
 // is down BE_RESPAWN and back at the rim. Most points after BE_ENDS ends wins.
 // Literal numbers only: the sim reads them through layout.mjs's MG_CONSTS,
@@ -43,20 +43,27 @@ export const BE_ENDS = 9;
 export const BE_LEN = 11250; // BE_ENDS * BE_END: the last bell ends the round
 export const BE_DOUBLE = 3; // the last three ends score double
 export const BE_WARN = 250; // the last 2 s before a bell the rings pulse and a count shows (the page's)
-// The shove wave: from the tick after a bell, a front runs out from the middle
-// BE_WAVEDT m a tick (30 m/s); every ball within BE_BAND inside it, and no
-// further out than BE_CLR past the house's edge, is sent out at least
-// BE_WK (the house's edge + BE_WM - its distance out) m/s, enough to slide
-// past the edge, and popped up BE_POP m/s off the ice.
+// The shove wave: from the tick after a bell to BE_WT ticks after it, a
+// front runs out from the middle BE_WAVEDT m a tick (30 m/s), and every ball
+// inside it, and no further out than BE_CLR past the house's edge, is
+// carried out at BE_WK (the house's edge + BE_WM - its distance out) m/s,
+// at most BE_WMAX: 16 m/s from the bull, 3.75 m/s as it leaves the house,
+// which a ball pushing back stops from in 1.4 m and a coasting one in 6.
+// BE_WT is how long that takes from dead on the middle (in BE_WSTEP m a
+// tick at 1 m/s, coasting), plus BE_WTM: 1.1 s for a house of 10 m, 1.8 s
+// for 20 m. Nothing is kicked in a wave. BE_BAND is the front's width as drawn.
 export const BE_WAVEDT = 0.24;
-export const BE_BAND = 1.2;
 export const BE_CLR = 0.5;
-export const BE_WK = 0.75;
+export const BE_WK = 1.5;
 export const BE_WM = 3;
-export const BE_POP = 2;
+export const BE_WMAX = 16;
+export const BE_WSTEP = 0.00796; // 0.008 s times BE_IDLE
+export const BE_WTM = 12;
+export const BE_BAND = 1.2;
 // Its header, byte offsets in PG_H (112 B, in the prediction's copy).
 export const BE_RAD = 0; // f32 the ice's radius
 export const BE_RING = 4; // f32 x 4: the bull's radius and the three rings', scaled, at 4, 8, 12, 16
+export const BE_WT = 20; // u32 the ticks after a bell its wave runs
 // In PG_S: u32 a slot, the HDR_TICK its last kick was given on.
 export const BE_KAT = 0;
 // A ball's PG_M, written as a bell scores it (a ball that scores nothing

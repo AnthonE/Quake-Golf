@@ -4,7 +4,7 @@
 // its edge, a dark line between each. A bell hangs high over the bull and
 // swings as it rings; the last 2 s before it the rings pulse and the HUD
 // counts; after it the shove wave runs out over the house as a ring of
-// frost. Under your own ball a ring says what you'd score now. The stage
+// frost, the house frosted behind it till the wave is done. Under your own ball a ring says what you'd score now. The stage
 // and the clock are the sim's (src/mg/bullseye.wat) worked again here from
 // PG_H and the tick, so the bots steer by what the sim does.
 import * as L from '../../src/layout.mjs';
@@ -33,7 +33,7 @@ export function stage(view) {
   const dv = view.dv, h = L.PG_H + o;
   view._be = {
     tick: view.tick, o, cx: dv.getFloat32(L.PG_CX + o, true), rad: dv.getFloat32(h + MC.BE_RAD, true),
-    ring: [0, 1, 2, 3].map((k) => dv.getFloat32(h + MC.BE_RING + 4 * k, true)),
+    ring: [0, 1, 2, 3].map((k) => dv.getFloat32(h + MC.BE_RING + 4 * k, true)), wt: dv.getUint32(h + MC.BE_WT, true),
   };
   return view._be;
 }
@@ -50,13 +50,21 @@ export const doubled = (k) => k > MC.BE_ENDS - MC.BE_DOUBLE;
 export const pays = (k, e) => (k < 0 ? 0 : MC.BE_PTS[k] * (doubled(e) ? 2 : 1));
 // Ticks from t into play to the next bell (the bell on t itself is 0).
 export const toBell = (t) => (t > 0 && t % MC.BE_END === 0 ? 0 : MC.BE_END - (((t % MC.BE_END) + MC.BE_END) % MC.BE_END));
-// The shove wave's front on tick t into play, m out from the middle, or -1 when there is none ($be_push's).
-export function waveAt(st, t) {
+// Ticks after a bell tick t into play is, while its wave runs (1..BE_WT), else 0 ($be_after's).
+export function inWave(st, t) {
   const k = Math.floor(t / MC.BE_END), a = t - k * MC.BE_END;
-  if (k < 1 || k >= MC.BE_ENDS || a <= 0) return -1;
+  return k < 1 || k >= MC.BE_ENDS || a <= 0 || a > st.wt ? 0 : a;
+}
+// The shove wave's front on tick t into play, m out from the middle, or -1
+// when there is none or it has run past the house (it carries on there till BE_WT).
+export function waveAt(st, t) {
+  const a = inWave(st, t);
+  if (!a) return -1;
   const f = a * MC.BE_WAVEDT;
   return f - MC.BE_BAND > st.ring[3] + MC.BE_CLR ? -1 : f;
 }
+// The wave's speed out at r m from the middle ($be_wave's).
+export const waveSpeed = (st, r) => Math.min(MC.BE_WMAX, Math.fround(MC.BE_WK * Math.fround(Math.fround(st.ring[3] + MC.BE_WM) - r)));
 // Ticks into play to draw at (fractional), frozen where the round ended; -1 before play.
 function playTime(view, g, ctx) {
   if (g.state === L.H_COUNT) return 0;
@@ -262,7 +270,12 @@ export default {
     if (f > 0) {
       const fade = Math.max(0, 1 - Math.max(0, f - ring[3]) / 2.5);
       out.decals?.push({ pos: [cx, PLAT_Y + 0.02, cx], radius: f, width: MC.BE_BAND, color: [0.85, 0.97, 1, 0.85 * fade], kind: DECAL.RING });
-      if (f > 0.5) out.decals?.push({ pos: [cx, PLAT_Y + 0.02, cx], radius: f - 0.15, width: Math.min(f, 4), color: [0.6, 0.85, 1, 0.18 * fade], kind: DECAL.RING });
+    }
+    // and behind it, till it's done, the house frosted over: closed
+    const wa = tp >= 0 && g.state === L.H_PLAY ? inWave(st, Math.floor(tp)) : 0;
+    if (wa) {
+      const fr = Math.min(f > 0 ? f : Infinity, ring[3] + MC.BE_CLR), fade = Math.min(1, (st.wt - wa) / 25);
+      if (fr > 0.5) out.decals?.push({ pos: [cx, PLAT_Y + 0.02, cx], radius: fr - 0.15, width: fr, color: [0.6, 0.85, 1, 0.22 * fade], kind: DECAL.RING });
     }
     // the bell over the bull, swinging for a while after it rings
     const rang = Math.floor(Math.max(0, tp) / MC.BE_END) * MC.BE_END;
@@ -341,6 +354,7 @@ export default {
       ctx.centre(row, k < 0 ? 'GET IN THE HOUSE' : `${WORD[k]}  +${pays(k, e)}`, k < 0 ? C.WHITE : HUE[k]);
     }
     if (tb > 0 && tb <= MC.BE_WARN) ctx.centre(row + 1, `BELL  ${Math.ceil(tb * TICK)}`, C.ORANGE);
+    else if (inWave(st, t)) ctx.centre(row + 1, 'THE WAVE CLEARS THE HOUSE', C.CYAN);
   },
 
   brain: {

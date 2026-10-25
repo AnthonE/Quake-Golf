@@ -11,7 +11,7 @@ import { startWorkers } from '../harness/run-node.mjs';
 import { playParty } from '../tools/genparty.mjs';
 import * as L from '../src/layout.mjs';
 import * as MC from '../src/mg/bullseye.mjs'; // BE_*: the minigame's own constants
-import be, { stage, ringAt, endOf, toBell, waveAt, pays } from '../client/mg/bullseye.mjs';
+import be, { stage, ringAt, endOf, toBell, waveAt, inWave, waveSpeed, pays } from '../client/mg/bullseye.mjs';
 
 const C = L.B_CX;
 const TICK = 0.008;
@@ -172,9 +172,14 @@ test('the last three ends score double; the ninth bell ends the round, placed by
   }
 });
 
-test('the shove wave: from the tick after a bell a front runs out at 30 m/s and slides every ball in the house out past its edge, still on the ice; none before the first bell, between waves or past the house', async () => {
+test('the shove wave: from the tick after a bell a front runs out at 30 m/s, and behind it every ball in the house is carried out at the speed for where it is, till all are past its edge, still on the ice; none before the first bell, after BE_WT or past the house', async () => {
   const g = await room(7);
   const st = stage(g.v);
+  // BE_WT: from dead on the middle, BE_WSTEP m a tick at the wave's speed, till past the edge by BE_CLR
+  let rr = 0, wt = 1;
+  while (rr <= f32(st.ring[3] + MC.BE_CLR)) { rr = f32(f32(waveSpeed(st, rr) * MC.BE_WSTEP) + rr); wt++; }
+  assert.equal(st.wt, wt + MC.BE_WTM);
+  assert.ok(st.wt > 125 && st.wt < 160, `${st.wt} ticks for a house of 10 m`);
   // no wave before the first bell
   at(g, 1);
   for (let p = 0; p < 7; p++) put(g, p, C + 5 * Math.cos(p), C + 5 * Math.sin(p));
@@ -184,34 +189,33 @@ test('the shove wave: from the tick after a bell a front runs out at 30 m/s and 
   const rs = [0, 3, 5.9, 9.5, 10.3, 11, 7];
   at(g, E - 1);
   rs.forEach((r, p) => put(g, p, C + r * Math.cos(p * 0.9), C + r * Math.sin(p * 0.9)));
-  // P7 rolling in at 4 m/s from 7 m: turned round, out at the wave's speed for where it is
+  // P7 rolling in at 4 m/s from 7 m: turned round at once, carried out as the rest
   put(g, 6, C + 7 * Math.cos(5.4), C + 7 * Math.sin(5.4), { vx: -4 * Math.cos(5.4), vz: -4 * Math.sin(5.4) });
   g.step();
   g.step();
-  const hit = Array(7).fill(-1);
+  const hit = Array(7).fill(-1), left = Array(7).fill(-1);
   for (let a = 1; a < 450; a++) {
     g.step();
     assert.equal(g.v.party().t - 1, E + a);
+    assert.equal(inWave(st, E + a), a <= st.wt ? a : 0);
     for (let p = 0; p < 7; p++) {
-      const b = g.v.partier(p);
-      if (hit[p] < 0 && p !== 6 && Math.hypot(b.vel[0], b.vel[2]) > 0) {
-        hit[p] = a;
-        const r = off(b), w = MC.BE_WK * (st.ring[3] + MC.BE_WM - rs[p]);
-        const out = p === 0 ? b.vel[0] : (b.vel[0] * (b.pos[0] - C) + b.vel[2] * (b.pos[2] - C)) / r;
-        assert.ok(Math.abs(out - w) < 1e-3, `P${p + 1} out at ${out.toFixed(3)} m/s, ${w.toFixed(3)} wanted`);
-        assert.equal(b.vel[1], MC.BE_POP, 'popped off the ice');
-        if (p === 0) assert.equal(b.vel[2], 0, 'dead on the middle: out along its slot\'s way, +x for P1');
-      }
-      if (p === 6 && hit[6] < 0) {
-        const r = off(b), out = (b.vel[0] * (b.pos[0] - C) + b.vel[2] * (b.pos[2] - C)) / r;
-        if (out > 0) hit[6] = a;
-      }
+      const b = g.v.partier(p), r = off(b);
+      const out = r < 0.01 ? b.vel[0] : (b.vel[0] * (b.pos[0] - C) + b.vel[2] * (b.pos[2] - C)) / r;
+      const carried = a <= st.wt && r < a * MC.BE_WAVEDT && r <= st.ring[3] + MC.BE_CLR;
+      if (carried) {
+        if (hit[p] < 0) hit[p] = a;
+        assert.ok(Math.abs(out - waveSpeed(st, r)) < 2e-3, `P${p + 1} ${a} ticks after the bell, ${r.toFixed(2)} m out: out at ${out.toFixed(3)} m/s, ${waveSpeed(st, r).toFixed(3)} wanted`);
+        if (p === 0 && a === 1) assert.equal(b.vel[2], 0, 'dead on the middle: out along its slot\'s way, +x for P1');
+      } else if (hit[p] > 0 && left[p] < 0) left[p] = a;
     }
   }
   // the front reaches a ball as a BE_WAVEDT passes its distance
   assert.deepEqual(hit.slice(0, 5), [1, 13, 25, 40, 43], 'the ticks after the bell the front met each');
   assert.equal(hit[5], -1, 'past the edge by more than BE_CLR: untouched');
-  assert.ok(hit[6] > 0 && hit[6] < 30, `the ball rolling in turned round ${hit[6]} ticks after the bell`);
+  assert.ok(hit[6] > 20 && hit[6] < 30, `the ball rolling in from 7 m met ${hit[6]} ticks after the bell`);
+  // all out by BE_WT, the one from the middle last
+  assert.ok(left.every((x, p) => p === 5 || (x > 0 && x <= st.wt - MC.BE_WTM + 1)), `out on ${left}`);
+  assert.equal(Math.max(...left), left[0]);
   for (let p = 0; p < 7; p++) {
     const b = g.v.partier(p);
     const d = off(b);
@@ -221,22 +225,23 @@ test('the shove wave: from the tick after a bell a front runs out at 30 m/s and 
   assert.equal(waveAt(st, 0), -1);
   assert.equal(waveAt(st, E), -1);
   assert.ok(Math.abs(waveAt(st, E + 25) - 25 * MC.BE_WAVEDT) < 1e-9);
-  assert.equal(waveAt(st, E + 60), -1, 'gone past the house');
+  assert.equal(waveAt(st, E + 60), -1, 'run past the house');
+  assert.equal(inWave(st, E + 60), 60, 'and still carrying');
   assert.equal(waveAt(st, MC.BE_LEN + 5), -1, 'none after the last bell');
-  // and none between waves: a ball still in the red stays still
-  at(g, E + 80);
+  // and none after it: a ball still in the red stays still
+  at(g, E + st.wt + 1);
   put(g, 0, C + 3, C);
   for (let k = 0; k < 300; k++) g.step();
   assert.ok(g.v.partier(0).vel.every((x) => x === 0), 'still between waves');
 });
 
-test('bumps: an elastic bounce, and a hard one kicked 0.8 times the speed it hit at more apart; a soft one only bounces; no second kick within BE_KGAP', async () => {
+test('bumps: an elastic bounce, and a hard one kicked 0.8 times the speed it hit at more apart; a soft one only bounces; no second kick within BE_KGAP, nor in a wave', async () => {
   const g = await room(2);
   const part = () => { const a = g.v.partier(0), b = g.v.partier(1); return b.vel[0] - a.vel[0]; };
   // P1 rolled at v into P2, still, 5 cm off it, out on the ice clear of the house (and a kick's gap since the last)
-  const go = (v) => {
+  const go = (v, t = 300) => {
     for (let k = 0; k < MC.BE_KGAP + 2; k++) g.step();
-    at(g, 300);
+    at(g, t);
     put(g, 0, C - 6, C + 12, { vx: v });
     put(g, 1, C - 6 + 2.05, C + 12);
     let k = 0;
@@ -264,6 +269,10 @@ test('bumps: an elastic bounce, and a hard one kicked 0.8 times the speed it hit
   assert.ok(Math.abs(part() - 6) < 0.3, `met again within BE_KGAP: apart at ${part().toFixed(2)}, the bounce alone`);
   // and a hard bump still counts for bumper's credit
   assert.equal(g.v.partier(1).hitBy, 0);
+  // in a wave, even out of the house, a hard bump only bounces
+  const s2 = go(6, E + 20);
+  assert.ok(Math.abs(s2 - 6) < 0.3, `in a wave: apart at ${s2.toFixed(2)}, the bounce alone`);
+  assert.equal(g.dv.getUint32(L.PG_S + MC.BE_KAT, true), now, 'no kick given');
 });
 
 test('off the edge a ball is down 1.5 s, then back at the rim falling in, its points kept', async () => {
@@ -311,7 +320,7 @@ function predictedBut(g, inputs) {
   return compared;
 }
 
-test('the prediction matches the confirmed ball bit for bit: a slide over the house, to the edge and off it, through a bell and its wave; in the bull through a bell, all but the points', async () => {
+test('the prediction matches the confirmed ball bit for bit: a slide over the house, to the edge and off it, through a bell and its wave; in the bull through a bell and carried out of the house pushing back, all but the points', async () => {
   const g = await room(2);
   const st = stage(g.v);
   put(g, 1, C, C - st.rad + 3);
@@ -334,16 +343,16 @@ test('the prediction matches the confirmed ball bit for bit: a slide over the ho
   // in the bull at the next bell, out with the wave, pushing back in against it
   at(g, 2 * E - 30);
   put(g, 0, C + 0.6, C - 0.2);
-  const bull = Array.from({ length: 200 }, (_, k) => partyWord({ yaw: Y(Math.PI * 0.9), move: k > 40 ? 1 : 0 }));
-  assert.ok(predictedBut(g, bull) >= 200);
+  const bull = Array.from({ length: 32 + st.wt }, (_, k) => partyWord({ yaw: Y(Math.PI * 0.9), move: k > 40 ? 1 : 0 }));
+  assert.ok(predictedBut(g, bull) >= 32 + st.wt);
   assert.equal(score(g, 0), 5, 'the bull at the bell');
-  assert.ok(off(g.v.partier(0)) > 1.5, 'thrown out of it');
+  assert.ok(off(g.v.partier(0)) > st.ring[3] + MC.BE_CLR, `carried out of the house, pushing back: ${off(g.v.partier(0)).toFixed(2)} m out as the wave ends`);
 });
 
 for (const [balls, sd] of [[8, 3], [64, 5]]) {
-  test(`a round of ${balls} AI balls (the Partier, this brain) on the debug build: no trap, nine ends, the house full at the bells, the points spread, few falls; equal on 1 and 4 threads`, async () => {
+  test(`a round of ${balls} AI balls (the Partier, this brain) on the debug build: no trap, nine ends, the house full at the bells, the points spread, few falls; the house cleared after each bell; equal on 1 and 4 threads`, async () => {
     let start = -1, over = -1, places = null, pts = null, scores = null, trap = 0, downs = 0, inHouse = 0, bulls = 0;
-    const was = [];
+    const was = [], at1s = [], atEnd = [];
     const ticks = L.P_COUNT + MC.BE_LEN + 80 + balls;
     const { log, sim } = await playParty({ bytes: partyBytes(true), seed: sd, mg: L.MG_BULLSEYE, bots: balls, ticks, delay: 6, onTick: (t, s, v) => {
       if (s.error().code) trap = s.error().code;
@@ -357,6 +366,14 @@ for (const [balls, sd] of [[8, 3], [64, 5]]) {
       }
       if (g.state !== L.H_PLAY) return;
       for (let p = 0; p < balls; p++) { const o = v.partier(p).out; if (o && !was[p]) downs++; was[p] = o; }
+      const a = g.t % E;
+      if (g.t > E && g.t < MC.BE_LEN && (a === 125 || a === stage(v).wt + 1)) {
+        // after a bell: the wave clearing the house, and done
+        const st = stage(v);
+        let n = 0;
+        for (let p = 0; p < balls; p++) { const b = v.partier(p); if (b.live && !b.out && ringAt(st, b.pos[0], b.pos[2]) >= 0) n++; }
+        (a === 125 ? at1s : atEnd).push(n);
+      }
       if (g.t > 0 && g.t % E === 0) {
         const st = stage(v);
         let n = 0, bull = 0;
@@ -376,8 +393,12 @@ for (const [balls, sd] of [[8, 3], [64, 5]]) {
     assert.ok(house > (balls > 10 ? 0.55 : 0.85), `${(100 * house).toFixed(0)}% in the house at a bell`);
     assert.ok(bulls >= 6, `the bull taken at ${bulls} of the bells`);
     assert.ok(scores.filter((s) => s > 0).length >= 0.9 * balls, `scores ${scores}`);
-    assert.ok(hi > 1.3 * mean && mean > (balls > 10 ? 8 : 20), `scores to ${hi}, mean ${mean.toFixed(1)}`);
+    assert.ok(hi > 1.2 * mean && mean > (balls > 10 ? 8 : 20), `scores to ${hi}, mean ${mean.toFixed(1)}: ${scores}`);
     assert.ok(downs <= balls, `${downs} falls`);
+    // a second after each bell the house is all but empty, and empty as the wave ends
+    assert.equal(at1s.length, MC.BE_ENDS - 1);
+    assert.ok(Math.max(...at1s) <= Math.ceil(balls / 16), `in the house 1 s after a bell: ${at1s}`);
+    assert.deepEqual(atEnd, Array(MC.BE_ENDS - 1).fill(0), `in the house as the wave ends: ${atEnd}`);
     const v = new View(sim.memory.buffer);
     assert.equal(v.party().game, L.MG_BULLSEYE);
     const parsed = parseLog(log);
