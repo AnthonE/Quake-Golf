@@ -157,9 +157,11 @@ async function atTheEnd(k, poke = () => {}) {
 
 test("the arena's mode: one of ARENA_MODES, never the last one played, forced by its seed and cut to 3 min, placed by the mode", async () => {
   const k = L.PLAYLIST.indexOf(L.G_ARENA);
+  // 100 draws each way see all seven others (a mirror of $rand: rand % 7 first
+  // gives the last residue at draw 47)
   for (let last = 0; last <= L.ARENA_MODES.length; last++) {
     const seen = new Set();
-    for (let r = 1; r <= 40; r++) {
+    for (let r = 1; r <= 100; r++) {
       const { dv, rng } = await atTheEnd(k, (dv) => { dv.setUint8(L.FP_MODE, last); dv.setUint32(L.HDR_RNG, r * 0x9e3779b1, true); });
       const next = dv.getUint32(L.FP_NEXT, true);
       assert.equal(dv.getUint32(L.FP_STAGE, true), 1);
@@ -185,10 +187,12 @@ test("the arena's mode: one of ARENA_MODES, never the last one played, forced by
     assert.equal(h.state, L.H_PLAY);
     assert.equal(h.until - h.start, Math.min(L.MODE_TICKS[m], L.FP_ARENA_TICKS), `${L.MODES[m].name}'s clock`);
     assert.equal(h.until - h.start, L.FP_ARENA_TICKS);
-    // the match ends: placed as its mode places, and the next seed drawn
+    // the match ends (a team match through the clock, as the cut ends one: a
+    // draw at 0 to 0): placed as its mode places, and the next seed drawn
     dv.setUint32(L.HDR_UNTIL, v.tick + 3, true);
     run(5);
     assert.equal(dv.getUint32(L.FP_STAGE, true), 1);
+    assert.equal(dv.getUint32(L.AH_TEAMWIN, true), (1 << m) & L.TEAMED ? 3 : 0, `${L.MODES[m].name}: who won`);
     for (let p = 0; p < 3; p++) assert.equal(v.u8[L.FP_LAST + p], m ? v.u8[L.MODE_REC + p * L.MR_SIZE + L.MR_PLACE] : 1, `${L.MODES[m].name}: P${p + 1}`);
     assert.ok(v.u8[L.MODE_REC + L.MR_PLACE] || !m);
   }

@@ -6,8 +6,9 @@ not measured yet, it says so.
 
 ## Where it is
 
-20 games, each gated online at 256 players: golf, bumper balls, the arena's
-four modes (Fiesta, Infection, gun game, Juggernaut) and Party's 14
+24 games, each gated online at 256 players: golf, bumper balls, the arena's
+eight modes (Fiesta, Infection, gun game, Juggernaut, and red against blue:
+Team Slayer, Capture the Flag, Oddball, King of the Hill) and Party's 14
 minigames. Fireplace plays them in turn.
 
 What a page downloads, gzipped, everything it imports included:
@@ -15,9 +16,9 @@ What a page downloads, gzipped, everything it imports included:
 | Page | Files | Gzipped |
 | --- | --- | --- |
 | `client/party.html` | 54 | 275 KB (wasm 29 KB) |
-| `client/fireplace.html` | 66 | 410 KB (wasm 80 KB, 68 KB of it Blood Gulch's height map) |
+| `client/fireplace.html` | 72 | 436 KB (wasm 85 KB, 68 KB of it Blood Gulch's height map) |
 | `client/bumper.html` | 38 | 114 KB |
-| `client/arena.html` | 38 | 159 KB |
+| `client/arena.html` | 44 | 190 KB (the team modes: 6 files and 31 KB of it) |
 
 No textures, models, sound files or fonts: sounds are synthesized, the font is
 3x5 bitmaps, every shape is drawn on the GPU. A Party minigame adds about
@@ -56,7 +57,7 @@ wave to build (framework, frontend, bot), then a game on it is one agent.
 | Kit | Now | Target | Candidates |
 | --- | --- | --- | --- |
 | Party (the ball) | 14 | 60 | Mini Golf, Sumo Ring, Snowball (grow by rolling, swallow smaller balls), Full Tilt (the floor tilts on a schedule), Slime Climb, Big Fans, Roll Out, Jump Club, Gate Crash, Hoop Hop, Pinball, Stompin' Ground; with teams: Fall Ball, Egg Scramble, Tug o' War, Volleyfall |
-| Arena (the fighter) | 4 | 24 | Slayer at run time, Team Slayer, CTF, Oddball, King of the Hill, Battle Royale (a zone and loot pads), Snipers, Swords, Grifball, Floor is Lava, a Tower of Hell obby, a zombie horde |
+| Arena (the fighter) | 8 | 24 | Slayer at run time, Battle Royale (a zone and loot pads), Snipers, Swords, Grifball, Assault (one bomb, a base to plant it in), Headhunter, Infection by teams, Floor is Lava, a Tower of Hell obby, a zombie horde |
 | Champion (top-down, new) | 0 | 14 | FFA ARAM (below), team ARAM 128 v 128, co-op survivors against hordes, a boss raid of telegraphed patterns, Gem Grab, Showdown, Bounty |
 | Grid (2D boards, new) | 0 | 16 | Tetris 99, Puyo 99, Dr. Mario 99, Bomberman 128, Snake, Pac-Man 99; races of Minesweeper, 2048, match-3, nonograms |
 | Vehicle (new) | 0 | 12 | a kart race, balloon battle, bumper cars, car soccer 64 v 64, boats, hover racing, a demolition derby |
@@ -74,7 +75,12 @@ only of your own body), physics sandboxes, open worlds.
 ## Engine work, in order
 
 1. Teams: a side per record, friendly fire off, team scores; Party, the arena
-   and the champion kit. It unlocks about ten games.
+   and the champion kit. It unlocks about ten games. The arena's is done: red
+   against blue as a kit of team modes (`src/am/<key>.wat`, four hooks; a
+   carrier bit for flags and the skull; the map's objectives in `MAP_OBJ`),
+   with Team Slayer, Capture the Flag, Oddball and King of the Hill on it, a
+   mode on the kit about an hour of one agent. Party's and the champion
+   kit's are next: the same side bit, scores and places.
 2. The champion, grid and vehicle kits. The champion and vehicle kits draw
    with `client/party-render.mjs` (its decals are the telegraphs of a
    top-down game); the grid kit wants a small board renderer.
@@ -181,7 +187,10 @@ marshmallows).
 ## Sessions
 
 1. Teams; the champion kit and FFA ARAM; Team Slayer, CTF, Oddball and King of
-   the Hill in the arena.
+   the Hill in the arena. The arena's half is done (its teams, the kit and the
+   four modes: one session of about five and a half hours, up to four agents at once);
+   Party's teams and their games (Fall Ball, Egg Scramble, Tug o' War,
+   Volleyfall), the champion kit and FFA ARAM are left.
 2. The grid kit: Tetris 99, Bomberman 128, Snake, Puyo 99.
 3. The vehicle kit and karts.
 4. Then waves of 12 to 16 Party and arena games.

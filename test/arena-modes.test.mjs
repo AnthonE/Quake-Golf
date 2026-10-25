@@ -95,24 +95,31 @@ function predicted(g, p, inputs) {
   return compared;
 }
 
-test('modes: a room plays the rotation from a Fiesta; a seed can force one mode every match', async () => {
+test('modes: a room plays the rotation from a Fiesta, free-for-all and team matches by turns; a seed can force one mode every match', async () => {
   const g = await room(null, 2);
+  assert.equal(L.ARENA_MODES.length, 8);
   for (let k = 0; k <= L.ARENA_MODES.length; k++) {
     const want = L.ARENA_MODES[k % L.ARENA_MODES.length];
     const h = g.v.hole();
     assert.deepEqual([h.hole, h.state, g.v.mode().mode], [k, L.H_PLAY, want], `match ${k}`);
     assert.equal(h.until - h.start, L.MODE_TICKS[want], `${L.MODES[want].name}'s clock`);
-    if (k === 0) {
-      // a Fiesta's region is what it was before modes: every mode field 0
-      assert.ok(g.sim.u8.slice(L.AH_MODE, L.AH_WINNER + 4).every((b) => b === 0), 'the header');
-      assert.ok(g.sim.u8.slice(L.MODE_REC, L.MODE_REC + L.NPLAYER * L.MR_SIZE).every((b) => b === 0), 'the records');
-      assert.ok([0, 1].every((p) => !g.v.fighter(p).zombie && !g.v.fighter(p).jugg));
+    assert.equal(((1 << want) & L.TEAMED) !== 0, k % 2 === 1, 'a team match every other');
+    if (want === L.M_FIESTA) {
+      // a Fiesta's region is what it was before modes, the first and the one
+      // after a team match alike: every mode field 0, the team header and the
+      // objective block too, no pads in Fiesta's build, nobody on a side
+      const zero = (a, b) => g.sim.u8.slice(a, b).every((x) => x === 0);
+      assert.ok(zero(L.AH_MODE, L.AH_END), 'the header');
+      assert.ok(zero(L.AO, L.AO + L.AO_SIZE), 'the objective');
+      assert.ok(zero(L.MODE_REC, L.MODE_REC + L.NPLAYER * L.MR_SIZE), 'the records');
+      if (L.FIESTA) assert.ok(zero(L.PAD, L.PAD + L.NPAD * L.PAD_SIZE), 'the pads');
+      assert.ok([0, 1].every((p) => !(g.sim.u8[rec(p) + L.P_FL] & (L.PF_ZOMBIE | L.PF_JUGG | L.PF_BLUE | L.PF_CARRY))));
     }
     endMatch(g);
     assert.equal(g.v.hole().state, L.H_OVER);
     while (g.v.hole().state !== L.H_PLAY) g.step();
   }
-  for (const m of [L.M_INFECTION, L.M_GUNGAME, L.M_JUGGERNAUT]) {
+  for (const m of [L.M_INFECTION, L.M_GUNGAME, L.M_JUGGERNAUT, L.M_SLAYER, L.M_CTF, L.M_ODDBALL, L.M_HILL]) {
     const f = await room(m, 2, 99);
     assert.equal(f.v.mode().mode, m, `forced ${L.MODES[m].name}`);
     endMatch(f);

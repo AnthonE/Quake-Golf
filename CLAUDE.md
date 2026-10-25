@@ -17,7 +17,7 @@ what comes next.
 ```sh
 npm ci && sh tools/install-deno.sh   # once: wabt, binaryen, Deno 2.9.7 in .tools/
 npm run build                        # every sim; prints each wasm's sha256
-npm test                             # node --test test/*.test.mjs, 363 tests, about 5 min
+npm test                             # node --test test/*.test.mjs, 429 tests, about 6 min
 node --test test/bumper.test.mjs     # one file
 node harness/matrix.mjs --ticks 20000 --log logs/x.qgl --wasm build/<sim>/game.wasm   # Node, Deno, Chrome x JIT tiers x 1/2/4 threads
 node net/play.mjs [--arena [--mode k] | --bumper | --party [--mg k] | --fireplace] [--bots N]   # relay + page + bots; open the URL it prints
@@ -78,11 +78,24 @@ shell whose own command line contains the name: it kills that shell.
   forces a minigame (`--mg k`). `node tools/new-mg.mjs <key> <prefix> NAME`
   writes a new one and appends it to every list that names them
   (`test/new-mg.test.mjs` holds its anchors).
-- The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut)
-  are picked per match at run time, not built: `AH_MODE` at `REGION + 0x48`,
-  a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`), per-fighter state at `MODE_REC`.
+- The arena's match modes (`M_*`: Fiesta, Infection, gun game, Juggernaut,
+  and the team modes Team Slayer, Capture the Flag, Oddball, King of the
+  Hill) are picked per match at run time, not built: `AH_MODE` to `AH_END`
+  at `REGION + 0x48..0x74` (the team modes' scores, target and winner
+  included), a side in `P_FL` (`PF_ZOMBIE`, `PF_JUGG`, `PF_BLUE`, and
+  `PF_CARRY` for a flag's or the skull's carrier), per-fighter state at
+  `MODE_REC`, a team mode's objective in `AO` (`REGION + 0xcc00`, 1 KiB).
   A Fiesta must leave all of it 0, so its region stays what it was;
-  `forcedSeed(m)` (`arena-view.mjs`) makes a room play one mode.
+  `forcedSeed(m)` (`arena-view.mjs`) makes a room play one mode. The team
+  modes are a kit: the core in `arena.wat` (sides, spawns, scores, the end,
+  carrying), each mode `src/am/<key>.wat` (four hooks under its prefix,
+  `start`, `tick`, `kill`, `bar`, called through `(!am)`, all on the
+  confirmed world), its constants and AO fields in `src/am/<key>.mjs`
+  (literal numbers; gathered into `AM_CONSTS` for the assembler as
+  `MG_CONSTS` is, and read in JS from `src/am/consts.mjs`), its
+  client module `client/am/<key>.mjs` (drawing, HUD, news, board, the AI
+  fighter's goal), its tests `test/arena-<key>.test.mjs`. The map's
+  objectives (flags, skull, hills) are `MAP_OBJ`, from `map.json`.
 - `xbox/sim/` is frozen. Net and harness code shared by both sims reads
   memory through names that must mean the same in both layouts
   (`test/fork.test.mjs`); add new names, don't move old ones.

@@ -60,6 +60,22 @@ jobs:
         run: |
           node tools/genarena.mjs --bots 8 --ticks 20000 --mode 3 --out logs/arena-juggernaut.qgl
           node harness/matrix.mjs --ticks 20000 --log logs/arena-juggernaut.qgl --wasm build/arena/game.wasm --runtimes node,deno,chromium
+      - name: The arena's Team Slayer (red against blue), eight AI fighters
+        run: |
+          node tools/genarena.mjs --bots 8 --ticks 20000 --mode 4 --out logs/arena-slayer.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/arena-slayer.qgl --wasm build/arena/game.wasm --runtimes node,deno,chromium
+      - name: The arena's Capture the Flag, eight AI fighters
+        run: |
+          node tools/genarena.mjs --bots 8 --ticks 20000 --mode 5 --out logs/arena-ctf.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/arena-ctf.qgl --wasm build/arena/game.wasm --runtimes node,deno,chromium
+      - name: The arena's Oddball, eight AI fighters
+        run: |
+          node tools/genarena.mjs --bots 8 --ticks 20000 --mode 6 --out logs/arena-oddball.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/arena-oddball.qgl --wasm build/arena/game.wasm --runtimes node,deno,chromium
+      - name: The arena's King of the Hill, eight AI fighters
+        run: |
+          node tools/genarena.mjs --bots 8 --ticks 20000 --mode 7 --out logs/arena-hill.qgl
+          node harness/matrix.mjs --ticks 20000 --log logs/arena-hill.qgl --wasm build/arena/game.wasm --runtimes node,deno,chromium
       - name: Bumper balls (build/bumper/), rounds of sixteen AI balls
         run: |
           node tools/genbumper.mjs --bots 16 --ticks 20000 --out logs/bumper.qgl
@@ -165,6 +181,12 @@ jobs:
         run: node net/run-arena.mjs --chrome 0 --bots 256 --seconds 40
       - name: The arena's Infection online (64 AI fighters, every hash checked)
         run: node net/run-arena.mjs --chrome 0 --bots 64 --seconds 60 --mode 1
+      - name: The arena's team modes online (64 AI fighters each, red against blue, every hash checked)
+        run: |
+          node net/run-arena.mjs --chrome 0 --bots 64 --seconds 60 --mode 4
+          node net/run-arena.mjs --chrome 0 --bots 64 --seconds 60 --mode 5
+          node net/run-arena.mjs --chrome 0 --bots 64 --seconds 60 --mode 6
+          node net/run-arena.mjs --chrome 0 --bots 64 --seconds 60 --mode 7
       - name: Bumper balls online, full (a relay on bumper balls' sim, 256 AI balls through its native door, a round won, every hash checked)
         run: node net/run-bumper.mjs --chrome 0 --bots 256 --seconds 100
       - name: Party online, full (a relay on Party's sim, 256 AI balls through its native door, the rotation, a round placed, every hash checked)

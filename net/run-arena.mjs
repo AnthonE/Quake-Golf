@@ -5,7 +5,9 @@
 // referee checked interval hashes from every session and none differed,
 // someone was killed, and Chrome kept up. Screenshots go to traces/.
 // --mode k forces every match to mode k (layout.mjs, M_*: 1 Infection, 2 gun
-// game, 3 Juggernaut) through the relay's seed, and the gate wants it played.
+// game, 3 Juggernaut, 4 Team Slayer, 5 CTF, 6 Oddball, 7 King of the Hill)
+// through the relay's seed, and the gate wants it played, by the bot host's
+// world and every page; in a team mode, both sides dealt fighters.
 //   node net/run-arena.mjs [--bots 5] [--chrome 1] [--seconds 60] [--impair delay=60,jitter=10,loss=0.05] [--shots 1] [--mode k]
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
@@ -68,7 +70,7 @@ try {
     await new Promise((ok) => setTimeout(ok, 1000));
     const st = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa?.state?.() || window.__qa || null)));
     if (st.some((s) => s?.error)) throw new Error(st.find((s) => s?.error).error);
-    process.stderr.write(`\r${secs()} s  ${st.map((s, k) => s?.me ? `c${k}: P${s.slot + 1} ${s.me.kills}/${s.me.deaths} ${s.me.dead ? 'dead' : `${s.me.sh}/${s.me.hp}`}${s.me.zombie ? ' zombie' : ''}${s.mode?.mode === L.M_GUNGAME ? ` rung ${s.me.rung + 1}` : ''} ${s.mode?.name} ${['idle', 'countdown', 'play', 'over'][s.match.state]}` : `c${k}: ${s?.clState ?? '-'}`).join(' | ')}     `);
+    process.stderr.write(`\r${secs()} s  ${st.map((s, k) => s?.me ? `c${k}: P${s.slot + 1} ${s.me.kills}/${s.me.deaths} ${s.me.dead ? 'dead' : `${s.me.sh}/${s.me.hp}`}${s.me.zombie ? ' zombie' : ''}${s.mode?.mode === L.M_GUNGAME ? ` rung ${s.me.rung + 1}` : ''}${s.mode?.teamed ? ` ${['red', 'blue'][s.team] ?? '-'}${s.me.carry ? ' carrying' : ''} ${s.mode.score.join('-')}` : ''} ${s.mode?.name} ${['idle', 'countdown', 'play', 'over'][s.match.state]}` : `c${k}: ${s?.clState ?? '-'}`).join(' | ')}     `);
     if (shots && pages.length && Date.now() - snapAt > 4000 && st[0]?.me) {
       snapAt = Date.now();
       const png = await pages[0].evaluate(() => window.__qa.capture?.(2)).catch(() => null);
@@ -78,7 +80,8 @@ try {
   process.stderr.write('\n');
   const end = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.state())));
   report.chromeState = end.map((s) => ({ slot: s.slot, kills: s.me?.kills, deaths: s.me?.deaths, behind: s.clState !== 2, feed: s.feed, mode: s.mode?.mode, match: s.match?.hole,
-    zombie: s.me?.zombie, rung: s.me?.rung, points: s.me?.points, humans: s.mode?.humans, zombies: s.mode?.zombies }));
+    zombie: s.me?.zombie, rung: s.me?.rung, points: s.me?.points, humans: s.mode?.humans, zombies: s.mode?.zombies,
+    team: s.team, carry: s.me?.carry, score: s.mode?.score, target: s.mode?.target, teamWin: s.mode?.teamWin, teamN: s.mode?.teamN, kit: s.kit }));
   report.chromeHashes = await Promise.all(pages.map((p) => p.evaluate(() => window.__qa.hashes.length)));
 } finally {
   await browser.close();
@@ -92,14 +95,25 @@ const r = existsSync(summaryPath) ? JSON.parse(readFileSync(summaryPath, 'utf8')
 report.relay = r && { sessions: r.sessions, compared: r.compared, agreed: r.agreed, mismatches: r.mismatches, keys: r.keys, repairs: r.repairs, downKBpsPerSession: r.downKBpsPerSession, upKBpsPerSession: r.upKBpsPerSession, tickBytes: r.tickBytes };
 const b = existsSync(botsPath) ? JSON.parse(readFileSync(botsPath, 'utf8')) : null;
 report.botHost = b && { joined: b.joined, rejected: b.rejected, errors: b.errors, cpuPctOfOneCore: b.cpuPctOfOneCore, meanStepMs: b.world.meanStepMs, worstStepMs: b.world.worstStepMs,
-  kills: b.world.players.reduce((n, p) => n + p.kills, 0), downKBpsEach: b.sessions.length ? Number((b.sessions.reduce((n, x) => n + x.downKB, 0) / b.sessions.length / seconds).toFixed(1)) : 0 };
+  kills: b.world.players.reduce((n, p) => n + p.kills, 0), downKBpsEach: b.sessions.length ? Number((b.sessions.reduce((n, x) => n + x.downKB, 0) / b.sessions.length / seconds).toFixed(1)) : 0,
+  mode: b.mode && { mode: b.mode.mode, name: b.mode.name, teamed: b.mode.teamed, score: b.mode.score, target: b.mode.target, teamWin: b.mode.teamWin, teamN: b.mode.teamN },
+  matches: b.games, sides: b.mode?.teamed ? [0, 1].map((k) => b.world.players.filter((p) => p.team === k).length) : null };
+// a forced team mode: both sides were dealt fighters, counted over the whole
+// room (the bot host's own and every page's), and every page has a side and
+// sees both sides' counts (AH_TEAMN) above 0; a room of one has one side
+const teamed = mode !== null && !!L.MODES[mode]?.team;
+const room = [...(b?.world.players ?? []).map((p) => p.team), ...(report.chromeState ?? []).map((s) => s.team)];
+report.sides = teamed ? [0, 1].map((k) => room.filter((t) => t === k).length) : null;
+const both = (n) => !!n && n.length === 2 && n.every((k) => k > 0);
+const two = nbots + chrome >= 2;
 const gate = {
   everyBotIn: !nbots || (!!b && b.joined === nbots && !b.errors.length),
   refereeChecked: !!r && r.compared >= 4 * (nbots + chrome),
   hashesAgree: !!r && (r.mismatches?.length ?? r.mismatches) === 0 && r.agreed === r.compared,
   someoneDied: (report.chromeState || []).some((s) => s.kills + s.deaths > 0) || (report.botHost?.kills ?? 0) > 0,
   chromeKeptUp: (report.chromeState || []).every((s) => !s.behind),
-  modePlayed: mode === null || (report.chromeState || []).every((s) => s.mode === mode),
+  modePlayed: mode === null || ((!nbots || report.botHost?.mode?.mode === mode) && (report.chromeState || []).every((s) => s.mode === mode)),
+  sidesDealt: !teamed || ((!two || both(report.sides)) && (report.chromeState || []).every((s) => (s.team === 0 || s.team === 1) && (!two || both(s.teamN)))),
   noErrors: report.errors.length === 0,
 };
 report.gate = { ...gate, pass: Object.values(gate).every(Boolean) };

@@ -10,7 +10,7 @@
 //   ?bot=1 sits a guest (client/fireplace-bot.mjs) at the controls, and sits down at once
 //   ?watch=1 spectates; ?url=, ?hash=, ?impair=, ?sens=, ?res=, ?music=0 as the games'
 import * as L from '../src/layout.mjs';
-import { unpackArena } from '../src/arena-view.mjs';
+import { unpackArena, modeName } from '../src/arena-view.mjs';
 import '../src/bumper-view.mjs';
 import '../src/party-view.mjs';
 import { createHost, epoch, fitSize } from './host.mjs';
@@ -181,7 +181,7 @@ async function main() {
   // the playlist goes by position: entry (games played) % length is next
   const nextGame = () => L.PLAYLIST[view.dv.getUint16(L.FP_COUNT + 2, true) % L.PLAYLIST.length];
   // a game as the TV names it: the arena by the mode its seed forces
-  const gameName = (g, seed) => g === L.G_ARENA && seed >>> 24 === L.FORCE_MODE ? `ARENA ${L.MODES[(seed >>> 16) & 0xff]?.name ?? ''}` : L.GAMES[g];
+  const gameName = (g, seed) => (g === L.G_ARENA && modeName(seed) !== null ? `ARENA ${modeName(seed)}` : L.GAMES[g]);
   const GAMES_LINE = L.PLAYLIST.map((g) => L.GAMES[g]).join(' . ');
 
   // ---- the frame

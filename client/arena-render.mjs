@@ -4,7 +4,8 @@
 // test per box, a group's bounds first, and a ray to the sun from whatever a
 // pixel lands on for its shadow), with what a
 // shooter needs on top: tracers as beams, sprites for blasts, sparks and
-// weapon pads, and a HUD of rectangles under the text for the gun in your
+// weapon pads, the team modes' flags and skull, a zone painted on the ground
+// for a hill, and a HUD of rectangles under the text for the gun in your
 // hands, the shield and health bars, the crosshair, the scope and the
 // hit marker. Fighters and projectiles come straight from shared memory;
 // everything else from the main thread each frame. Nothing here is hashed.
@@ -17,6 +18,28 @@ export const MAX_SPRITE = 256;
 export const MAX_BEAM = 128;
 export const MAX_RECT = 128;
 const FAR = 700;
+// The HUD text's colours by C.* (client/font.mjs), for the shader and for rects drawn to match it.
+export const PALETTE = [[1, 1, 1], [1, 0.85, 0.25], [1, 0.35, 0.3], [0.4, 1, 0.4], [0.6, 0.6, 0.6], [0.5, 0.85, 1], [1, 0.6, 0.2], [0.8, 0.55, 1]];
+const vec3 = (c) => `vec3f(${c.map((v) => v.toFixed(3)).join(', ')})`;
+
+// The camera a frame state ({ cam, yaw, pitch, zoom }) on a W x H screen
+// sees through: the focal length (px) and the horizon's row, the pitch a
+// vertical shear as golf's.
+export function lens(s, W, H) {
+  const focal = W * 0.62 * (s.zoom || 1);
+  return { focal, horizon: H / 2 + Math.tan(Math.max(-1.35, Math.min(1.35, s.pitch))) * focal };
+}
+
+// Where world point q lands on the screen, as the shader's project() puts it:
+// [x, y, depth ahead of the eye (m; under 0.3 behind it)]. For the HUD's waypoints.
+export function project(s, W, H, q) {
+  const { focal, horizon } = lens(s, W, H);
+  const r = [q[0] - s.cam[0], q[1] - s.cam[1], q[2] - s.cam[2]];
+  const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
+  const zf = r[0] * cy + r[2] * sy, xr = -r[0] * sy + r[2] * cy;
+  const k = focal / Math.max(zf, 0.01);
+  return [W / 2 + xr * k, horizon - r[1] * k, zf];
+}
 
 const WGSL = /* wgsl */ `
 struct U {
@@ -27,7 +50,9 @@ struct U {
   hud: vec4f,     // rows, rects, crosshair kind, hit marker (0..1)
   fx: vec4f,      // damage flash (0..1), scope (1), net graph shown (1), crosshair gap (px)
   pred: vec4f,    // extrapolate my projectiles (s); the motion tracker's centre x, y and radius (px)
-  map: vec4f,     // boxes, groups, 1 when the match's mode has sides
+  map: vec4f,     // boxes, groups, sides (0 none, 1 one against the rest, 2 red and blue), the zone's height band (m)
+  zone: vec4f,    // a disc painted on the ground: centre x, z, radius (0: none), the height it's at
+  zcol: vec4f,    // its colour, and how hard it pulses (0..1)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var hmap: texture_2d<f32>;
@@ -148,6 +173,19 @@ fn boxColor(k: u32, w: vec3f, n: vec3f) -> vec3f {
   return c * select(1.0, 0.6, e < 0.06);
 }
 
+// The zone (a hill) on what a pixel landed on: at w across, y up, z metres off.
+// A tinted disc with rings running out over it and a bright rim a pixel or
+// more wide, on surfaces within the band of its height.
+fn zone(c: vec3f, w: vec2f, y: f32, z: f32) -> vec3f {
+  let d = distance(w, u.zone.xy);
+  if (u.zone.z <= 0.0 || d > u.zone.z || abs(y - u.zone.w) > u.map.w) { return c; }
+  let rim = max(0.3, 1.6 * z / u.cam.w);
+  let rings = 0.5 + 0.5 * sin(d * 1.6 - u.view.w * 4.0);
+  var k = 0.22 + 0.2 * u.zcol.w * rings;
+  if (d > u.zone.z - rim) { k = 0.9; }
+  return mix(c, u.zcol.rgb, k);
+}
+
 fn sky(sy: f32) -> vec3f {
   let t = clamp((u.view.z - sy) / u.screen.y * 1.6, 0.0, 1.0);
   return mix(SKY_LO, SKY_HI, t);
@@ -197,6 +235,7 @@ struct TOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
     if (u32(boxes[2u * bh.k].w) != 5u) {
       c *= 0.42 + 0.68 * max(dot(bh.n, SUN), 0.0) * sunlit(w + bh.n * 0.01) + 0.06 * bh.n.y;
     }
+    if (bh.n.y > 0.5) { c = zone(c, w.xz, w.y, bh.t); }
     c = mix(c, SKY_LO, 1.0 - exp(-bh.t / 420.0));
     o.color = vec4f(dither(c, p.xy), 1.0);
     o.depth = bh.t / u.screen.z;
@@ -231,6 +270,7 @@ struct TOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
   // steep ground is rock whatever it's painted
   c = mix(c, vec3f(0.46, 0.41, 0.35) * (0.8 + 0.3 * hash2(floor(w * 0.5))), smoothstep(0.82, 0.7, n.y));
   c *= 0.45 + 0.65 * max(dot(n, SUN), 0.0) * select(1.0, sunlit(vec3f(w.x, u.cam.y + rise * z + 0.05, w.y)), z < 160.0);
+  c = zone(c, w, u.cam.y + rise * z, z);
   let fog = 1.0 - exp(-z / 420.0);
   c = mix(c, SKY_LO, fog);
   o.color = vec4f(dither(c, p.xy), 1.0);
@@ -282,8 +322,9 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
     center = vec3f(pf(b, ${L.P_PX}u), pf(b, ${L.P_PY}u) + 0.92, pf(b, ${L.P_PZ}u)) + vel * dt;
     half = vec2f(0.5, 0.92);
     color = vec4f(slotColor(i), 1.0);
-    // the match's sides: Infection's zombies green, the juggernaut gold, everyone else one blue
-    if (u.map.z > 0.5) { color = vec4f(0.3, 0.5, 0.95, 1.0); }
+    // the match's sides: red and blue by PF_BLUE; Infection's zombies green, the juggernaut gold, everyone else one blue
+    if (u.map.z > 1.5) { color = select(vec4f(0.92, 0.22, 0.16, 1.0), vec4f(0.22, 0.42, 1.0, 1.0), (fl & ${L.PF_BLUE}u) != 0u); }
+    else if (u.map.z > 0.5) { color = vec4f(0.3, 0.5, 0.95, 1.0); }
     if ((fl & ${L.PF_ZOMBIE}u) != 0u) { color = vec4f(0.35, 0.95, 0.25, 1.0); }
     if ((fl & ${L.PF_JUGG}u) != 0u) { color = vec4f(1.0, 0.72, 0.15, 1.0); }
     kind = 1u;
@@ -325,7 +366,7 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
   return o;
 }
 
-// solid splats: 0 a ball, 1 a fighter, 2 a glowing bolt, 4 a weapon on its pad
+// solid splats: 0 a ball, 1 a fighter, 2 a glowing bolt, 4 a weapon on its pad, 7 a flag, 8 a skull
 @fragment fn fs_splat(s: SOut) -> @location(0) vec4f {
   let r2 = dot(s.uv, s.uv);
   var c = s.color.rgb;
@@ -355,6 +396,33 @@ var<private> CORNERS: array<vec2f, 6> = array<vec2f, 6>(vec2f(-1, -1), vec2f(1, 
       let ring = abs(s.uv.y - 0.85) < 0.12;
       if (!bar && !ring) { discard; }
       if (ring) { c = mix(c, vec3f(1.0), 0.5); }
+    }
+    case 7u: { // a flag: a pole with a gold knob, the pennant in the sprite's colour waving off it, the far end most
+      let x = s.uv.x;
+      let y = s.uv.y;
+      let wave = 0.07 * sin(x * 6.0 - u.view.w * 7.0) * (x + 0.8);
+      let pole = abs(x + 0.86) < 0.07 && y > -0.94;
+      let knob = length(vec2f(x + 0.86, (y + 0.95) * 2.0)) < 0.13;
+      let flag = x > -0.8 && x < 0.95 - 0.12 * abs(y + 0.56 - wave) && y > -0.92 + wave && y < -0.2 + wave;
+      if (!pole && !knob && !flag) { discard; }
+      if (knob) { c = vec3f(1.0, 0.82, 0.3); }
+      else if (pole && !flag) { c = vec3f(0.82, 0.82, 0.78) * (0.8 + 0.3 * (x + 0.86) / 0.07); }
+      else { c *= 0.78 + 0.32 * (0.5 + 0.5 * sin(x * 6.0 - u.view.w * 7.0 + 1.2)); }
+    }
+    case 8u: { // a skull: a lit dome of bone, dark eyes and nose, a jaw of teeth
+      let x = s.uv.x;
+      let y = s.uv.y;
+      let dome = length(vec2f(x, (y + 0.18) * 1.06)) < 0.8;
+      let jaw = abs(x) < 0.44 - 0.25 * max(y - 0.7, 0.0) && y > 0.3 && y < 0.9;
+      if (!dome && !jaw) { discard; }
+      let eye = length(vec2f(abs(x) - 0.31, (y + 0.02) * 1.15)) < 0.21;
+      let nose = y > 0.2 && y < 0.44 && abs(x) < (y - 0.2) * 0.45;
+      let teeth = y > 0.58 && y < 0.86 && abs(fract(x * 4.5 + 0.5) - 0.5) < 0.07;
+      let r = vec2f(x, y + 0.18);
+      let n = vec3f(r.x, -r.y, sqrt(max(1.0 - dot(r, r), 0.05)));
+      c *= 0.55 + 0.5 * max(dot(normalize(n), normalize(vec3f(0.3, 0.8, 0.5))), 0.0);
+      if (eye || nose) { c = vec3f(0.08, 0.06, 0.06); }
+      else if (teeth) { c *= 0.45; }
     }
     default: {}
   }
@@ -401,8 +469,7 @@ struct BOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locatio
 }
 
 // ---- HUD
-var<private> PALETTE: array<vec3f, 8> = array<vec3f, 8>(vec3f(1.0), vec3f(1.0, 0.85, 0.25), vec3f(1.0, 0.35, 0.3), vec3f(0.4, 1.0, 0.4),
-  vec3f(0.6), vec3f(0.5, 0.85, 1.0), vec3f(1.0, 0.6, 0.2), vec3f(0.8, 0.55, 1.0));
+var<private> PALETTE: array<vec3f, 8> = array<vec3f, 8>(${PALETTE.map(vec3).join(', ')});
 
 fn glyphBit(cell: vec2i, px: vec2i) -> bool {
   if (cell.x < 0 || cell.y < 0 || cell.x >= ${COLS} || cell.y >= i32(u.hud.x)) { return false; }
@@ -530,7 +597,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
   const errs = info.messages.filter((m) => m.type === 'error');
   if (errs.length) throw new Error('WGSL: ' + errs.map((m) => `${m.lineNum}:${m.linePos} ${m.message}`).join('; '));
 
-  const ubuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const ubuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const storage = (size) => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const playerBuf = storage(L.NPLAYER * L.PSIZE);
   const projBuf = storage(L.NPROJ * L.JSIZE);
@@ -582,7 +649,7 @@ export async function createRenderer(canvas, { present = true, device: shared = 
   const beam = pipe('vs_beam', 'fs_beam', { depthWrite: false, depthCompare: 'less', blend: add });
   const hudPipe = pipe('vs_full', 'fs_hud', { depthWrite: false, depthCompare: 'always', blend: over });
 
-  const uf = new Float32Array(32);
+  const uf = new Float32Array(40);
   const hud = new Uint32Array(COLS * rows);
   const spriteData = new Float32Array(MAX_SPRITE * 12);
   const beamData = new Float32Array(MAX_BEAM * 12);
@@ -611,18 +678,21 @@ export async function createRenderer(canvas, { present = true, device: shared = 
       ngroup = map.groups.length;
     },
 
-    // s: { cam, yaw, pitch, fov (focal multiplier), time, dt, dtPred, proj, slot,
-    //      solid: [{ pos, size, aspect, color: [r,g,b], kind, minpx }] (pads), glow: [... kind 3, 5, 6, color [r,g,b,a]],
+    // s: { cam, yaw, pitch, zoom (focal multiplier), time, dt, dtPred, proj, slot,
+    //      solid: [{ pos, size, aspect, color: [r,g,b], kind, minpx }] (objectives, pads), glow: [... kind 3, 5, 6, color [r,g,b,a]],
     //      beams: [{ a, b, width, color: [r,g,b,a] }], rects: [[x0, y0, x1, y1, r, g, b, a]],
-    //      crosshair, gap, marker, hurt, scope, text, graph, sides (the mode has them: colour by side, not slot) }
+    //      crosshair, gap, marker, hurt, scope, text, graph, sides (0 colour by slot, 1 one side against the rest, 2 red and blue by PF_BLUE),
+    //      zone (null, or { x, z, r, y, h, color: [r,g,b], pulse }: a disc painted on the terrain and box tops within h of y, any height without y) }
     frame(u8, s, target) {
       if (!ctx && !target) return;
-      const focal = W * 0.62 * (s.zoom || 1);
+      const { focal, horizon } = lens(s, W, H);
       const sprites = [...s.solid, ...s.glow].slice(0, MAX_SPRITE);
-      uf.set([s.cam[0], s.cam[1], s.cam[2], focal, Math.cos(s.yaw), Math.sin(s.yaw), H / 2 + Math.tan(Math.max(-1.35, Math.min(1.35, s.pitch))) * focal, s.time,
+      const z = s.zone;
+      uf.set([s.cam[0], s.cam[1], s.cam[2], focal, Math.cos(s.yaw), Math.sin(s.yaw), horizon, s.time,
         W, H, FAR, s.dt, s.slot, sprites.length, hmax + 2, Math.min(s.beams.length, MAX_BEAM),
         rows, Math.min(s.rects.length, MAX_RECT), s.crosshair, s.marker, s.hurt, s.scope ? 1 : 0, s.graph ? 1 : 0, s.gap, s.dtPred ?? s.dt, ...(s.tracker || [0, 0, 0]),
-        nbox, ngroup, s.sides ? 1 : 0, 0]);
+        nbox, ngroup, Number(s.sides) || 0, z ? (z.y === undefined ? 1e9 : z.h ?? 2) : 0,
+        z ? z.x : 0, z ? z.z : 0, z ? z.r : 0, z?.y ?? 0, ...(z ? z.color : [1, 1, 1]), z?.pulse ?? 0]);
       if (s.graph) device.queue.writeBuffer(graphBuf, 0, s.graph);
       device.queue.writeBuffer(ubuf, 0, uf);
       device.queue.writeBuffer(playerBuf, 0, u8, L.PLAYERS, L.NPLAYER * L.PSIZE);
