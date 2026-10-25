@@ -332,7 +332,80 @@ run for the enemy's flag and escort their carrier; the skull's carrier keeps
 away from enemies near the middle, the rest hunt it; everyone holds the
 hill.
 
-**Results.** ...
+**Results.** `test/arena-teams.test.mjs` (11 tests): the sides dealt red,
+blue, red as a match starts and a join balancing them; a Fiesta after each
+team mode with its region exactly a Fiesta's (the mode header to `AH_END`,
+`AO`, the records, the pads in Fiesta's build, no side bits); no friendly
+fire from bullets, the butt, an assassination, the sword and its lunge,
+frags, rockets, plasma, needles and the supercombine, the other side still
+hurt; spawns on the fighter's own half and never the middle line; the
+loadout and the pads; carrying (no shot, frag, reload or pickup, a click or
+Q swinging and killing, a press waiting at the pickup dropped and a held
+trigger never swinging, the prediction bit for bit through a carrier's runs
+and swings); Team Slayer's scoring, its target, its end at the target, at
+the clock and in a draw, and places; eight AI fighters scoring, equal on
+every tick on 1 and 4 threads. `test/arena-ctf.test.mjs` (17),
+`test/arena-oddball.test.mjs` (12) and `test/arena-hill.test.mjs` (13):
+each rule with its edges (touches a hair inside and outside reach, the
+lower slot first, ties on one tick going the same way for either colour, a
+carrier leaving or rejoining or dying without a kill, a flag or skull
+dropped from the air landing on what is under it, the timers to the tick,
+the hill's height band keeping a roof apart from the room under it, its
+news a second apart at most), the prediction through a carrier or a runner
+bit for bit, joins and leaves mid-objective, the end and the places, a
+Fiesta after; and AI fighters over 20,000 ticks on the debug build, equal on
+every tick on 1 and 4 threads, playing the objective: Capture the Flag's
+eight take the flags 11 times and capture 3 times, sixteen 12 and 2;
+Oddball's skull is taken 29 times among eight and 19 among sixteen, both
+sides scoring (75 to 30, 48 to 85); King of the Hill's eight and sixteen hold
+every hill it comes to, both sides scoring (45 to 78, 62 to 80), and a lone
+fighter of either side gets onto each of the six hills in 4 to 30 s and stays
+on it (all the time on the field, the roofs and the cave, 61 to 100% on the
+rocks' 5 x 3 m tops).
+`test/arena-client.test.mjs` (10): the readers (nobody red in a Fiesta), the
+kit's modules and their news, the waypoints landing where the shader's
+projection puts them, routes through Blood Gulch's doors from every spawn
+to every objective with no leg into a wall, a body's width clear, roles.
+`test/map.test.mjs`: the objectives on Blood Gulch at their heights, the
+defaults, the halves.
+
+The determinism matrix replays 20,000 ticks of eight AI fighters in each
+team mode: 27 configurations each (Node, Deno, Chrome x JIT tiers x 1, 2 and 4
+threads), equal on every tick, at 0.054 to 0.066 ms a tick on TurboFan in Deno
+and Chrome. A Fiesta's words and hashes are what they were before teams.
+
+Online, `net/run-arena.mjs --mode k --bots 15 --seconds 90` (Chrome and 15
+AI fighters, 8 against 8), and with 256 AI fighters for 40 s (`--chrome 0
+--bots 256 --seconds 40`):
+
+| Mode | 16 sessions, 90 s: hashes checked, all equal | kills | the score at the end | 256 sessions, 40 s: hashes checked, all equal | kills | the score |
+| --- | --- | --- | --- | --- | --- | --- |
+| Team Slayer | 1,408 | 68 | 36 to 38, of 80 | 9,482 | 452 | 222 to 230, of 750 |
+| Capture the Flag | 1,408 | 46 | 0 to 0 | 9,478 | 207 | 0 to 0 |
+| Oddball | 1,424 | 64 | 29 to 15 | 9,478 | 498 | 0 to 27 |
+| King of the Hill | 1,408 | 32 | 59 to 23 | 9,481 | 441 | 22 to 4 |
+
+Sides 8 against 8 and 128 against 128 every time. A closed tick took 8.8 to
+14.4 bytes on average with 16 (4.2 to 5.6 KB/s down and 2 KB/s up a session)
+and 157 to 206 with 256 (43 to 56 KB/s down, 2 KB/s up), the bot host's 256
+fighters 86 to 93% of one core. Captures are rare in a minute and a half
+online: across this work's runs of 90 s, one capture in three runs; over 160 s
+offline (the tests above) eight fighters capture three times. The AI fighters had
+been looking for an enemy every tick while none was in sight, which in a team
+mode is half the room: 7.3 ms a tick for 256, the bot host fell behind and
+three of these four gates failed at 256; they look on their own tick of 16
+now, 3.6 ms.
+
+CI records each mode's log for the matrix and runs it online with 64 AI
+fighters.
+
+```sh
+node --test test/arena-teams.test.mjs test/arena-ctf.test.mjs test/arena-oddball.test.mjs test/arena-hill.test.mjs test/arena-client.test.mjs
+node tools/genarena.mjs --bots 8 --ticks 20000 --mode 5 --out logs/arena-ctf.qgl   # 4 Team Slayer, 6 Oddball, 7 King of the Hill
+node harness/matrix.mjs --ticks 20000 --log logs/arena-ctf.qgl --wasm build/arena/game.wasm
+node net/run-arena.mjs --mode 5 [--bots 15] [--seconds 90]
+node net/play.mjs --arena --mode 7       # a room of King of the Hill
+```
 
 ### Blood Gulch: structures and maps
 
