@@ -109,7 +109,8 @@ test('the kit: a module for every team mode, news routed by its MX codes, the st
   assert.equal(newsOf(L.CF_MX_TAKE), AMC[L.M_CTF]);
   assert.equal(newsOf(L.HL_MX_CONTEST), AMC[L.M_HILL]);
   assert.deepEqual([AMC[L.M_CTF].carry, AMC[L.M_ODDBALL].carry], ['flag', 'skull']);
-  for (const m of [L.M_CTF, L.M_ODDBALL, L.M_HILL]) {
+  // the stubs left (Capture the Flag's is filled: test/arena-ctf.test.mjs)
+  for (const m of [L.M_ODDBALL, L.M_HILL]) {
     const out = { solid: [], glow: [], beams: [], markers: [], zone: null };
     AMC[m].draw(null, {}, out);
     assert.deepEqual(out, { solid: [], glow: [], beams: [], markers: [], zone: null });
