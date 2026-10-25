@@ -623,6 +623,8 @@ export async function mount(host, { canvas, lockTarget = canvas, bot: BOT = fals
       x = Math.max(8 * s, Math.min(W - 8 * s, x));
       // kept below the score bar (its label two rows up clear of rows 4 and 5) and above the bottom lines
       y = Math.max(48 * s, Math.min(H - 40 * s, y));
+      // on the left, its label and distance kept above the kill feed (rows - 16 to rows - 12)
+      if (x < 128 && Math.round(y / 6) + 1 >= rows - 16) y = (rows - 18) * 6;
       const c = PALETTE[m.color ?? C.WHITE] || PALETTE[0];
       const r = (x0, y0, x1, y1, col = c, a = 0.95) => out.push([x + x0 * s, y + y0 * s, x + x1 * s, y + y1 * s, col[0], col[1], col[2], a]);
       // a diamond (a flag's pennant, a skull's dot, a hill's ring by kind)
